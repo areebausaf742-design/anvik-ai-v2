@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ANVIK">
+  <rect width="64" height="64" rx="14" fill="#1f5f4b"/>
+  <circle cx="32" cy="32" r="15" fill="none" stroke="#faf7f2" stroke-width="2.5"/>
+  <ellipse cx="32" cy="32" rx="24" ry="8.5" fill="none" stroke="#faf7f2" stroke-opacity="0.55" stroke-width="2" transform="rotate(-24 32 32)"/>
+  <circle cx="32" cy="32" r="4.5" fill="#faf7f2"/>
+</svg>

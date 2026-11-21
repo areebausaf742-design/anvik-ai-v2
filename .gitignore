@@ -1,0 +1,19 @@
+node_modules/
+.next/
+.next-dev/
+out/
+data/
+tmp/
+*.log
+.DS_Store
+next-env.d.ts
+
+# Local env files — only .env.example is committed
+.env
+.env.local
+.env.*.local
+
+# Build caches / artifacts
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+.vercel/

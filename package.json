@@ -1,0 +1,42 @@
+{
+  "name": "anvik",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "lint": "next lint",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "verify:chat": "node --import tsx scripts/verify-chat.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^4.0.124",
+    "@fontsource-variable/manrope": "^5.2.5",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@tailwindcss/postcss": "^4.3.5",
+    "ai": "^7.0.179",
+    "lucide-react": "^1.77.0",
+    "motion": "^14.14.0",
+    "next": "^15.5.29",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "tailwindcss": "^4.3.5",
+    "three": "^0.187.0",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "@types/react": "19.0.7",
+    "@types/react-dom": "19.0.3",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.29",
+    "tsx": "^4.19.2",
+    "typescript": "5.7.3"
+  },
+  "overrides": {
+    "postcss": "^8.5.33"
+  }
+}
