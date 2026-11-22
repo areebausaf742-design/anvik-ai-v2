@@ -39,7 +39,7 @@ export function mapClientFetchError(err: unknown): string {
   return "No internet. Try again";
 }
 
-export function mapHttpErrorMessage(status: number, serverMessage?: string): string {
+export function mapHttpErrorMessage(status: number, serverMessage?: string, code?: string): string {
   if (status === 401 || status === 403) {
     if (serverMessage && /ANVIK free key is not set|aistudio\.google\.com/i.test(serverMessage)) {
       return serverMessage;
@@ -47,7 +47,16 @@ export function mapHttpErrorMessage(status: number, serverMessage?: string): str
     return "Key invalid or expired. Check your saved API key and try again.";
   }
   if (status === 429) {
-    return "Free limit reached. Connect your own key to continue unlimited.";
+    if (code === "plan_limit_reached") {
+      return "You've reached your plan limit. Upgrade at /pricing or connect your own key to continue.";
+    }
+    if (code === "free_limit_reached") {
+      return "Free limit reached. Connect your own key to continue unlimited.";
+    }
+    if (code === "rate_limit") {
+      return "Too many requests in a short window — please wait a moment and try again.";
+    }
+    return serverMessage || "Free limit reached. Connect your own key to continue unlimited.";
   }
   if (status === 503) {
     return serverMessage || "No internet. Try again";

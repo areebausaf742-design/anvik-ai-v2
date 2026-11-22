@@ -43,7 +43,6 @@ import ErrorBoundary from "@/components/anvik/error-boundary";
 import {
   readApiKey,
   readDeviceId,
-  recordDailyUsage,
 } from "@/lib/client-key";
 import {
   mapClientFetchError,
@@ -255,8 +254,8 @@ function ChatWorkspaceInner() {
       });
 
       if (!response.ok || !response.body) {
-        const issue = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null;
-        throw new Error(mapHttpErrorMessage(response.status, issue?.error ?? issue?.detail));
+        const issue = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
+        throw new Error(mapHttpErrorMessage(response.status, issue?.error ?? issue?.detail, issue?.code));
       }
 
       const modelUsed = response.headers.get("x-anvik-model") ?? "anvik-1.0";
@@ -351,7 +350,6 @@ function ChatWorkspaceInner() {
           sources: finalSources,
           queries: finalQueries,
         });
-        recordDailyUsage(modelUsed);
       }
     } catch (cause) {
       if (controller.signal.aborted) {

@@ -46,7 +46,7 @@ export default function LoginPage() {
             Ask your first question <ArrowRight />
           </Link>
           <div className="login-divider">
-            <span /> Three free questions a day <span />
+            <span /> Ten free questions a day <span />
           </div>
           <div className="login-privacy">
             <LockKeyhole />

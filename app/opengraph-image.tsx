@@ -43,7 +43,7 @@ export default function OpengraphImage() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <div style={{ width: 64, height: 3, background: "#7d6bff" }} />
-          <div style={{ fontSize: 24, color: "#9d95b3" }}>Three free questions a day · no account needed</div>
+          <div style={{ fontSize: 24, color: "#9d95b3" }}>Ten free questions a day · no account needed</div>
         </div>
       </div>
     ),

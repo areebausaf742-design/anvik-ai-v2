@@ -19,7 +19,7 @@ import {
 import Markdown from "@/components/anvik/markdown";
 import TiltCard from "@/components/anvik/tilt-card";
 import ErrorBoundary from "@/components/anvik/error-boundary";
-import { KEY_FORMAT_MESSAGE, readDeviceId, recordDailyUsage } from "@/lib/client-key";
+import { KEY_FORMAT_MESSAGE, readDeviceId } from "@/lib/client-key";
 import {
   mapClientFetchError,
   mapHttpErrorMessage,
@@ -186,8 +186,8 @@ function VisionStudioInner() {
       });
 
       if (!response.ok || !response.body) {
-        const result = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null;
-        throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail));
+        const result = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
+        throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail, result?.code));
       }
 
       const model = response.headers.get("x-anvik-model") ?? "ANVIK 1.0";
@@ -202,7 +202,6 @@ function VisionStudioInner() {
         seen += decoder.decode(value, { stream: true });
         setAnswer(seen);
       }
-      recordDailyUsage(model);
     } catch (issue) {
       if (!controller.signal.aborted) {
         setError(mapClientFetchError(issue));

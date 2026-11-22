@@ -696,58 +696,6 @@
 }
 
 
-/* ---------- honest status (honest note) ---------- */
-
-.ppHonest {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  margin: 30px auto 0;
-  padding: 16px 22px;
-  max-width: 860px;
-  border: 1px solid rgba(251, 191, 36, 0.22);
-  border-radius: 18px;
-  background: rgba(251, 191, 36, 0.055);
-  color: #f3d9a4;
-  animation: ppFadeUp 0.45s var(--pp-ease) both;
-}
-
-.ppHonest svg {
-  flex: none;
-  color: #fbbf24;
-}
-
-.ppHonest p {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  color: #e8d5ae;
-}
-
-.ppHonest strong {
-  color: #fef3c7;
-  font-weight: 700;
-}
-
-.ppHonestDismiss {
-  margin-left: auto;
-  flex: none;
-  border: 1px solid rgba(251, 191, 36, 0.25);
-  background: transparent;
-  color: #f3d9a4;
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 7px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.2s var(--pp-ease), color 0.2s var(--pp-ease);
-}
-
-.ppHonestDismiss:hover {
-  background: rgba(251, 191, 36, 0.12);
-  color: #fff7e6;
-}
-
 /* ---------- honest foot note ---------- */
 
 .ppFootNote {

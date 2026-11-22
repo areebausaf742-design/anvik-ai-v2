@@ -32,7 +32,7 @@ test("the chat route never imports the corpus", () => {
   assert.ok(!/from\s+["']@\/lib\/corpus/.test(route), "the corpus must not be reachable from chat");
   const imports = [...route.matchAll(/import\s+\{([^}]+)\}\s+from\s+["']@\/lib\/credit["']/g)];
   for (const [, names] of imports) {
-    const allowed = ["CHAT_MAX_TOKENS", "CODE_MAX_TOKENS", "MAX_TEMPERATURE"];
+    const allowed = ["CHAT_MAX_TOKENS", "CODE_MAX_TOKENS", "MAX_TEMPERATURE", "PAID_MAX_TOKENS"];
     for (const name of names.split(",").map((n) => n.trim()).filter(Boolean)) {
       assert.ok(allowed.includes(name), `${name} from lib/credit must not be used in chat`);
     }

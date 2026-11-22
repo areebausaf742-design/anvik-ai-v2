@@ -1,8 +1,10 @@
+import { FREE_DAILY_LIMIT } from "@/lib/plans";
+
 /**
  * Server-side free-tier quota — the promise every visitor gets.
  *
  * Rules (locked):
- *   - 20 free answers per visitor per day, enforced server-side per IP
+ *   - 10 free answers per visitor per day, enforced server-side per IP
  *   - keyed by salted IP hash + IST day (midnight IST, not UTC)
  *   - persisted in the Supabase `quota_usage` table (server-only, RLS deny)
  *   - counted ONLY after a successful stream, never on a failed request
@@ -21,7 +23,7 @@
  *     counter and never throws — the request still completes.
  */
 
-export const QUOTA_LIMIT = 20;
+export const QUOTA_LIMIT = FREE_DAILY_LIMIT;
 export const FREE_LIMIT = QUOTA_LIMIT;
 
 const IST_OFFSET_MS = 5.5 * 3600_000;

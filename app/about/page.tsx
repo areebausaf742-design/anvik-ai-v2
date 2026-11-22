@@ -22,7 +22,7 @@ export default function About() {
       <p>
         One field. Ask anything in plain words and get a clear, ordered answer in the language you
         wrote — English, Hindi or Hinglish. Every answer that passes human review gets its own public
-        page you can forward to anyone. No account and no card to start: three questions a day, free,
+        page you can forward to anyone. No account and no card to start: ten questions a day, free,
         forever.
       </p>
 
