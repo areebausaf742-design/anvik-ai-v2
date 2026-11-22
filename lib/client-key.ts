@@ -11,7 +11,7 @@ export const DEVICE_STORAGE = "anvik-device-id";
 export const QUOTA_STORAGE = "anvik-daily-quota";
 export const DAILY_QUOTA_LIMIT = 100;
 
-export const KEY_FORMAT_MESSAGE = "Key looks wrong. Paste a new key from aistudio.google.com";
+export const KEY_FORMAT_MESSAGE = "That key doesn't look right. Check its format or replace it in Settings.";
 
 export function isValidGeminiKey(value: string | undefined | null): boolean {
   if (!value) return false;

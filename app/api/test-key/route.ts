@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     return Response.json({
       ok: true,
       model: result.model,
-      message: `Connected to Gemini (${result.model})`,
+      message: "ANVIK is ready."
     });
   } catch {
     return Response.json(

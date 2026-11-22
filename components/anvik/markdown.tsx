@@ -166,21 +166,21 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
   const lines = text.split("\n");
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-white/10 bg-[#080810]">
-      <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.04] px-3.5 py-2 text-xs text-slate-400">
-        <span className="font-mono uppercase tracking-wider text-[#22D3EE]">
+    <div className="my-3 overflow-hidden rounded-xl border border-[#EDEDED] bg-[#F7F7F5]">
+      <div className="flex items-center justify-between border-b border-[#EDEDED] bg-white px-3.5 py-2 text-xs text-[#666666]">
+        <span className="font-mono uppercase tracking-wider text-[#D97757]">
           {lang || "code"}
         </span>
         <button
           type="button"
           onClick={() => void copy()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition hover:bg-white/10"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-[11px] font-medium text-[#1A1A1A] transition hover:bg-[#F7F7F5]"
         >
           {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-x-auto p-3.5 font-mono text-[13px] leading-relaxed text-slate-200">
+      <pre className="overflow-x-auto p-3.5 font-mono text-[13px] leading-relaxed text-[#1A1A1A]">
         <code>
           {lines.map((line, i) => (
             <Fragment key={`cl-${i}`}>

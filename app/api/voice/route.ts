@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store, no-transform",
         "X-ANVIK-MODEL": result.model,
-        "X-ANVIK-LABEL": "From Gemini",
+        "X-ANVIK-LABEL": "ANVIK",
       },
     });
   } catch (err) {

@@ -140,7 +140,7 @@ export async function POST(request: Request) {
         "X-Content-Type-Options": "nosniff",
         "X-ANVIK-SOURCE": "gemini",
         "X-ANVIK-MODEL": result.model,
-        "X-ANVIK-LABEL": "From Gemini",
+        "X-ANVIK-LABEL": "ANVIK",
       },
     });
   } catch (err) {

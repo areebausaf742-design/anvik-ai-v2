@@ -78,13 +78,13 @@ export default function FeedbackBar({
   }
 
   return (
-    <div className="mt-3 border-t border-white/10 pt-2.5">
+    <div className="mt-3 border-t border-[#EDEDED] pt-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-md border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-2 py-0.5 text-[11px] font-medium text-[#67e8f9]">
+          <span className="inline-flex items-center gap-1 rounded-md border border-[#EDEDED] bg-[#F7F7F5] px-2 py-0.5 text-[11px] font-medium text-[#1A1A1A]">
             <Sparkles className="h-3 w-3" aria-hidden="true" />
-            {credit || "From Gemini"}
-            {model ? <span className="text-slate-400">· {model}</span> : null}
+            {credit || "ANVIK"}
+            {model ? <span className="text-[#666666]">· {model}</span> : null}
           </span>
         </div>
 
@@ -94,7 +94,7 @@ export default function FeedbackBar({
             className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
               verdict === "like"
                 ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-200"
-                : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white"
+                : "border-[#EDEDED] bg-white text-[#666666] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
             }`}
             aria-pressed={verdict === "like"}
             aria-label="This answer helped"
@@ -109,7 +109,7 @@ export default function FeedbackBar({
             className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
               verdict === "dislike"
                 ? "border-rose-400/50 bg-rose-500/20 text-rose-200"
-                : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white"
+                : "border-[#EDEDED] bg-white text-[#666666] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
             }`}
             aria-pressed={verdict === "dislike"}
             aria-label="This answer was wrong or unhelpful"
@@ -122,7 +122,7 @@ export default function FeedbackBar({
           {!open && (
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-xs font-medium text-[#666666] transition hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
               onClick={() => setOpen(true)}
               aria-expanded={open}
             >
@@ -134,10 +134,10 @@ export default function FeedbackBar({
       </div>
 
       {open && (
-        <div className="mt-3 rounded-xl border border-white/10 bg-[#050508]/70 p-3">
-          <label htmlFor="teach-input" className="block text-xs font-medium text-slate-200">
+        <div className="mt-3 rounded-xl border border-[#EDEDED] bg-white p-3">
+          <label htmlFor="teach-input" className="block text-xs font-medium text-[#1A1A1A]">
             What should ANVIK have answered?
-            <span className="mt-0.5 block text-[11px] font-normal text-slate-400">
+            <span className="mt-0.5 block text-[11px] font-normal text-[#666666]">
               Saved on this device only. Keys, passwords, and phone numbers are redacted.
             </span>
           </label>
@@ -148,12 +148,12 @@ export default function FeedbackBar({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Write the correction in your own words..."
-              className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-[#22D3EE]"
+              className="w-full rounded-lg border border-[#EDEDED] bg-white px-3 py-2 text-xs text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#D97757]"
             />
             <div className="flex shrink-0 gap-2">
               <button
                 type="button"
-                className="btn-gradient inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                className="inline-flex items-center gap-1 rounded-lg bg-[#1A1A1A] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#333333]"
                 onClick={teach}
                 disabled={!draft.trim()}
               >
@@ -161,7 +161,7 @@ export default function FeedbackBar({
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10"
+                className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-xs text-[#666666] hover:bg-[#F7F7F5]"
                 onClick={() => setOpen(false)}
               >
                 Cancel

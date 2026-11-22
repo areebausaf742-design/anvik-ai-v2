@@ -42,7 +42,7 @@ test("the chat route never imports the corpus", () => {
 test("the chat route forwards full conversation turns directly to Gemini SSE streaming", () => {
   assert.ok(route.includes("openGeminiStreamWithFallback"), "chat route must call openGeminiStreamWithFallback");
   assert.ok(route.includes("safeMessages.map"), "all safeMessages must be forwarded to Gemini");
-  assert.ok(route.includes('"X-ANVIK-LABEL": "From Gemini"'), "response must include From Gemini label header");
+  assert.ok(route.includes('"X-ANVIK-LABEL": "ANVIK"'), "response must carry the ANVIK label header");
 });
 
 test("the client cannot replay an answer from memory", () => {
@@ -62,7 +62,6 @@ test("no credit or unlimited wording survives in the interface", () => {
   ]) {
     assert.ok(!workspace.includes(phrase), `"${phrase}" must be gone from the chat UI`);
   }
-  assert.ok(workspace.includes("Powered by Gemini"), "the sidebar must state answers come from Gemini");
-  assert.ok(workspace.includes("POWERED BY GEMINI"), "the composer must carry the POWERED BY GEMINI badge");
-  assert.ok(workspace.includes("From Gemini"), "every assistant reply must display From Gemini");
+  assert.ok(workspace.includes("ANVIK 1.0"), "the interface must use ANVIK model branding");
+  assert.ok(!workspace.includes("From Gemini"), "the interface must not expose provider branding");
 });

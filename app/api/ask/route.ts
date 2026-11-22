@@ -104,7 +104,7 @@ export async function POST(req: Request) {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-store",
         "x-anvik-model": result.model,
-        "x-anvik-label": "From Gemini",
+        "x-anvik-label": "ANVIK",
       },
     });
   } catch {

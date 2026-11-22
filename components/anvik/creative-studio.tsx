@@ -22,7 +22,6 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react";
-import Orb from "@/components/anvik/orb";
 import Markdown from "@/components/anvik/markdown";
 import TiltCard from "@/components/anvik/tilt-card";
 import ErrorBoundary from "@/components/anvik/error-boundary";
@@ -137,13 +136,13 @@ function InlineKeyAlert({
               type="button"
               onClick={() => void runTest()}
               disabled={testing}
-              className="rounded-lg border border-white/20 bg-white/10 px-3 py-1 font-semibold text-white hover:bg-white/20"
+              className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1 font-semibold text-[#1A1A1A] hover:bg-[#F7F7F5]"
             >
               {testing ? "Testing..." : "Test Key"}
             </button>
             <Link
               href="/settings"
-              className="rounded-lg bg-[#7C3AED] px-3 py-1 font-semibold text-white hover:bg-[#6d28d9]"
+              className="rounded-lg bg-[#1A1A1A] px-3 py-1 font-semibold text-white hover:bg-[#333333]"
             >
               Open Settings
             </Link>
@@ -284,26 +283,26 @@ function ImageStudio() {
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#22D3EE]">
+          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#D97757]">
             <Sparkles className="h-3.5 w-3.5" /> Image Studio
           </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#1A1A1A] sm:text-4xl">
             Describe a scene.{" "}
-            <span className="gradient-text">See it rendered.</span>
+            <span className="text-[#1A1A1A]">See it rendered.</span>
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Powered by your Gemini API key. Pick a visual style, generate artwork, and save up to 12 creations locally.
+          <p className="mt-2 max-w-2xl text-sm text-[#666666]">
+            Choose a visual style, generate artwork, and keep up to 12 creations on this device.
           </p>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-3 py-1.5 text-xs font-medium text-[#67e8f9]">
-          <Sparkles className="h-3.5 w-3.5" /> From Gemini
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3 py-1.5 text-xs font-medium text-[#D97757]">
+          <Sparkles className="h-3.5 w-3.5" /> ANVIK
         </span>
       </div>
 
-      <TiltCard className="glass-card rounded-2xl p-5 sm:p-6">
+      <TiltCard className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm rounded-2xl p-5 sm:p-6">
         <form onSubmit={generate} className="space-y-4">
           <div>
-            <label htmlFor="image-prompt" className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+            <label htmlFor="image-prompt" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
               Visual prompt
             </label>
             <textarea
@@ -313,7 +312,7 @@ function ImageStudio() {
               maxLength={1600}
               rows={3}
               placeholder="A futuristic neon glass conservatory floating above storm clouds, warm golden light"
-              className="mt-2 w-full rounded-xl border border-white/15 bg-[#050508]/70 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-[#22D3EE] focus:outline-none"
+              className="mt-2 w-full rounded-xl border border-[#E5E5E5] bg-white px-4 py-3 text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#D97757] focus:outline-none"
             />
           </div>
 
@@ -331,8 +330,8 @@ function ImageStudio() {
                   }}
                   className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
                     active
-                      ? "border-[#22D3EE]/60 bg-gradient-to-r from-[#7C3AED]/30 to-[#22D3EE]/20 text-white shadow-sm shadow-[#7C3AED]/25"
-                      : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10 hover:text-white"
+? "border-[#E5E5E5] bg-[#F7F7F5] text-[#1A1A1A] shadow-sm"
+                          : "border-[#EDEDED] bg-white text-[#666666] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
                   }`}
                 >
                   {item}
@@ -342,11 +341,11 @@ function ImageStudio() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <span className="text-xs text-slate-400">{prompt.length}/1600 characters</span>
+            <span className="text-xs text-[#666666]">{prompt.length}/1600 characters</span>
             <button
               type="submit"
               disabled={!prompt.trim() || loading}
-              className="btn-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white"
+              className="bg-[#1A1A1A] hover:bg-[#333333] inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-[#1A1A1A]"
             >
               {loading ? (
                 <>
@@ -378,21 +377,21 @@ function ImageStudio() {
       )}
 
       {loading && (
-        <div className="glass-card mt-6 flex flex-col items-center justify-center rounded-2xl p-8 text-center" role="status">
-          <Orb size="large" active />
-          <p className="mt-4 text-sm font-medium text-white">Crafting prompt &amp; rendering artwork...</p>
-          <p className="mt-1 text-xs text-slate-400">Using your Gemini key</p>
+        <div className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm mt-6 flex flex-col items-center justify-center rounded-2xl p-8 text-center" role="status">
+          <div className="mx-auto size-6 animate-spin rounded-full border-2 border-[#EDEDED] border-t-[#D97757]" aria-hidden="true" />
+          <p className="mt-4 text-sm font-medium text-[#666666]">Crafting prompt &amp; rendering artwork...</p>
+          <p className="mt-1 text-xs text-[#666666]">Using your ANVIK key</p>
         </div>
       )}
 
       <div className="mt-10 mb-4 flex items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Gallery</p>
-          <h2 className="mt-1 text-xl font-bold text-white">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#666666]">Gallery</p>
+          <h2 className="mt-1 text-xl font-semibold text-[#1A1A1A]">
             {gallery.length ? "Your Creations" : "Prompt Starters"}
           </h2>
         </div>
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-[#666666]">
           {gallery.length ? `${gallery.length} of ${MAX_GALLERY} saved` : "0 of 12 saved"}
         </span>
       </div>
@@ -404,9 +403,9 @@ function ImageStudio() {
             return (
               <TiltCard
                 key={`${item.prompt}-${index}-${item.image.slice(-16)}`}
-                className="glass-card flex flex-col overflow-hidden rounded-2xl"
+                className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm flex flex-col overflow-hidden rounded-2xl"
               >
-                <div className="relative aspect-square w-full overflow-hidden bg-black/40">
+                <div className="relative aspect-square w-full overflow-hidden bg-[#F9F9F9]">
                   <Image
                     src={item.image}
                     alt={item.prompt}
@@ -420,29 +419,29 @@ function ImageStudio() {
                 <div className="flex flex-1 flex-col justify-between p-4">
                   <div>
                     <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
-                      <span className="text-[#22D3EE]">{item.style}</span>
-                      <span className="rounded bg-white/10 px-1.5 py-0.5 text-slate-300">
-                        From Gemini
+                      <span className="text-[#D97757]">{item.style}</span>
+                      <span className="rounded bg-[#F7F7F5] px-1.5 py-0.5 text-[#666666]">
+                        ANVIK
                       </span>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-200">
+                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[#1A1A1A]">
                       {item.prompt}
                     </p>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#EDEDED] pt-3">
                     <a
                       href={item.image}
                       download={`anvik-art-${index + 1}.png`}
                       aria-label="Download generated image"
-                      className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-white/10"
+                      className="inline-flex items-center gap-1 rounded-lg border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
                     >
-                      <Download className="h-3.5 w-3.5 text-[#22D3EE]" /> Download
+                      <Download className="h-3.5 w-3.5 text-[#D97757]" /> Download
                     </a>
                     <button
                       type="button"
                       onClick={() => void copyText(item.prompt, copyKey)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10"
+                      className="inline-flex items-center gap-1 rounded-lg border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
                     >
                       {copiedId === copyKey ? (
                         <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -455,7 +454,7 @@ function ImageStudio() {
                       type="button"
                       onClick={() => remove(index)}
                       aria-label="Remove from gallery"
-                      className="ml-auto inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200"
+                      className="ml-auto inline-flex items-center gap-1 rounded-lg border border-[#EDEDED] bg-white/[0.03] px-2 py-1.5 text-xs text-[#666666] hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -468,16 +467,16 @@ function ImageStudio() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {IMAGE_IDEAS.map((idea, index) => (
-            <TiltCard key={idea} className="glass-card rounded-2xl">
+            <TiltCard key={idea} className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm rounded-2xl">
               <button
                 type="button"
                 onClick={() => setPrompt(idea)}
                 className="flex h-full w-full flex-col justify-between p-5 text-left"
               >
-                <span className="font-mono text-xs text-[#22D3EE]">0{index + 1} / Starter</span>
-                <p className="mt-2 text-sm leading-relaxed text-slate-200">{idea}</p>
-                <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-white">
-                  Use prompt <ArrowRight className="h-3.5 w-3.5 text-[#22D3EE]" />
+                <span className="font-mono text-xs text-[#D97757]">0{index + 1} / Starter</span>
+                <p className="mt-2 text-sm leading-relaxed text-[#1A1A1A]">{idea}</p>
+                <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[#1A1A1A]">
+                  Use prompt <ArrowRight className="h-3.5 w-3.5 text-[#D97757]" />
                 </span>
               </button>
             </TiltCard>
@@ -582,7 +581,7 @@ function CodeLab() {
         throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail));
       }
       const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
-      setModelUsed(model);
+      setModelUsed("ANVIK 1.0");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -593,7 +592,7 @@ function CodeLab() {
         generated += decoder.decode(value, { stream: true });
         setCode(generated);
       }
-      if (!generated.trim()) throw new Error("Gemini returned no code. Please try again.");
+      if (!generated.trim()) throw new Error("ANVIK returned no code. Please try again.");
       recordDailyUsage(model);
     } catch (issue) {
       if (!controller.signal.aborted) {
@@ -634,27 +633,27 @@ function CodeLab() {
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#22D3EE]">
+          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#D97757]">
             <Code2 className="h-3.5 w-3.5" /> Code Lab
           </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#1A1A1A] sm:text-4xl">
             Describe it.{" "}
-            <span className="gradient-text">Ship runnable code.</span>
+            <span className="text-[#1A1A1A]">Ship runnable code.</span>
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Pick a language, generate clean syntax-highlighted code from Gemini, copy blocks, or preview HTML/CSS/JS live.
+          <p className="mt-2 max-w-2xl text-sm text-[#666666]">
+            Pick a language, generate clean syntax-highlighted code with ANVIK, copy blocks, or preview HTML/CSS/JS live.
           </p>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-3 py-1.5 text-xs font-medium text-[#67e8f9]">
-          <Sparkles className="h-3.5 w-3.5" /> From Gemini{modelUsed ? ` · ${modelUsed}` : ""}
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3 py-1.5 text-xs font-medium text-[#D97757]">
+          <Sparkles className="h-3.5 w-3.5" /> ANVIK{modelUsed ? ` · ${modelUsed}` : ""}
         </span>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <TiltCard className="glass-card rounded-2xl p-5 lg:col-span-5">
+        <TiltCard className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm rounded-2xl p-5 lg:col-span-5">
           <form onSubmit={create} className="space-y-4">
             <div>
-              <label htmlFor="code-prompt" className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+              <label htmlFor="code-prompt" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
                 What are we building?
               </label>
               <textarea
@@ -664,19 +663,19 @@ function CodeLab() {
                 maxLength={6000}
                 rows={6}
                 placeholder="Write a Python calculator or a responsive pricing card in HTML/CSS"
-                className="mt-2 w-full rounded-xl border border-white/15 bg-[#050508]/70 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-[#22D3EE] focus:outline-none"
+                className="mt-2 w-full rounded-xl border border-[#E5E5E5] bg-white px-4 py-3 text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#D97757] focus:outline-none"
               />
             </div>
 
             <div>
-              <label htmlFor="code-language" className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+              <label htmlFor="code-language" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
                 Language
               </label>
               <select
                 id="code-language"
                 value={language}
                 onChange={(event) => setLanguage(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/15 bg-[#0a0a14] px-3.5 py-2.5 text-sm text-white focus:border-[#22D3EE] focus:outline-none"
+                className="mt-2 w-full rounded-xl border border-[#E5E5E5] bg-white px-3.5 py-2.5 text-sm text-[#1A1A1A] focus:border-[#D97757] focus:outline-none"
               >
                 <option value="Python">Python</option>
                 <option value="TypeScript">TypeScript</option>
@@ -690,7 +689,7 @@ function CodeLab() {
             <button
               type="submit"
               disabled={!prompt.trim() || loading}
-              className="btn-gradient flex w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white"
+              className="bg-[#1A1A1A] hover:bg-[#333333] flex w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-[#1A1A1A]"
             >
               {loading ? (
                 <>
@@ -711,15 +710,15 @@ function CodeLab() {
           </form>
         </TiltCard>
 
-        <section className="glass-card flex min-h-[380px] flex-col overflow-hidden rounded-2xl lg:col-span-7" aria-label="Generated code">
-          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-white/[0.04] px-4 py-3">
+        <section className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm flex min-h-[380px] flex-col overflow-hidden rounded-2xl lg:col-span-7" aria-label="Generated code">
+          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EDEDED] bg-white px-4 py-3">
             <div className="flex items-center gap-3">
               <div className="flex gap-1.5" aria-hidden="true">
                 <span className="h-2.5 w-2.5 rounded-full bg-rose-500/70" />
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
               </div>
-              <span className="font-mono text-xs text-slate-300">draft.{extension}</span>
+              <span className="font-mono text-xs text-[#666666]">draft.{extension}</span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -730,18 +729,18 @@ function CodeLab() {
                     onClick={() => setShowPreview((v) => !v)}
                     className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
                       showPreview
-                        ? "border-[#22D3EE] bg-[#22D3EE]/20 text-white"
-                        : "border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
+                        ? "border-[#22D3EE] bg-[#22D3EE]/20 text-[#1A1A1A]"
+                        : "border-[#E5E5E5] bg-white text-[#1A1A1A] hover:bg-[#F7F7F5]"
                     }`}
                   >
-                    <Play className="h-3.5 w-3.5 text-[#22D3EE]" />
+                    <Play className="h-3.5 w-3.5 text-[#D97757]" />
                     {showPreview ? "Hide preview" : "Run preview"}
                   </button>
                   <button
                     type="button"
                     onClick={() => void copyCode()}
                     aria-label="Copy code"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/10"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
                   >
                     {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                     {copied ? "Copied" : "Copy code"}
@@ -752,15 +751,15 @@ function CodeLab() {
           </header>
 
           {showPreview && code ? (
-            <div className="flex flex-1 flex-col bg-[#080810]">
-              <div className="border-b border-white/10 bg-[#7C3AED]/10 px-4 py-1.5 text-[11px] font-medium text-violet-200">
+            <div className="flex flex-1 flex-col bg-[#F9F9F9]">
+              <div className="border-b border-[#EDEDED] bg-[#F7F7F5] px-4 py-1.5 text-[11px] font-medium text-[#666666]">
                 Sandboxed Live Preview ({extracted.lang || language})
               </div>
               <iframe
                 title="Code Lab Live Preview"
                 sandbox="allow-scripts"
                 srcDoc={buildPreviewHtml(extracted.code, extracted.lang || language)}
-                className="min-h-[340px] w-full flex-1 bg-[#090910]"
+                className="min-h-[340px] w-full flex-1 bg-[#F9F9F9]"
               />
             </div>
           ) : code ? (
@@ -769,11 +768,11 @@ function CodeLab() {
             </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-              <Orb size="small" active={loading} />
-              <b className="mt-4 text-sm font-semibold text-white">
+              <div className={`size-4 rounded-full border-2 border-[#EDEDED] border-t-[#D97757] ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+              <b className="mt-4 text-sm font-semibold text-[#1A1A1A]">
                 {loading ? "ANVIK is writing your code..." : "Your syntax-highlighted draft appears here"}
               </b>
-              <p className="mt-1 max-w-sm text-xs text-slate-400">
+              <p className="mt-1 max-w-sm text-xs text-[#666666]">
                 Describe what you want on the left, choose a language, and stream a clean implementation.
               </p>
             </div>
@@ -906,7 +905,7 @@ function VoiceStudio() {
         throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail));
       }
       const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
-      setModelUsed(model);
+      setModelUsed("ANVIK 1.0");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -930,25 +929,25 @@ function VoiceStudio() {
       <div className="mb-4 flex w-full items-center justify-between">
         <Link
           href="/chat"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-[#666666] hover:text-[#1A1A1A]"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back to Chat
         </Link>
-        <span className="inline-flex items-center gap-1 rounded-lg border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-2.5 py-1 text-xs font-medium text-[#67e8f9]">
-          <Sparkles className="h-3 w-3" /> From Gemini
+        <span className="inline-flex items-center gap-1 rounded-lg border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-2.5 py-1 text-xs font-medium text-[#D97757]">
+          <Sparkles className="h-3 w-3" /> ANVIK
         </span>
       </div>
 
       <div className="relative my-4 flex items-center justify-center">
-        <Orb active={listening || pending} size="large" />
+        <div className={`size-10 rounded-full border border-[#EDEDED] bg-[#D97757]/10 ${listening ? "animate-pulse" : ""}`} role="status" aria-label={listening ? "Listening" : pending ? "Processing audio" : "Voice input ready"} />
       </div>
 
-      <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+      <h1 className="text-3xl font-extrabold tracking-tight text-[#1A1A1A] sm:text-4xl">
         {listening ? "Listening..." : "Speak or type to "}
-        {!listening && <span className="gradient-text">ANVIK Voice.</span>}
+        {!listening && <span className="text-[#1A1A1A]">ANVIK Voice.</span>}
       </h1>
-      <p className="mt-2 max-w-lg text-sm text-slate-400">
-        Tap the microphone to transcribe speech, edit if needed, stream Gemini&apos;s answer, and listen aloud.
+      <p className="mt-2 max-w-lg text-sm text-[#666666]">
+        Tap the microphone to transcribe speech, edit if needed, stream ANVIK&apos;s answer, and listen aloud.
       </p>
 
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -958,8 +957,8 @@ function VoiceStudio() {
           aria-label={listening ? "Stop listening" : "Start speaking"}
           className={`inline-flex items-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold transition ${
             listening
-              ? "border border-rose-400/50 bg-rose-500/20 text-rose-100 shadow-lg shadow-rose-500/25"
-              : "btn-gradient text-white"
+              ? "border border-rose-200 bg-rose-50 text-rose-700"
+              : "bg-[#1A1A1A] text-white hover:bg-[#333333]"
           }`}
         >
           {listening ? <Pause className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -967,8 +966,8 @@ function VoiceStudio() {
         </button>
       </div>
 
-      <div className="glass-card mt-6 w-full rounded-2xl p-4 text-left">
-        <label htmlFor="voice-transcript" className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+      <div className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm mt-6 w-full rounded-2xl p-4 text-left">
+        <label htmlFor="voice-transcript" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
           Spoken or typed question
         </label>
         <textarea
@@ -977,14 +976,14 @@ function VoiceStudio() {
           value={transcript}
           onChange={(event) => setTranscript(event.target.value)}
           placeholder="Tap 'Mic to text' or type anything here..."
-          className="mt-2 w-full rounded-xl border border-white/10 bg-[#050508]/70 px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-[#22D3EE] focus:outline-none"
+          className="mt-2 w-full rounded-xl border border-[#EDEDED] bg-white px-3.5 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#D97757] focus:outline-none"
         />
         <div className="mt-3 flex justify-end">
           <button
             type="button"
             onClick={() => void ask()}
             disabled={!transcript.trim() || pending}
-            className="btn-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#1A1A1A] px-5 py-2 text-sm font-semibold text-white hover:bg-[#333333]"
           >
             {pending ? (
               <>
@@ -1009,26 +1008,26 @@ function VoiceStudio() {
       </div>
 
       {answer && (
-        <section className="glass-card mt-6 w-full rounded-2xl p-5 text-left" aria-live="polite">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#67e8f9]">
-              <Sparkles className="h-3.5 w-3.5" /> From Gemini
-              {modelUsed ? <span className="text-slate-400">· {modelUsed}</span> : null}
+        <section className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm mt-6 w-full rounded-2xl p-5 text-left" aria-live="polite">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[#EDEDED] pb-3">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#D97757]">
+              <Sparkles className="h-3.5 w-3.5" /> ANVIK
+              {modelUsed ? <span className="text-[#666666]">· {modelUsed}</span> : null}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={speakAnswer}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#7C3AED]/50 bg-[#7C3AED]/20 px-3 py-1 text-xs font-semibold text-white hover:bg-[#7C3AED]/30"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-3 py-1 text-xs font-semibold text-[#1A1A1A] hover:bg-[#F7F7F5]"
               >
-                {speaking ? <Square className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-[#22D3EE]" />}
+                {speaking ? <Square className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-[#D97757]" />}
                 <span>{speaking ? "Stop voice" : "Speak answer"}</span>
               </button>
               <button
                 type="button"
                 aria-label="Clear answer"
                 onClick={() => setAnswer("")}
-                className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-300 hover:bg-white/10"
+                className="rounded-lg border border-[#EDEDED] bg-white p-1.5 text-[#666666] hover:bg-[#F7F7F5]"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>

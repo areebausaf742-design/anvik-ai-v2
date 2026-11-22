@@ -82,12 +82,12 @@ async function tryGeminiNativeImage(
         };
       }
     }
-    lastError = { status: 404, message: "Gemini returned no image.", code: "not_found" };
+    lastError = { status: 404, message: "No image was returned. Try a different prompt.", code: "not_found" };
   }
 
   return {
     ok: false,
-    error: lastError ?? { status: 404, message: "Gemini image model unavailable.", code: "not_found" },
+    error: lastError ?? { status: 404, message: "Image generation is temporarily unavailable.", code: "not_found" },
   };
 }
 
