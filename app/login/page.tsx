@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import AnvikStar from "@/components/anvik/anvik-star";
 import { useSession } from "@/components/anvik/session-provider";
+import { requestFreshChat } from "@/lib/fresh-chat";
 import {
   completeGoogleOAuth,
   requestPasswordReset,
@@ -105,6 +106,7 @@ export default function LoginPage() {
         "";
       if (displayName) setName(displayName);
       const destination = postLoginDestination();
+      requestFreshChat();
       router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     })();
   }, [postLoginDestination, refresh, router]);
@@ -166,6 +168,7 @@ export default function LoginPage() {
       }
       await refresh();
       const destination = postLoginDestination();
+      requestFreshChat();
       router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     } catch {
       setError("Could not sign in. Please try again.");
@@ -220,6 +223,7 @@ export default function LoginPage() {
       }
       await refresh();
       const destination = postLoginDestination();
+      requestFreshChat();
       router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     } catch {
       setError("Could not create your account. Please try again.");

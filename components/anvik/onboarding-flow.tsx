@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Loader2, LockKeyhole, Sparkles } from "lucide-react";
 import AnvikStar from "@/components/anvik/anvik-star";
 import { useSession } from "@/components/anvik/session-provider";
+import { requestFreshChat } from "@/lib/fresh-chat";
 import { emailFallbackName } from "@/lib/session";
 
 type Step = 0 | 1 | 2 | 3;
@@ -136,6 +137,7 @@ export default function OnboardingFlow() {
         }
 
         await refresh();
+        requestFreshChat();
         redirected.current = true;
         setRedirecting(true);
         router.replace(postLoginDestination() === "/chat" ? "/welcome" : postLoginDestination());

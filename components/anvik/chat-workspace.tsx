@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import { useChatStore, selectActiveConversation, type ChatMessage } from "@/store/use-chat-store";
+import { ensureFreshChat } from "@/lib/fresh-chat";
 import WebSearchMenu from "@/components/anvik/web-search-menu";
 import SourcesPanel from "@/components/anvik/sources-panel";
 import type { SearchMode } from "@/lib/search";
@@ -120,6 +121,12 @@ function ChatWorkspaceInner() {
 
   useEffect(() => {
     setHydrated(true);
+    // Persisted Zustand state is already hydrated by now (zustand persist
+    // hydrates synchronously on localStorage). A genuinely new browser tab —
+    // or a login / OAuth / onboarding boundary that set a one-shot pending
+    // request — starts with a fresh, empty conversation. Same-tab reloads and
+    // route navigation preserve the current conversation.
+    ensureFreshChat();
     const mem = readMemory();
     setUserName(mem.name.trim());
     const prompt = new URLSearchParams(window.location.search).get("prompt");
