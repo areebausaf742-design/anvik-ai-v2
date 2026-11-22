@@ -156,6 +156,24 @@ export function clearStoredSession(): void {
 /* PKCE helpers                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A bounded AbortSignal for browser fetches. `AbortSignal.timeout()` is not
+ * available in older mobile engines (iOS Safari before 16.4) — fall back to an
+ * explicit controller so the timeout still applies (a bare `AbortSignal.timeout`
+ * call there throws and silently degrades the flow).
+ */
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  if (typeof timer === "object" && typeof (timer as { unref?: () => void }).unref === "function") {
+    (timer as { unref: () => void }).unref();
+  }
+  return controller.signal;
+}
+
 function base64UrlEncode(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -311,6 +329,7 @@ export async function completeGoogleOAuth(code: string): Promise<AuthResult> {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+      signal: timeoutSignal(15000),
     });
     const body = await safeJson(response);
     // Any response — success or failure — consumes the verifier (official
@@ -503,7 +522,7 @@ export async function getCurrentUser(accessToken: string): Promise<{ ok: boolean
       method: "GET",
       headers: headers(accessToken),
       cache: "no-store",
-      signal: AbortSignal.timeout(5000),
+      signal: timeoutSignal(5000),
     });
     if (!response.ok) return { ok: false, user: null, status: response.status };
     const body = await safeJson(response);
@@ -521,7 +540,7 @@ export async function signOut(accessToken?: string): Promise<void> {
       await fetch(authUrl("/logout"), {
         method: "POST",
         headers: headers(token),
-        signal: AbortSignal.timeout(5000),
+        signal: timeoutSignal(5000),
       });
     } catch {
       /* best-effort — sign-out proceeds locally regardless */

@@ -1,4 +1,32 @@
 /** @type {import('next').NextConfig} */
+
+// The browser talks to the Supabase auth/REST API directly for session
+// flows (PKCE exchange, session refresh, current user). The CSP must allow
+// that origin or every browser-side auth call is blocked and sign-in fails
+// with "Could not reach the sign-in service." (the audit CSP fix scoped
+// connect-src to the AI origins but missed the account API entirely).
+// Derived from the environment so preview deploys and other projects work;
+// when unconfigured the auth client never runs anyway (authEnabled()).
+function supabaseOrigin() {
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
+    return url ? new URL(url).origin : "";
+  } catch {
+    return "";
+  }
+}
+
+function connectSrc() {
+  const values = [
+    "'self'",
+    "https://generativelanguage.googleapis.com",
+    "https://image.pollinations.ai",
+  ];
+  const supabase = supabaseOrigin();
+  if (supabase) values.push(supabase);
+  return values.join(" ");
+}
+
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
@@ -28,7 +56,7 @@ const nextConfig = {
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https://image.pollinations.ai",
           "font-src 'self' data:",
-          "connect-src 'self' https://generativelanguage.googleapis.com https://image.pollinations.ai",
+          `connect-src ${connectSrc()}`,
           "frame-src 'self' data: blob:",
           "frame-ancestors 'self'",
           "base-uri 'self'",
