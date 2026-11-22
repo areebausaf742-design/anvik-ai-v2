@@ -1,21 +1,35 @@
 /**
  * Gemini API client — live-only, with explicit model fallback and honest errors.
- *
- * Model fallback order:
- *   1. gemini-2.0-flash
- *   2. gemini-2.5-flash
- *   3. gemini-1.5-flash
- *
  * Only HTTP 404 (model unavailable/not found) triggers fallback to the next model.
- * Auth errors (401/403), quota errors (429), and network errors stop immediately
- * and surface an honest, actionable message.
  */
 
 export const MODEL_FALLBACK_CHAIN = [
-  "gemini-2.0-flash",
   "gemini-2.5-flash",
-  "gemini-1.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
 ] as const;
+
+export async function validateGeminiServerKey(
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ googleStatus: number | null; invalid: boolean }> {
+  try {
+    const response = await fetchImpl(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey.trim())}`,
+      { method: "GET", signal: AbortSignal.timeout(8000) },
+    );
+    if (response.status !== 400) {
+      return { googleStatus: response.status, invalid: false };
+    }
+    const body = await response.text().catch(() => "");
+    return {
+      googleStatus: response.status,
+      invalid: body.toLowerCase().includes("api key not valid"),
+    };
+  } catch {
+    return { googleStatus: null, invalid: false };
+  }
+}
 
 export const IMAGE_MODEL_FALLBACK_CHAIN = [
   "gemini-2.0-flash-preview-image-generation",
@@ -55,14 +69,7 @@ export function isValidGeminiKeyFormat(key: string | undefined | null): boolean 
 export function classifyGeminiError(status: number, rawBody = ""): ClassifiedError {
   const lower = rawBody.toLowerCase();
 
-  if (
-    status === 401 ||
-    status === 403 ||
-    lower.includes("api_key_invalid") ||
-    lower.includes("api key not valid") ||
-    lower.includes("permission_denied") ||
-    lower.includes("unauthenticated")
-  ) {
+  if (lower.includes("api_key_invalid") || lower.includes("api key not valid")) {
     return {
       status: status === 403 ? 403 : 401,
       message: KEY_INVALID_ERROR,
@@ -140,7 +147,7 @@ function buildGenerationConfig(
 
 /**
  * Opens a streaming SSE connection to Gemini, falling back across
- * gemini-2.0-flash -> gemini-2.5-flash -> gemini-1.5-flash ONLY on HTTP 404.
+ * gemini-2.5-flash -> gemini-2.0-flash -> gemini-2.0-flash-lite ONLY on HTTP 404.
  * Converts Gemini's SSE frames into immediate UTF-8 text chunks.
  */
 export async function openGeminiStreamWithFallback(

@@ -78,7 +78,11 @@ export const RATE_PER_HOUR = 20;
 export const DAILY_CEILING_PAISE = 50000;
 
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "data");
-const g = globalThis as unknown as { __anvikDb?: DB; __anvikLock?: Promise<unknown> };
+const g = globalThis as unknown as {
+  __anvikDb?: DB;
+  __anvikLock?: Promise<unknown>;
+  __anvikQuotaReservations?: Map<string, number>;
+};
 
 /* ---------------- persistence probes (never throw) ---------------- */
 
@@ -344,6 +348,36 @@ export const store = {
     const entry = db.quota[deviceId];
     if (!entry || entry.day !== dayKey()) return FREE_DAILY;
     return entry.remaining;
+  },
+
+  async reserveQuota(deviceId: string): Promise<boolean> {
+    return withLock(() => {
+      const reservations = (g.__anvikQuotaReservations ??= new Map<string, number>());
+      const pending = reservations.get(deviceId) ?? 0;
+      if (store.questionRemaining(deviceId) - pending <= 0) return false;
+      reservations.set(deviceId, pending + 1);
+      return true;
+    });
+  },
+
+  async settleQuota(deviceId: string, successful: boolean): Promise<number | null> {
+    return withLock(() => {
+      const reservations = g.__anvikQuotaReservations;
+      const pending = reservations?.get(deviceId) ?? 0;
+      if (pending > 1) reservations?.set(deviceId, pending - 1);
+      else reservations?.delete(deviceId);
+
+      if (!successful) return store.questionRemaining(deviceId);
+
+      const db = load();
+      const today = dayKey();
+      let entry = db.quota[deviceId];
+      if (!entry || entry.day !== today) entry = db.quota[deviceId] = { day: today, remaining: FREE_DAILY };
+      if (entry.remaining <= 0) return null;
+      entry.remaining -= 1;
+      persist(db);
+      return entry.remaining;
+    });
   },
 
   /** Atomic check-and-set under the process lock: no TOCTOU (§6.2). */

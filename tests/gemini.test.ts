@@ -9,6 +9,7 @@ import {
   classifyGeminiError,
   isValidGeminiKeyFormat,
   openGeminiStreamWithFallback,
+  validateGeminiServerKey,
 } from "../lib/gemini";
 
 const VALID_TEST_KEY = "AIzaSyTestKey1234567890123456789012345";
@@ -36,10 +37,33 @@ test("isValidGeminiKeyFormat validates AIza prefix and >=35 length", () => {
   assert.equal(isValidGeminiKeyFormat("sk-123456789012345678901234567890123456"), false);
 });
 
-test("classifyGeminiError maps 401/403, 429, and 404 honestly", () => {
+test("server key validation flags only Google's explicit invalid-key response", async () => {
+  const valid = await validateGeminiServerKey(VALID_TEST_KEY, async () => new Response("{}", { status: 200 }));
+  assert.deepEqual(valid, { googleStatus: 200, invalid: false });
+
+  const invalid = await validateGeminiServerKey(
+    VALID_TEST_KEY,
+    async () => new Response('{"error":{"message":"API key not valid"}}', { status: 400 }),
+  );
+  assert.deepEqual(invalid, { googleStatus: 400, invalid: true });
+
+  for (const status of [403, 404, 429, 500]) {
+    const result = await validateGeminiServerKey(
+      VALID_TEST_KEY,
+      async () => new Response("Model access unavailable", { status }),
+    );
+    assert.equal(result.invalid, false);
+    assert.equal(result.googleStatus, status);
+  }
+});
+
+test("classifyGeminiError marks a key invalid only when Google explicitly says so", () => {
   const unauth = classifyGeminiError(401, '{"error":{"status":"UNAUTHENTICATED"}}');
-  assert.equal(unauth.message, KEY_INVALID_ERROR);
-  assert.equal(unauth.code, "invalid_key");
+  assert.notEqual(unauth.code, "invalid_key");
+
+  const explicitInvalid = classifyGeminiError(400, '{"error":{"message":"API key not valid"}}');
+  assert.equal(explicitInvalid.message, KEY_INVALID_ERROR);
+  assert.equal(explicitInvalid.code, "invalid_key");
 
   const forbidden = classifyGeminiError(403, "API_KEY_INVALID");
   assert.equal(forbidden.message, KEY_INVALID_ERROR);
@@ -69,7 +93,7 @@ test("openGeminiStreamWithFallback rejects invalid key before calling fetch", as
   }
 });
 
-test("falls back 2.0-flash -> 2.5-flash -> 1.5-flash on 404 and streams tokens immediately", async () => {
+test("falls back 2.5-flash -> 2.0-flash -> 2.0-flash-lite on 404 and streams tokens immediately", async () => {
   const attempted: string[] = [];
   const result = await openGeminiStreamWithFallback({
     apiKey: VALID_TEST_KEY,
@@ -78,7 +102,7 @@ test("falls back 2.0-flash -> 2.5-flash -> 1.5-flash on 404 and streams tokens i
     fetchImpl: async (input) => {
       const url = String(input);
       attempted.push(url);
-      if (url.includes("gemini-2.0-flash") || url.includes("gemini-2.5-flash")) {
+      if (!url.includes("gemini-2.0-flash-lite")) {
         return new Response("Not Found", { status: 404 });
       }
       return new Response(sseStream(["A car ", "is a wheeled vehicle."]), { status: 200 });
@@ -92,7 +116,7 @@ test("falls back 2.0-flash -> 2.5-flash -> 1.5-flash on 404 and streams tokens i
 
   assert.equal(result.ok, true);
   if (result.ok) {
-    assert.equal(result.model, "gemini-1.5-flash");
+    assert.equal(result.model, "gemini-2.0-flash-lite");
     const text = await new Response(result.stream).text();
     assert.equal(text, "A car is a wheeled vehicle.");
   }
