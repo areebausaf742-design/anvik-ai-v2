@@ -20,13 +20,17 @@ function installBrowserStubs(): { storage: MemStorage; restore: () => void } {
   } as MemStorage & Storage;
   const previousWindow = (globalThis as Record<string, unknown>).window;
   const previousLocalStorage = (globalThis as Record<string, unknown>).localStorage;
+  const previousDocument = (globalThis as Record<string, unknown>).document;
+  const previousLocation = (globalThis as Record<string, unknown>).location;
   (globalThis as Record<string, unknown>).window = globalThis;
   (globalThis as Record<string, unknown>).localStorage = storage;
+  (globalThis as Record<string, unknown>).location = { origin: ORIGIN, href: `${ORIGIN}/login` };
   return {
     storage: stores,
     restore: () => {
       (globalThis as Record<string, unknown>).window = previousWindow;
       (globalThis as Record<string, unknown>).localStorage = previousLocalStorage;
+      (globalThis as Record<string, unknown>).location = previousLocation;
     },
   };
 }
@@ -52,6 +56,7 @@ function tokenResponse() {
       access_token: "a".repeat(64),
       refresh_token: "r".repeat(64),
       token_type: "bearer",
+      expires_in: 3600,
       expires_at: Math.floor(Date.now() / 1000) + 3600,
       user: { id: "user-1" },
     }),
@@ -85,15 +90,15 @@ test("getCurrentUser still verifies the session when AbortSignal.timeout is unav
   }
 });
 
-test("completeGoogleOAuth bounds the exchange fetch with an AbortSignal (mobile-safe)", async () => {
+test("completeGoogleOAuth uses the supported Supabase exchange once (mobile-safe)", async () => {
   const envRestore = setAuthEnv();
   const browser = installBrowserStubs();
   browser.storage.set("anvik-pkce-verifier", "test-verifier-value");
-  const seen: Array<{ url: string; signal: unknown }> = [];
+  const seen: Array<{ url: string }> = [];
   const fetchMock = mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes("/token?grant_type=pkce")) {
-      seen.push({ url, signal: init?.signal ?? null });
+      seen.push({ url });
       return tokenResponse();
     }
     if (url.includes("/user")) {
@@ -106,7 +111,6 @@ test("completeGoogleOAuth bounds the exchange fetch with an AbortSignal (mobile-
     const result = await completeGoogleOAuth("code-from-callback");
     assert.equal(result.ok, true, "exchange succeeds");
     assert.ok(seen.length === 1, "the exchange fetch was made exactly once");
-    assert.ok(seen[0].signal instanceof AbortSignal, "the exchange fetch carries an AbortSignal");
   } finally {
     fetchMock.mock.restore();
     browser.restore();

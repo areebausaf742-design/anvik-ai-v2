@@ -46,9 +46,19 @@ export default function OnboardingFlow() {
   const [redirecting, setRedirecting] = useState(false);
   const nameTouched = useRef(false);
   const redirected = useRef(false);
-  // Ref guard so a fast double-click cannot submit consent twice before the
-  // busy state re-disables the button.
-  const submitting = useRef(false);
+  const submitStarted = useRef(false);
+
+  const postLoginDestination = useCallback(() => {
+    const url = new URL(window.location.href);
+    const next = url.searchParams.get("next");
+    if (!next) return "/chat";
+    try {
+      const target = new URL(next, window.location.origin);
+      return target.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : "/chat";
+    } catch {
+      return "/chat";
+    }
+  }, []);
 
   // Signed out → login. Returning users (consent complete) → chat.
   useEffect(() => {
@@ -60,9 +70,9 @@ export default function OnboardingFlow() {
     }
     if (consent?.hasAccepted) {
       redirected.current = true;
-      router.replace("/chat");
+      router.replace(postLoginDestination());
     }
-  }, [loading, session, consent, router]);
+  }, [loading, session, consent, router, postLoginDestination]);
 
   // Prefill the display name once, from the verified Google profile or a
   // sanitized email fallback. Never invents a name — only sanitizes.
@@ -86,13 +96,14 @@ export default function OnboardingFlow() {
 
   const submit = useCallback(
     async (aiImprovementConsent: boolean) => {
-      if (submitting.current) return;
+      if (submitStarted.current || busy || redirecting) return;
+      submitStarted.current = true;
       const token = bearerToken();
       if (!token) {
         setError("You must be signed in to continue.");
+        submitStarted.current = false;
         return;
       }
-      submitting.current = true;
       setBusy(true);
       setError("");
       try {
@@ -120,21 +131,21 @@ export default function OnboardingFlow() {
         if (!consentRes.ok) {
           setError(consentBody?.error ?? "Could not save your consent. Please try again.");
           setBusy(false);
-          submitting.current = false;
+          submitStarted.current = false;
           return;
         }
 
         await refresh();
         redirected.current = true;
         setRedirecting(true);
-        router.replace("/welcome");
+        router.replace(postLoginDestination() === "/chat" ? "/welcome" : postLoginDestination());
       } catch {
         setError("Could not save your consent. Please try again.");
         setBusy(false);
-        submitting.current = false;
+        submitStarted.current = false;
       }
     },
-    [bearerToken, name, setDisplayName, refresh, router],
+    [bearerToken, name, setDisplayName, refresh, router, postLoginDestination, busy, redirecting],
   );
 
   function handleContinue() {

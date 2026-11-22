@@ -6,7 +6,7 @@
  * quota, remaining allowance and history all come from /api/credits.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -69,6 +69,7 @@ export default function AccountScreen() {
   const [consentError, setConsentError] = useState("");
   const [consentNote, setConsentNote] = useState("");
   const [signingOut, setSigningOut] = useState(false);
+  const consentSubmitStarted = useRef(false);
 
   // Guard: signed out → login.
   useEffect(() => {
@@ -136,8 +137,10 @@ export default function AccountScreen() {
   }
 
   async function toggleAiConsent() {
+    if (consentSubmitStarted.current) return;
     const token = bearerToken();
     if (!token) return;
+    consentSubmitStarted.current = true;
     setConsentError("");
     setConsentNote("");
     const next = !(consent?.aiImprovementConsent ?? false);
@@ -163,6 +166,7 @@ export default function AccountScreen() {
       setConsentError("Could not update consent.");
     } finally {
       setConsentBusy(false);
+      consentSubmitStarted.current = false;
     }
   }
 

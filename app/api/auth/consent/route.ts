@@ -89,7 +89,10 @@ export async function POST(request: Request) {
         result.code === "consent_required"
           ? "Accept the Terms of Service and Privacy Policy first."
           : "Could not update your AI-improvement consent. Please try again.";
-      return json({ error: message, code: "consent_failed" }, 500);
+      return json(
+        { error: message, code: result.code === "consent_required" ? "consent_required" : "consent_failed" },
+        result.code === "consent_required" ? 400 : 500,
+      );
     }
     return json({ ok: true, action: "set_ai_improvement", enabled });
   }

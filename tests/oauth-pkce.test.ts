@@ -21,19 +21,33 @@ function createMemLocalStorage(): MemStorage {
   return storage;
 }
 
+function getOfficialPkceVerifier(storage: MemStorage): string | null {
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (key && key.includes("code-verifier")) {
+      return storage.getItem(key);
+    }
+  }
+  return null;
+}
+
 function installBrowserStubs(): { localStorage: MemStorage; restore: () => void } {
   const localStorage = createMemLocalStorage();
   const previous = {
     window: (globalThis as Record<string, unknown>).window,
     localStorage: (globalThis as Record<string, unknown>).localStorage,
+    document: (globalThis as Record<string, unknown>).document,
+    location: (globalThis as Record<string, unknown>).location,
   };
   (globalThis as Record<string, unknown>).window = globalThis;
   (globalThis as Record<string, unknown>).localStorage = localStorage;
+  (globalThis as Record<string, unknown>).location = { origin: ORIGIN, href: `${ORIGIN}/login` };
   return {
     localStorage,
     restore: () => {
       (globalThis as Record<string, unknown>).window = previous.window;
       (globalThis as Record<string, unknown>).localStorage = previous.localStorage;
+      (globalThis as Record<string, unknown>).location = previous.location;
     },
   };
 }
@@ -64,6 +78,7 @@ function tokenResponse() {
       access_token: "a".repeat(64),
       refresh_token: "r".repeat(64),
       token_type: "bearer",
+      expires_in: 3600,
       expires_at: Math.floor(Date.now() / 1000) + 3600,
       user: { id: "user-1" },
     }),
