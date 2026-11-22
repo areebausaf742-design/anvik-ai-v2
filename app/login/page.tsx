@@ -70,7 +70,7 @@ export default function LoginPage() {
     void (async () => {
       // Strip the code/state from the address bar after handling.
       window.history.replaceState({}, "", "/login");
-      const result = await completeGoogleOAuth(code);
+      const result = await completeGoogleOAuth(code, stateParam);
       if (!mounted.current) return;
       setOauthPending(false);
       if (!result.ok) {
@@ -87,8 +87,7 @@ export default function LoginPage() {
       // Consent is checked server-side in onboarding — fresh users go there.
       router.replace("/onboarding");
     })();
-    // state is only used for future CSRF checks; PKCE is the actual protection.
-    if (stateParam) void stateParam;
+    // stateParam is passed to completeGoogleOAuth, which refuses any mismatch.
   }, [router]);
 
   // Already signed in — skip the login screen (mirrors returning users).
