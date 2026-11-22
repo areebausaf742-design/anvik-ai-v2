@@ -61,9 +61,78 @@ export async function sbSelect<T>(table: string, query: string): Promise<T[] | n
   }
 }
 
-/** Insert rows, ignoring duplicates. Returns true when the write landed. */
-export async function sbInsert(table: string, rows: Record<string, unknown>[]): Promise<boolean> {
-  if (!supabaseEnabled() || rows.length === 0) return false;
+/* ------------------------------------------------------------------ */
+/* Error-aware reads/writes                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A sanitized, category-level error for diagnostics. Never contains tokens,
+ * secrets, keys or row payloads — only the PostgREST error code and a short
+ * first-line message (or an error category for transport failures).
+ */
+export type SbError = {
+  category: "table_missing" | "unique_violation" | "rls_denied" | "timeout" | "network_error" | "bad_response" | "http_error";
+  status?: number;
+  detail?: string;
+};
+
+export type SbWriteResult = { ok: true } | { ok: false; error: SbError };
+export type SbReadResult<T> = { ok: true; rows: T[] } | { ok: false; error: SbError };
+
+function sanitizePostgRESTError(body: unknown): { code?: string; detail?: string } {
+  if (!body || typeof body !== "object") return {};
+  const obj = body as Record<string, unknown>;
+  const code = typeof obj.code === "string" ? obj.code.slice(0, 32) : undefined;
+  const message =
+    typeof obj.message === "string" ? obj.message :
+    typeof obj.msg === "string" ? obj.msg :
+    typeof obj.error === "string" ? obj.error :
+    typeof obj.error_description === "string" ? obj.error_description : "";
+  // Keep only the first line, bounded — no row data ever travels here.
+  const detail = message.split("\n")[0].slice(0, 160);
+  return { code, detail: detail || undefined };
+}
+
+function categoryFor(err: { code?: string; status?: number; detail?: string }): SbError {
+  const detail = err.detail ?? "";
+  const code = err.code ?? "";
+  if (err.status === 404 || /42P01/.test(code) || /relation .* does not exist/i.test(detail) || /not found/i.test(detail)) {
+    return { category: "table_missing", status: err.status, detail };
+  }
+  if (err.status === 401 || err.status === 403 || /row-level security/i.test(detail)) {
+    return { category: "rls_denied", status: err.status, detail };
+  }
+  if (/23505/.test(code) || /duplicate key/i.test(detail)) {
+    return { category: "unique_violation", status: err.status, detail };
+  }
+  return { category: "http_error", status: err.status, detail };
+}
+
+async function sbReject(response: Response, body: unknown): Promise<SbError> {
+  const { code, detail } = sanitizePostgRESTError(body);
+  return categoryFor({ code, status: response.status, detail });
+}
+
+export async function sbUpdateByIdDetailed(table: string, id: string, patch: Record<string, unknown>): Promise<SbWriteResult> {
+  if (!supabaseEnabled()) return { ok: false, error: { category: "bad_response", detail: "supabase not configured" } };
+  try {
+    const response = await fetch(`${base()}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { ...headers(), Prefer: "return=minimal" },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (response.ok) return { ok: true };
+    const body = await response.json().catch(() => null);
+    return { ok: false, error: await sbReject(response, body) };
+  } catch (e) {
+    const isAbort = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    return { ok: false, error: { category: isAbort ? "timeout" : "network_error" } };
+  }
+}
+
+export async function sbInsertDetailed(table: string, rows: Record<string, unknown>[]): Promise<SbWriteResult> {
+  if (!supabaseEnabled() || rows.length === 0) return { ok: false, error: { category: "bad_response", detail: "supabase not configured or no rows" } };
   try {
     const response = await fetch(`${base()}/rest/v1/${table}`, {
       method: "POST",
@@ -71,10 +140,42 @@ export async function sbInsert(table: string, rows: Record<string, unknown>[]): 
       body: JSON.stringify(rows),
       signal: AbortSignal.timeout(4000),
     });
-    return response.ok;
-  } catch {
-    return false;
+    if (response.ok) return { ok: true };
+    const body = await response.json().catch(() => null);
+    return { ok: false, error: await sbReject(response, body) };
+  } catch (e) {
+    const isAbort = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    return { ok: false, error: { category: isAbort ? "timeout" : "network_error" } };
   }
+}
+
+export async function sbUpsertDetailed(table: string, rows: Record<string, unknown>[]): Promise<SbWriteResult> {
+  return sbInsertDetailed(table, rows);
+}
+
+export async function sbSelectDetailed<T>(table: string, query: string): Promise<SbReadResult<T>> {
+  if (!supabaseEnabled()) return { ok: false, error: { category: "bad_response", detail: "supabase not configured" } };
+  try {
+    const response = await fetch(`${base()}/rest/v1/${table}?${query}`, {
+      headers: headers(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      return { ok: false, error: await sbReject(response, body) };
+    }
+    const rows: unknown = await response.json();
+    return { ok: true, rows: Array.isArray(rows) ? (rows as T[]) : [] };
+  } catch (e) {
+    const isAbort = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    return { ok: false, error: { category: isAbort ? "timeout" : "network_error" } };
+  }
+}
+
+/** Insert rows, ignoring duplicates. Returns true when the write landed. */
+export async function sbInsert(table: string, rows: Record<string, unknown>[]): Promise<boolean> {
+  return (await sbInsertDetailed(table, rows)).ok;
 }
 
 /**
@@ -83,18 +184,7 @@ export async function sbInsert(table: string, rows: Record<string, unknown>[]): 
  * Never throws; returns false on any failure.
  */
 export async function sbUpsert(table: string, rows: Record<string, unknown>[]): Promise<boolean> {
-  if (!supabaseEnabled() || rows.length === 0) return false;
-  try {
-    const response = await fetch(`${base()}/rest/v1/${table}`, {
-      method: "POST",
-      headers: { ...headers(), Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify(rows),
-      signal: AbortSignal.timeout(4000),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
+  return (await sbUpsertDetailed(table, rows)).ok;
 }
 
 /**
