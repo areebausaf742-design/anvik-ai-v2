@@ -17,8 +17,12 @@
  * NO anon policies — it is server-only. The server writes via the service-role
  * key, which bypasses RLS entirely.
  *
- * Required env: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) + SUPABASE_SERVICE_ROLE_KEY
- * (or SUPABASE_ANON_KEY/SUPABASE_SERVICE_KEY as fallbacks).
+ * Required env: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) + SUPABASE_SERVICE_ROLE_KEY.
+ *
+ * The server NEVER falls back to an anon/publishable key: those are browser
+ * credentials scoped by RLS, and reusing them for privileged writes would
+ * turn every write into an RLS denial (or worse, silently write into the
+ * wrong access context). Privileged writes require the service-role key.
  */
 
 const base = () =>
@@ -27,8 +31,6 @@ const base = () =>
 const key = () =>
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
   process.env.SUPABASE_SERVICE_KEY ??
-  process.env.SUPABASE_ANON_KEY ??
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   "";
 
 export function supabaseEnabled(): boolean {

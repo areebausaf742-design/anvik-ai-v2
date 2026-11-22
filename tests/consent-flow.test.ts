@@ -18,6 +18,8 @@ class Emulator {
   profiles: Array<Record<string, unknown>> = [];
   authOk = true;
   failInsert = false;
+  failInsertUnique = false;
+  hideActiveOnFirstSelect = false;
   failPatch = false;
   failSelect = false;
   private seq = 0;
@@ -31,6 +33,16 @@ class Emulator {
     const params = url.searchParams;
     let rows =
       table === "consent_records" ? this.rows : this.profiles;
+    // One-shot race simulation: the first active-row read must not see the
+    // (concurrent) winner row, as it would have been read before it landed.
+    if (
+      this.hideActiveOnFirstSelect &&
+      table === "consent_records" &&
+      params.get("withdrawn_at") === "is.null"
+    ) {
+      this.hideActiveOnFirstSelect = false;
+      return [];
+    }
     for (const [key, value] of params.entries()) {
       if (key === "user_id") {
         const m = value.match(/^eq\.(.*)$/);
@@ -96,6 +108,9 @@ class Emulator {
         const rows = JSON.parse((init?.body as string) ?? "[]") as Array<Record<string, unknown>>;
         if (this.failInsert) {
           return this.json({ code: "42P01", message: `relation public.${table} does not exist` }, 404);
+        }
+        if (this.failInsertUnique && table === "consent_records") {
+          return this.json({ code: "23505", message: 'duplicate key value violates unique constraint "consent_records_active_user_id"' }, 409);
         }
         if (table === "consent_records") {
           const inserted = rows.map((r) => ({
@@ -544,6 +559,69 @@ test("account screen consent toggle — declining is always available without br
     const state = await readConsent(USER_ID);
     assert.equal(state.hasAccepted, true, "required acceptance happens regardless");
     assert.equal(state.aiImprovementConsent, false, "declining AI-improvement is an honest, usable state");
+  } finally {
+    restore();
+  }
+});
+
+test("recordConsent — a concurrent identical submission resolves to a dedupe, not a fake failure", async () => {
+  // Race: both submissions read "no active row", the winner lands first, the
+  // loser hits the partial unique index (23505). The loser must resolve to
+  // a successful no-op — a retried double-submit is not an error.
+  const emul = new Emulator();
+  const restore = installStubs(emul);
+  try {
+    const { recordConsent, TERMS_VERSION, PRIVACY_VERSION } = await import("../lib/consent");
+    // Simulate the concurrent winner landing between the loser's read and insert.
+    emul.rows.push({
+      id: "cr-winner-test",
+      user_id: USER_ID,
+      agreement_version: TERMS_VERSION,
+      privacy_version: PRIVACY_VERSION,
+      terms_accepted_at: "2026-11-22T00:00:00.000Z",
+      privacy_accepted_at: "2026-11-22T00:00:00.000Z",
+      ai_improvement_consent: false,
+      ai_improvement_consent_at: null,
+      withdrawn_at: null,
+      created_at: new Date().toISOString(),
+    });
+    emul.hideActiveOnFirstSelect = true; // the loser's read sees no row yet
+    emul.failInsertUnique = true;         // the loser's insert hits the index
+
+    const result = await recordConsent(USER_ID, { aiImprovementConsent: false });
+    assert.equal(result.ok, true, "the losing submission must not surface a fake failure");
+    assert.equal((result as { deduplicated?: boolean }).deduplicated, true, "the loser resolves as a dedupe");
+    assert.equal(emul.activeFor(USER_ID).length, 1, "exactly one active row (the winner)");
+  } finally {
+    restore();
+  }
+});
+
+test("recordConsent — a unique violation with a DIFFERENT state honestly reports a failure", async () => {
+  // A unique violation where no identical winner exists (e.g. a different
+  // consent state raced in) must NOT be silently re-reported as success.
+  const emul = new Emulator();
+  const restore = installStubs(emul);
+  try {
+    const { recordConsent, TERMS_VERSION, PRIVACY_VERSION } = await import("../lib/consent");
+    emul.rows.push({
+      id: "cr-winner-test-diff",
+      user_id: USER_ID,
+      agreement_version: TERMS_VERSION,
+      privacy_version: PRIVACY_VERSION,
+      terms_accepted_at: "2026-11-22T00:00:00.000Z",
+      privacy_accepted_at: "2026-11-22T00:00:00.000Z",
+      ai_improvement_consent: true, // different from the loser's false
+      ai_improvement_consent_at: "2026-11-22T00:00:00.000Z",
+      withdrawn_at: null,
+      created_at: new Date().toISOString(),
+    });
+    emul.hideActiveOnFirstSelect = true;
+    emul.failInsertUnique = true;
+
+    const result = await recordConsent(USER_ID, { aiImprovementConsent: false });
+    assert.equal(result.ok, false, "a different state is a real failure, not a dedupe");
+    assert.equal((result as { code?: string }).code, "consent_insert_failed");
   } finally {
     restore();
   }

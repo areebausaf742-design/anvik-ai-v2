@@ -170,6 +170,33 @@ export function clearStoredSession(): void {
   }
 }
 
+/**
+ * Build a session from an auth-endpoint response body. Supabase answers with
+ * either `expires_at` (epoch seconds) or `expires_in` (seconds from now) —
+ * both are accepted, falling back to the default 1-hour lifetime otherwise.
+ * Returns null when the body has no usable access token.
+ *
+ * Only used for the plain-fetch paths — the browser OAuth path is handled by
+ * the official Supabase auth SDK, which owns its own expiry handling.
+ */
+function sessionFromBody(obj: Record<string, unknown>): AuthSession | null {
+  if (!obj || typeof obj.access_token !== "string" || !obj.access_token) return null;
+  let expiresAt: number;
+  if (typeof obj.expires_at === "number" && obj.expires_at > 0) {
+    expiresAt = obj.expires_at;
+  } else if (typeof obj.expires_in === "number" && obj.expires_in > 0) {
+    expiresAt = Math.floor(Date.now() / 1000) + obj.expires_in;
+  } else {
+    expiresAt = Math.floor(Date.now() / 1000) + 3600;
+  }
+  return {
+    access_token: obj.access_token,
+    refresh_token: typeof obj.refresh_token === "string" ? obj.refresh_token : "",
+    expires_at: expiresAt,
+    token_type: typeof obj.token_type === "string" ? obj.token_type : "bearer",
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* PKCE helpers                                                         */
 /* ------------------------------------------------------------------ */
@@ -360,15 +387,8 @@ export async function completeGoogleOAuth(code: string): Promise<AuthResult> {
       const body = await safeJson(response);
       clearPKCEVerifier();
       if (!response.ok) return { ok: false, error: readError(body, "Google sign-in could not be completed."), code: "oauth_failed" };
-      const session = (body as Record<string, unknown>) ?? {};
-      const accessToken = typeof session.access_token === "string" ? session.access_token : "";
-      if (!accessToken) return { ok: false, error: "Google sign-in could not be completed.", code: "oauth_failed" };
-      const authSession: AuthSession = {
-        access_token: accessToken,
-        refresh_token: typeof session.refresh_token === "string" ? session.refresh_token : "",
-        expires_at: typeof session.expires_at === "number" ? session.expires_at : Math.floor(Date.now() / 1000) + 3600,
-        token_type: typeof session.token_type === "string" ? session.token_type : "bearer",
-      };
+      const authSession = sessionFromBody((body ?? {}) as Record<string, unknown>);
+      if (!authSession) return { ok: false, error: "Google sign-in could not be completed.", code: "oauth_failed" };
       await storeSession(authSession);
       const me = await getCurrentUser(authSession.access_token);
       return { ok: true, session: authSession, user: me.user ?? { id: "" } };
@@ -442,15 +462,10 @@ export async function signUpWithPassword(
         emailConfirmationRequired: true,
       };
     }
-    const session: AuthSession = {
-      access_token: accessToken,
-      refresh_token: typeof obj.refresh_token === "string" ? obj.refresh_token : "",
-      expires_at:
-        typeof obj.expires_at === "number"
-          ? obj.expires_at
-          : Math.floor(Date.now() / 1000) + 3600,
-      token_type: typeof obj.token_type === "string" ? obj.token_type : "bearer",
-    };
+    const session = sessionFromBody(obj);
+    if (!session) {
+      return { ok: false, error: "Could not create your account.", code: "signup_failed" };
+    }
     await storeSession(session);
     return { ok: true, session, user: user ?? { id: "" } };
   } catch {
@@ -475,17 +490,12 @@ export async function signInWithPassword(email: string, password: string): Promi
     if (!accessToken) {
       return { ok: false, error: "Could not sign in. Check your email and password.", code: "signin_failed" };
     }
-    const session: AuthSession = {
-      access_token: accessToken,
-      refresh_token: typeof obj.refresh_token === "string" ? obj.refresh_token : "",
-      expires_at:
-        typeof obj.expires_at === "number"
-          ? obj.expires_at
-          : Math.floor(Date.now() / 1000) + 3600,
-      token_type: typeof obj.token_type === "string" ? obj.token_type : "bearer",
-    };
+    const session = sessionFromBody(obj);
+    if (!session) {
+      return { ok: false, error: "Could not sign in. Check your email and password.", code: "signin_failed" };
+    }
     await storeSession(session);
-    const me = await getCurrentUser(accessToken);
+    const me = await getCurrentUser(session.access_token);
     return { ok: true, session, user: me.user ?? (obj.user as SupabaseUser) ?? { id: "" } };
   } catch {
     return { ok: false, error: "Could not sign in. Check your email and password." };
@@ -531,19 +541,12 @@ export async function refreshSession(): Promise<AuthResult | null> {
     if (!response.ok) return null;
     const body = await safeJson(response);
     const obj = (body ?? {}) as Record<string, unknown>;
-    const accessToken = typeof obj.access_token === "string" ? obj.access_token : "";
-    if (!accessToken) return null;
-    const session: AuthSession = {
-      access_token: accessToken,
-      refresh_token: typeof obj.refresh_token === "string" ? obj.refresh_token : stored.refresh_token,
-      expires_at:
-        typeof obj.expires_at === "number"
-          ? obj.expires_at
-          : Math.floor(Date.now() / 1000) + 3600,
-      token_type: typeof obj.token_type === "string" ? obj.token_type : "bearer",
-    };
+    const session = sessionFromBody(obj);
+    if (!session) return null;
+    // Preserve the caller's refresh token when the server does not issue one.
+    if (!session.refresh_token) session.refresh_token = stored.refresh_token;
     await storeSession(session);
-    const me = await getCurrentUser(accessToken);
+    const me = await getCurrentUser(session.access_token);
     return { ok: true, session, user: me.user ?? { id: "" } };
   } catch {
     return null;
@@ -626,16 +629,10 @@ export async function completeRecoveryLink(
         return { ok: false, error: readError(body, "This reset link is invalid or expired."), code: "verify_failed" };
       }
       const obj = (body ?? {}) as Record<string, unknown>;
-      const accessToken = typeof obj.access_token === "string" ? obj.access_token : "";
-      if (!accessToken) return { ok: false, error: "This reset link is invalid or expired.", code: "verify_failed" };
-      const session: AuthSession = {
-        access_token: accessToken,
-        refresh_token: typeof obj.refresh_token === "string" ? obj.refresh_token : "",
-        expires_at: typeof obj.expires_at === "number" ? obj.expires_at : Math.floor(Date.now() / 1000) + 3600,
-        token_type: typeof obj.token_type === "string" ? obj.token_type : "bearer",
-      };
+      const session = sessionFromBody(obj);
+      if (!session) return { ok: false, error: "This reset link is invalid or expired.", code: "verify_failed" };
       await storeSession(session);
-      const me = await getCurrentUser(accessToken);
+      const me = await getCurrentUser(session.access_token);
       return { ok: true, session, user: me.user ?? (obj.user as SupabaseUser) ?? { id: "" } };
     }
     return { ok: false, error: "This reset link is invalid or expired." };
