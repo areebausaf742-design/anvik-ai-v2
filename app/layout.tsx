@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
+import "@fontsource-variable/manrope";
 import "./globals.css";
+import "./pricing/pricing.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://anvik.ai";
 

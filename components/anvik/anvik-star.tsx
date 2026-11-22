@@ -1,3 +1,4 @@
+import React from "react";
 type StarSize = "sm" | "md" | "lg";
 
 const SIZE_MAP: Record<StarSize, { svg: number; className: string }> = {
