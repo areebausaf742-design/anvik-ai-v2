@@ -23,6 +23,15 @@ export type SearchSource = {
   domain: string;
 };
 
+/** Clean a domain-ish string: lowercase, trimmed, no leading www., no stray dots/slashes. */
+export function cleanDomain(domain: unknown): string {
+  if (typeof domain !== "string") return "";
+  let value = domain.trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  // Drop any accidental protocol or path that leaked in.
+  value = value.replace(/^https?:\/\//, "").split(/[\s/?#]/)[0].replace(/\.$/, "");
+  return value;
+}
+
 export type SearchMeta = {
   queries: string[];
   sources: SearchSource[];
@@ -92,12 +101,15 @@ export function normalizeSource(chunk: unknown): SearchSource | null {
   if (!chunk || typeof chunk !== "object") return null;
   const web = (chunk as { web?: unknown }).web;
   if (!web || typeof web !== "object") return null;
-  const { title, uri } = web as { title?: unknown; uri?: unknown };
+  const { title, uri, domain } = web as { title?: unknown; uri?: unknown; domain?: unknown };
   const cleanUri = typeof uri === "string" ? uri.trim() : "";
   if (!parseUri(cleanUri)) return null;
-  const domain = domainOf(cleanUri);
-  const cleanTitle = typeof title === "string" && title.trim() ? title.trim() : domain;
-  return { title: cleanTitle, uri: cleanUri, domain };
+  // Gemini reports the source's real domain in `domain`. Prefer it over the
+  // redirect-host hostname that the URI itself reveals.
+  const reportedDomain = cleanDomain(domain);
+  const actualDomain = reportedDomain || domainOf(cleanUri);
+  const cleanTitle = typeof title === "string" && title.trim() ? title.trim() : actualDomain;
+  return { title: cleanTitle, uri: cleanUri, domain: actualDomain };
 }
 
 /**

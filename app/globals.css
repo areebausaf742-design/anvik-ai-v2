@@ -1002,3 +1002,29 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+.sources-title-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s var(--ease);
+}
+
+.sources-title-link:hover,
+.sources-title-link:focus-visible {
+  border-bottom-color: #1A1A1A;
+}
+
+.sources-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.15s var(--ease);
+}
+
+.sources-toggle:hover,
+.sources-toggle:focus-visible {
+  color: #1A1A1A;
+}

@@ -333,3 +333,157 @@ test("search auto + recent question: sends the tools field", async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(tools, [{ googleSearch: {} }]);
 });
+
+
+function mockIncrementalGroundedFetch(frames: Array<{ text?: string; metadata?: Record<string, unknown>; stop?: boolean }>) {
+  return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    assert.ok(url.includes("streamGenerateContent"), `unexpected url ${url}`);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const frame of frames) {
+          const candidate: Record<string, unknown> = {
+            content: { parts: frame.text ? [{ text: frame.text }] : [{ text: "" }] },
+          };
+          if (frame.stop) candidate.finishReason = "STOP";
+          if (frame.metadata) candidate.groundingMetadata = frame.metadata;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ candidates: [candidate] })}\n\n`));
+        }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200 });
+  });
+}
+
+function doneFrame(body: string) {
+  const idx = body.indexOf('"t":"done"');
+  assert.ok(idx >= 0, `done frame expected: ${body.slice(0, 300)}`);
+  const lineStart = body.lastIndexOf("data: ", idx);
+  return JSON.parse(body.slice(lineStart + 6).split("\n\n")[0].trim());
+}
+
+test("search on: incremental streaming — groundingMetadata split across frames is captured and deduped", async () => {
+  // Real shape: only the new chunks arrive in each frame's metadata; the same
+  // queries repeat across frames.
+  mockIncrementalGroundedFetch([
+    { text: "Here", metadata: { webSearchQueries: ["latest AI news"], groundingChunks: [{ web: { uri: "https://example.com/a", title: "Story A", domain: "example.com" } }] } },
+    { text: " is the", metadata: { webSearchQueries: ["latest AI news", "ai news 2026"], groundingChunks: [{ web: { uri: "https://www.other.org/b", title: "Story B", domain: "other.org" } }] } },
+    { text: " latest news.", metadata: { webSearchQueries: ["latest AI news", "ai news 2026"], groundingChunks: [{ web: { uri: "https://example.com/a", title: "Story A", domain: "example.com" } }] } },
+    { stop: true, metadata: { webSearchQueries: ["latest AI news", "ai news 2026"], groundingChunks: [] } },
+  ]);
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  const body = await response.text();
+  const done = doneFrame(body);
+  assert.equal(done.search, "on");
+  assert.deepEqual(done.queries, ["latest AI news", "ai news 2026"]);
+  // The repeated chunk in the third frame is de-duplicated by canonical URI.
+  assert.equal(done.sources.length, 2);
+  assert.equal(done.sources[0].domain, "example.com");
+  assert.equal(done.sources[1].domain, "other.org");
+});
+
+test("search on: chunks with web.domain use the real site domain, not the redirect host", async () => {
+  mockGroundedFetch(["Real sources."], {
+    webSearchQueries: ["latest AI news"],
+    groundingChunks: [
+      { web: { uri: "https://vertexaisearch.cloud.google.com/x/redirect", title: "aljazeera.com", domain: "aljazeera.com" } },
+      { web: { uri: "https://vertexaisearch.cloud.google.com/x/redirect-2", title: "uefa.com", domain: "uefa.com" } },
+    ],
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  const body = await response.text();
+  const done = doneFrame(body);
+  assert.equal(done.search, "on");
+  assert.equal(done.sources.length, 2);
+  assert.equal(done.sources[0].domain, "aljazeera.com");
+  assert.equal(done.sources[1].domain, "uefa.com");
+  // URLs are still Gemini's citation links — never invented.
+  assert.match(done.sources[0].uri, /^https:\/\//);
+});
+
+test("search on: grounded request the model never searches honestly reports unavailable", async () => {
+  // Grounded stream succeeds (200) but the model skipped the web entirely:
+  // no groundingMetadata in any frame. This must not be claimed as a verified search.
+  const encoder = new TextEncoder();
+  mock.method(globalThis, "fetch", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const frame = JSON.stringify({ candidates: [{ content: { parts: [{ text: "ungrounded answer" }] } }] });
+        controller.enqueue(encoder.encode(`data: ${frame}\n\n`));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200 });
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  assert.equal(response.status, 200);
+  const body = await response.text();
+  const done = doneFrame(body);
+  assert.equal(done.search, "unavailable");
+  assert.deepEqual(done.sources, []);
+  assert.deepEqual(done.queries, []);
+  // The header stays the honest promise before the stream starts; the done frame is authoritative.
+  assert.ok(body.includes('"t":"meta"'));
+});
+
+test("search on: grounding metadata only in the final frame with finishReason STOP is captured", async () => {
+  const metadata = {
+    webSearchQueries: ["latest AI news"],
+    groundingChunks: [{ web: { uri: "https://example.com/story", title: "Story One" } }],
+  };
+  mockIncrementalGroundedFetch([
+    { text: "Here" },
+    { text: " is" },
+    { stop: true, metadata },
+  ]);
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  const body = await response.text();
+  const doneText = body.slice(body.indexOf('"t":"done"'));
+  const done = doneFrame(body);
+  assert.equal(done.search, "on");
+  assert.equal(done.sources.length, 1);
+  assert.equal(done.sources[0].title, "Story One");
+  assert.match(doneText, /latest AI news/);
+});
+
+test("search on: grounded stream with empty groundingChunks honestly reports no sources", async () => {
+  mockGroundedFetch(["Answer."], {
+    webSearchQueries: ["latest AI news"],
+    groundingChunks: [],
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  const body = await response.text();
+  const done = doneFrame(body);
+  assert.equal(done.search, "on");
+  assert.deepEqual(done.sources, []);
+  assert.deepEqual(done.queries, ["latest AI news"]);
+});

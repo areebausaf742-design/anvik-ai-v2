@@ -24,6 +24,12 @@ export type SearchMetaCapture = {
   queries: string[];
   /** Raw grounding chunks ({ web: { uri, title } }), exactly as Gemini returned them. */
   sources: unknown[];
+  /**
+   * True as soon as any groundingMetadata frame arrived. The route uses this
+   * to label a search honestly: a grounded request the model declined to use
+   * (no metadata at all) is never reported as a verified search.
+   */
+  sawGrounding: boolean;
 };
 
 export const MODEL_FALLBACK_CHAIN = [
@@ -349,6 +355,7 @@ function toTextStream(
               },
               (metadata) => {
                 if (!capture) return;
+                capture.sawGrounding = true;
                 const queries = Array.isArray(metadata.webSearchQueries)
                   ? (metadata.webSearchQueries as unknown[]).filter((q) => typeof q === "string")
                   : [];
@@ -371,6 +378,7 @@ function toTextStream(
             },
             (metadata) => {
               if (!capture) return;
+              capture.sawGrounding = true;
               const queries = Array.isArray(metadata.webSearchQueries)
                 ? (metadata.webSearchQueries as unknown[]).filter((q) => typeof q === "string")
                 : [];

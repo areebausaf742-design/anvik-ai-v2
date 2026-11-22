@@ -129,7 +129,7 @@ function groundedStream(chunks: string[], groundingMetadata?: unknown): Readable
 
 test("googleSearch is sent to Gemini and grounding metadata is captured", async () => {
   let callBody: Record<string, unknown> | null = null;
-  const capture: SearchMetaCapture = { queries: [], sources: [] };
+  const capture: SearchMetaCapture = { queries: [], sources: [], sawGrounding: false };
 
   const result = await openGeminiStreamWithFallback({
     apiKey: VALID_TEST_KEY,

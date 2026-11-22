@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 import { useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, Globe } from "lucide-react";
 import type { SearchSource, SearchStatus } from "@/lib/search";
@@ -91,21 +93,29 @@ export default function SourcesPanel({
                 const isOpen = expanded === index;
                 return (
                   <li key={`${source.uri}-${index}`} className="sources-item">
-                    <button
-                      type="button"
-                      aria-expanded={isOpen}
-                      onClick={() => setExpanded(isOpen ? null : index)}
-                      className="sources-row"
-                    >
+                    <div className="sources-row">
                       <span className="sources-index" aria-hidden="true">{index + 1}</span>
                       <span className="min-w-0 flex-1 text-left">
-                        <span className="sources-title">{source.title}</span>
+                        <a
+                          href={source.uri}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="sources-title sources-title-link"
+                        >
+                          {source.title}
+                        </a>
                         <span className="sources-domain">{source.domain}</span>
                       </span>
-                      <span className="text-[#CCCCCC]" aria-hidden="true">
+                      <button
+                        type="button"
+                        aria-expanded={isOpen}
+                        aria-label={`Expand source ${index + 1}`}
+                        onClick={() => setExpanded(isOpen ? null : index)}
+                        className="sources-toggle shrink-0 text-[#CCCCCC]"
+                      >
                         {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                      </span>
-                    </button>
+                      </button>
+                    </div>
                     {isOpen && (
                       <div className="sources-preview">
                         <p className="sources-preview-title">{source.title}</p>
