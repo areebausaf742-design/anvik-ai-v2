@@ -289,12 +289,13 @@ export default function OnboardingFlow() {
           <div className="onboard-step">
             <div className="onboard-body" tabIndex={0} role="region" aria-label="AI improvement consent">
               <h3>AI model improvement</h3>
-              <p><strong>Optional — never mandatory.</strong> If you allow it, your conversations may be
-                used to improve and evaluate the AI model. If you don&rsquo;t, nothing is shared for
-                this purpose.</p>
-              <p><strong>What happens with your data.</strong> Conversations used for evaluation are
-                processed under the provider&rsquo;s and our agreements, are never shared with third
-                parties for their own use, and never identify you in any public output.</p>
+              <p><strong>Optional — never mandatory.</strong> If you allow this, your conversations may be
+                used to evaluate and improve the AI model. If you don&rsquo;t, your conversations are never
+                shared for this purpose — they are only used to provide you with the service.</p>
+              <p><strong>What happens with your data.</strong> If you allow this, conversations used for
+                evaluation are processed under the provider&rsquo;s and our agreements, never shared with
+                third parties for their own use, and never identify you in any public output. This does
+                not change anything else — ANVIK works fully without this choice.</p>
               <p><strong>You can always withdraw.</strong> You can change or withdraw this choice at any
                 time from your account settings — no email or form required.</p>
               <p><strong>Important — under 16.</strong> If you are under 16, please ask a parent or
