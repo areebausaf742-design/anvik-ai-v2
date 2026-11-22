@@ -28,6 +28,23 @@ test("health returns ok with the default model", async () => {
   const body = await response.json();
   assert.equal(body.status, "ok");
   assert.equal(body.model, "gemini-2.5-flash");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("health reports configured integrations — never a secret, never a live probe", async () => {
+  const response = await healthGET();
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.ok(body.configured && typeof body.configured === "object");
+  assert.equal(typeof body.configured.supabase, "boolean");
+  assert.equal(typeof body.configured.serverKey, "boolean");
+  assert.equal(typeof body.configured.auth, "boolean");
+  // The response must never carry env values — no service key, no anon key,
+  // no random bearer token material.
+  const serialized = JSON.stringify(body);
+  assert.doesNotMatch(serialized, /test-key/i);
+  assert.doesNotMatch(serialized, /service-role/i);
+  assert.doesNotMatch(serialized, /AIzaSy/);
 });
 
 test("quota returns the full locked shape with a valid server key", async () => {
