@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -130,7 +131,7 @@ function SettingsScreenInner() {
       cancelled = true;
       window.clearTimeout(errorTimer);
     };
-  }, []);
+  }, [bearerToken]);
 
   const stats = learningStats(learning);
 
@@ -238,8 +239,8 @@ function SettingsScreenInner() {
           {session && profile ? (
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-sm font-semibold text-white">
-                  {profile.avatarUrl ? <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : <>{(profile.name?.trim().charAt(0) ?? "A").toUpperCase()}</>}
+                <span className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-sm font-semibold text-white">
+                  {profile.avatarUrl ? <Image src={profile.avatarUrl} alt="" fill sizes="44px" className="object-cover" /> : <>{(profile.name?.trim().charAt(0) ?? "A").toUpperCase()}</>}
                 </span>
                 <div>
                   <h2 className="text-base font-semibold text-[#1A1A1A]">Welcome, {profile.name}</h2>
