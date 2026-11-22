@@ -8,8 +8,8 @@
  * What this file explicitly does NOT do is choose answers. Feedback is a record,
  * not a lookup: a liked or corrected answer is never replayed in place of a
  * fresh one from Gemini. Both were removed because a match by normalised text is
- * not a match by meaning — "what is car?" must reach the model even if something
- * similar was liked last week.
+ * not a match by meaning — every question, in every language, must reach the model
+ * even if something similar was liked last week.
  *
  * Memory is the one thing that reaches the model: `memoryInstruction()` is a
  * single prompt line about the user's name, language and preferred length.

@@ -106,7 +106,7 @@ npm run build       # production build
 npm run verify:chat # live check: do real answers come from Gemini?
 ```
 
-`npm run verify:chat` sends the five reference prompts ("hii", "what is car?", "what is AI?",
+`npm run verify:chat` sends the five reference prompts ("hii", "What is the speed of light?", "what is AI?",
 "write python code for calculator", "what is photosynthesis?") to a running `/api/chat` and fails if
 any answer is off-topic, is corpus text, or does not report `X-ANVIK-SOURCE: gemini`. It needs a real
 key:

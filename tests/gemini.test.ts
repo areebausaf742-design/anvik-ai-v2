@@ -106,7 +106,7 @@ test("openGeminiStreamWithFallback rejects invalid key before calling fetch", as
   const result = await openGeminiStreamWithFallback({
     apiKey: "bad-key",
     systemInstruction: "test",
-    contents: [{ role: "user", parts: [{ text: "what is car?" }] }],
+    contents: [{ role: "user", parts: [{ text: "What is the speed of light?" }] }],
     fetchImpl: async () => {
       called = true;
       throw new Error("should not run");
@@ -125,14 +125,14 @@ test("falls back 2.5-flash -> 2.0-flash -> 2.0-flash-lite on 404 and streams tok
   const result = await openGeminiStreamWithFallback({
     apiKey: VALID_TEST_KEY,
     systemInstruction: "Answer directly.",
-    contents: [{ role: "user", parts: [{ text: "what is car?" }] }],
+    contents: [{ role: "user", parts: [{ text: "What is the speed of light?" }] }],
     fetchImpl: async (input) => {
       const url = String(input);
       attempted.push(url);
       if (!url.includes("gemini-2.0-flash-lite")) {
         return new Response("Not Found", { status: 404 });
       }
-      return new Response(sseStream(["A car ", "is a wheeled vehicle."]), { status: 200 });
+      return new Response(sseStream(["The speed of ", "light is about 299,792,458 m/s."]), { status: 200 });
     },
   });
 
@@ -145,7 +145,7 @@ test("falls back 2.5-flash -> 2.0-flash -> 2.0-flash-lite on 404 and streams tok
   if (result.ok) {
     assert.equal(result.model, "gemini-2.0-flash-lite");
     const text = await new Response(result.stream).text();
-    assert.equal(text, "A car is a wheeled vehicle.");
+    assert.equal(text, "The speed of light is about 299,792,458 m/s.");
   }
 });
 
@@ -190,7 +190,7 @@ test("429 and 500 are retried with backoff, then fall back to the next model", a
   const result = await openGeminiStreamWithFallback({
     apiKey: VALID_TEST_KEY,
     systemInstruction: "Answer directly.",
-    contents: [{ role: "user", parts: [{ text: "what is car?" }] }],
+    contents: [{ role: "user", parts: [{ text: "What is the speed of light?" }] }],
     retryDelaysMs: [1, 1],
     fetchImpl: async (input) => {
       const url = String(input);

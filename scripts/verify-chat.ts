@@ -17,7 +17,7 @@
 
 const PROMPTS: { prompt: string; topic: RegExp; label: string }[] = [
   { prompt: "hii", topic: /hello|hi\b|hey|namaste|kaise|how can|what|help|madad|नमस्ते|स्वागत/i, label: "greeting" },
-  { prompt: "what is car?", topic: /car|vehicle|wheel|engine|drive|गाड़ी|वाहन/i, label: "car" },
+  { prompt: "What is the speed of light?", topic: /light|speed|299|m\/s|metre|relativity/i, label: "physics" },
   { prompt: "what is AI?", topic: /\bAI\b|artificial intelligence|machine learning|model|neural|algorithm/i, label: "ai" },
   { prompt: "write python code for calculator", topic: /python|def |print\(|calculator|operator|eval|input\(/i, label: "calculator code" },
   { prompt: "what is photosynthesis?", topic: /photosynthes|plant|chlorophyll|sunlight|glucose|carbon dioxide|पौध|प्रकाश/i, label: "photosynthesis" },

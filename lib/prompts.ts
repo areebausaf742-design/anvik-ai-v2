@@ -1,10 +1,3 @@
-export const promptIdeas = [
-  { icon: "", title: "Artificial Intelligence", text: "What is AI? Explain it simply with real examples." },
-  { icon: "", title: "Python Calculator", text: "Write Python code for a clean command-line calculator." },
-  { icon: "", title: "Photosynthesis", text: "What is photosynthesis and how do plants turn light into energy?" },
-  { icon: "", title: "How Cars Work", text: "What is a car and how do petrol and electric drivetrains differ?" },
-];
-
 export const promptLibrary = [
   "Explain a hard topic simply",
   "Write a concise executive summary",
