@@ -198,3 +198,138 @@ test("server-key path degrades gracefully with no Supabase configured", async ()
   assert.equal(response.headers.get("x-anvik-model"), "gemini-2.5-flash");
   delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 });
+
+/* ------------------------------------------------------------------ */
+/* Web Search                                                          */
+/* ------------------------------------------------------------------ */
+
+function mockGroundedFetch(chunks: string[], metadata?: Record<string, unknown>) {
+  return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    assert.ok(url.includes("streamGenerateContent"), `unexpected url ${url}`);
+    const body = JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown };
+    assert.deepEqual(body.tools, [{ googleSearch: {} }], "grounded requests must carry googleSearch");
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const text of chunks) {
+          const frame = JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] });
+          controller.enqueue(encoder.encode(`data: ${frame}\n\n`));
+        }
+        if (metadata) {
+          const frame = JSON.stringify({ candidates: [{ content: { parts: [{ text: "" }] }, groundingMetadata: metadata }] });
+          controller.enqueue(encoder.encode(`data: ${frame}\n\n`));
+        }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200 });
+  });
+}
+
+test("search on: grounded stream carries sources and queries in the done frame", async () => {
+  mockGroundedFetch(["News here."], {
+    webSearchQueries: ["latest AI news", "ai news 2026"],
+    groundingChunks: [
+      { web: { uri: "https://example.com/a", title: "Story A" } },
+      { web: { uri: "https://www.other.org/b", title: "Story B" } },
+    ],
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-anvik-search-status"), "on");
+  const body = await response.text();
+  assert.match(body, /data: \{"t":"meta"[^\n]*"search":"on"/);
+  assert.match(body, /data: \{"t":"tok"/);
+  const lineStart = body.lastIndexOf("data: ", body.indexOf('"t":"done"'));
+  assert.ok(lineStart >= 0, `done frame expected: ${body.slice(0, 300)}`);
+  const doneLine = body.slice(lineStart + 6).split("\n\n")[0].trim();
+  const done = JSON.parse(doneLine);
+  assert.equal(done.search, "on");
+  assert.deepEqual(done.queries, ["latest AI news", "ai news 2026"]);
+  assert.equal(done.sources.length, 2);
+  assert.equal(done.sources[0].domain, "example.com");
+  assert.equal(done.sources[1].domain, "other.org");
+  assert.equal(done.sources[1].title, "Story B");
+});
+
+test("search off: never passes the tools field and reports status off", async () => {
+  let body: Record<string, unknown> | null = null;
+  mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    return new Response(sseStream(["plain answer"]), { status: 200 });
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news about AI" }], search: "off" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-anvik-search-status"), "off");
+  assert.equal((body as unknown as Record<string, unknown>).tools, undefined);
+  const bodyText = await response.text();
+  assert.match(bodyText, /data: \{"t":"done"[^\n]*"search":"off"/);
+});
+
+test("search on + grounded stream failure: falls back honestly with status unavailable", async () => {
+  let calls = 0;
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls += 1;
+    // Grounded attempt fails with a 503 every model; ungrounded succeeds.
+    if (String(init?.body ?? "").includes("googleSearch")) {
+      return new Response("Server error", { status: 503 });
+    }
+    return new Response(sseStream(["fallback answer"]), { status: 200 });
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news" }], search: "on" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-anvik-search-status"), "unavailable");
+  const body = await response.text();
+  assert.match(body, /"search":"unavailable"/);
+  assert.match(body, /"sources":\[\]/);
+  assert.ok(calls >= 4, `expected grounded attempts then fallback, got ${calls}`);
+});
+
+test("search auto + static question: never sends the tools field", async () => {
+  let body: Record<string, unknown> | null = null;
+  mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    return new Response(sseStream(["static answer"]), { status: 200 });
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "write python code for a calculator" }], search: "auto" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY },
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((body as unknown as Record<string, unknown>).tools, undefined);
+});
+
+test("search auto + recent question: sends the tools field", async () => {
+  let tools: unknown;
+  mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+    tools = (JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown }).tools;
+    return new Response(sseStream(["grounded"]), { status: 200 });
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "latest news today" }], search: "auto" },
+      { "x-google-generative-ai-api-key": VALID_AQ_KEY },
+    ),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(tools, [{ googleSearch: {} }]);
+});

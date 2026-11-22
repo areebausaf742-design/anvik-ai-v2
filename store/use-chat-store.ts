@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { ModeId } from "@/lib/prompts";
+import type { SearchSource } from "@/lib/search";
 
 export type MessageMeta = {
   source?: "gemini";
@@ -11,6 +12,12 @@ export type MessageMeta = {
   verdict?: "like" | "dislike";
   taught?: boolean;
   isError?: boolean;
+  /** Web Search: the search status the server reported for this answer. */
+  searchStatus?: "on" | "off" | "unavailable";
+  /** Web Search: queries the model ran. */
+  queries?: string[];
+  /** Web Search: the sources the model cited while answering. */
+  sources?: SearchSource[];
 };
 
 export type ChatMessage = {
