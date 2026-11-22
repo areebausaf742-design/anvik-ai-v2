@@ -20,6 +20,12 @@
  * below alongside AIza.
  */
 
+export type SearchMetaCapture = {
+  queries: string[];
+  /** Raw grounding chunks ({ web: { uri, title } }), exactly as Gemini returned them. */
+  sources: unknown[];
+};
+
 export const MODEL_FALLBACK_CHAIN = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
@@ -146,6 +152,17 @@ export type GeminiStreamOptions = {
   retryDelaysMs?: number[];
   /** Test-only: per-call timeout in ms (default 60s). */
   timeoutMs?: number;
+  /**
+   * Enable Google Search grounding on the request. The answer always comes
+   * live from Gemini; grounding only lets the model consult the web first.
+   */
+  googleSearch?: boolean;
+  /**
+   * Optional capture object filled as the stream is consumed — the route
+   * reads it after the stream completes to emit honest source citations.
+   * Filled from the grounded chunks' groundingMetadata, never invented.
+   */
+  searchMetaCapture?: SearchMetaCapture;
 };
 
 export type GeminiStreamResult =
@@ -257,6 +274,7 @@ export async function openGeminiStreamWithFallback(
               systemInstruction: { parts: [{ text: options.systemInstruction }] },
               contents: options.contents,
               generationConfig: buildGenerationConfig(model, temperature, maxOutputTokens),
+              ...(options.googleSearch ? { tools: [{ googleSearch: {} }] } : {}),
             }),
             signal: withTimeout(options.signal, timeoutMs),
           },
@@ -285,7 +303,7 @@ export async function openGeminiStreamWithFallback(
         return { ok: false, error: classified };
       }
 
-      return { ok: true, model, stream: toTextStream(response.body) };
+      return { ok: true, model, stream: toTextStream(response.body, options.searchMetaCapture) };
     }
   }
 
@@ -303,7 +321,10 @@ export async function openGeminiStreamWithFallback(
 /* SSE upstream → plain UTF-8 text (retry-safe: only used on 200s)     */
 /* ------------------------------------------------------------------ */
 
-function toTextStream(upstreamBody: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+function toTextStream(
+  upstreamBody: ReadableStream<Uint8Array>,
+  capture?: SearchMetaCapture,
+): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -320,18 +341,46 @@ function toTextStream(upstreamBody: ReadableStream<Uint8Array>): ReadableStream<
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
           for (const line of lines) {
-            emitFrame(line, (text) => {
-              emittedAny = true;
-              controller.enqueue(encoder.encode(text));
-            });
+            emitFrame(
+              line,
+              (text) => {
+                emittedAny = true;
+                controller.enqueue(encoder.encode(text));
+              },
+              (metadata) => {
+                if (!capture) return;
+                const queries = Array.isArray(metadata.webSearchQueries)
+                  ? (metadata.webSearchQueries as unknown[]).filter((q) => typeof q === "string")
+                  : [];
+                capture.queries.push(...(queries as string[]));
+                const chunks = Array.isArray(metadata.groundingChunks) ? metadata.groundingChunks : [];
+                for (const chunk of chunks as unknown[]) {
+                  capture.sources.push(chunk);
+                }
+              },
+            );
           }
         }
         const tail = buffer.trim();
         if (tail.startsWith("data:")) {
-          emitFrame(buffer, (text) => {
-            emittedAny = true;
-            controller.enqueue(encoder.encode(text));
-          });
+          emitFrame(
+            buffer,
+            (text) => {
+              emittedAny = true;
+              controller.enqueue(encoder.encode(text));
+            },
+            (metadata) => {
+              if (!capture) return;
+              const queries = Array.isArray(metadata.webSearchQueries)
+                ? (metadata.webSearchQueries as unknown[]).filter((q) => typeof q === "string")
+                : [];
+              capture.queries.push(...(queries as string[]));
+              const chunks = Array.isArray(metadata.groundingChunks) ? metadata.groundingChunks : [];
+              for (const chunk of chunks as unknown[]) {
+                capture.sources.push(chunk);
+              }
+            },
+          );
         }
         if (!emittedAny) {
           controller.enqueue(
@@ -357,7 +406,16 @@ function toTextStream(upstreamBody: ReadableStream<Uint8Array>): ReadableStream<
   });
 }
 
-function emitFrame(line: string, emit: (text: string) => void): void {
+type GroundingMetadata = {
+  webSearchQueries?: unknown[];
+  groundingChunks?: unknown[];
+};
+
+function emitFrame(
+  line: string,
+  emit: (text: string) => void,
+  onGrounding?: (metadata: GroundingMetadata) => void,
+): void {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) return;
   const payload = trimmed.slice(5).trim();
@@ -367,12 +425,17 @@ function emitFrame(line: string, emit: (text: string) => void): void {
       candidates?: Array<{
         content?: { parts?: Array<{ text?: string }> };
         finishReason?: string;
+        groundingMetadata?: GroundingMetadata;
       }>;
     };
     const parts = frame.candidates?.[0]?.content?.parts;
     if (Array.isArray(parts)) {
       const text = parts.map((p) => p.text ?? "").join("");
       if (text) emit(text);
+    }
+    const metadata = frame.candidates?.[0]?.groundingMetadata;
+    if (metadata && typeof metadata === "object" && onGrounding) {
+      onGrounding(metadata);
     }
   } catch {
     // Skip partial/malformed SSE frames

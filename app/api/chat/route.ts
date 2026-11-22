@@ -34,7 +34,15 @@ import {
   isValidGeminiKeyFormat,
   openGeminiStreamWithFallback,
   type GeminiTurn,
+  type SearchMetaCapture,
 } from "@/lib/gemini";
+import {
+  normalizeSearchMode,
+  normalizeSources,
+  normalizeQueries,
+  shouldAutoSearch,
+  type SearchStatus,
+} from "@/lib/search";
 import { sanitizeTurns, buildGeminiContents } from "@/lib/history";
 import { hashIp, safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
 import { QuotaStore, supabaseQuotaHooks } from "@/lib/quota";
@@ -91,11 +99,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
   }
 
-  const { messages, mode, temperature, memory } = body as {
+  const { messages, mode, temperature, memory, search: rawSearch } = body as {
     messages: unknown;
     mode?: unknown;
     temperature?: unknown;
     memory?: unknown;
+    search?: unknown;
   };
 
   // 1. Strict validation + history normalization.
@@ -209,8 +218,66 @@ export async function POST(request: Request) {
   const deviceId = request.headers.get("x-anvik-device")?.trim().slice(0, 128) || "anonymous";
   const wantSSE = (request.headers.get("accept") ?? "").includes("text/event-stream");
 
-  try {
-    const result = await openGeminiStreamWithFallback({
+  // Web Search: honour the requested mode, with the Auto classifier deciding
+  // for "auto". The decision is based on the last user turn only — the answer
+  // always comes live from Gemini; grounding only lets the model consult the
+  // web first.
+  const searchMode = normalizeSearchMode(rawSearch);
+  const lastUser = [...redactedMessages].reverse().find((turn) => turn.role === "user");
+  const searchNeeded =
+    searchMode === "on" ||
+    (searchMode === "auto" && shouldAutoSearch(lastUser?.content ?? ""));
+  const searchMetaCapture: SearchMetaCapture | undefined = searchNeeded
+    ? { queries: [], sources: [] }
+    : undefined;
+
+  // Web Search: attempt the grounded stream first. When search is needed
+  // and every model fails grounded, fall back to the ungrounded stream so the
+  // user still gets a live, honest answer — the done frame and the
+  // X-ANVIK-SEARCH-STATUS header tell what actually happened.
+  let searchStatus: SearchStatus = "off";
+  let result;
+
+  if (searchNeeded) {
+    const grounded = await openGeminiStreamWithFallback({
+      apiKey: key,
+      systemInstruction,
+      contents,
+      temperature: safeTemperature,
+      maxOutputTokens: tokenCap,
+      signal: request.signal,
+      googleSearch: true,
+      searchMetaCapture,
+    });
+    if (grounded.ok) {
+      result = grounded;
+      searchStatus = "on";
+    } else {
+      const terminal =
+        grounded.error.code === "invalid_key" ||
+        grounded.error.code === "bad_format" ||
+        grounded.error.status === 400 ||
+        grounded.error.status === 401 ||
+        grounded.error.status === 403;
+      if (terminal) {
+        if (reservationKey) quota.cancel(reservationKey);
+        return Response.json(
+          { error: grounded.error.message, detail: grounded.error.message, code: grounded.error.code },
+          { status: grounded.error.status },
+        );
+      }
+      result = await openGeminiStreamWithFallback({
+        apiKey: key,
+        systemInstruction,
+        contents,
+        temperature: safeTemperature,
+        maxOutputTokens: tokenCap,
+        signal: request.signal,
+      });
+      searchStatus = "unavailable";
+    }
+  } else {
+    result = await openGeminiStreamWithFallback({
       apiKey: key,
       systemInstruction,
       contents,
@@ -218,7 +285,10 @@ export async function POST(request: Request) {
       maxOutputTokens: tokenCap,
       signal: request.signal,
     });
+    searchStatus = "off";
+  }
 
+  try {
     if (!result.ok) {
       if (reservationKey) quota.cancel(reservationKey);
       return Response.json(
@@ -241,7 +311,7 @@ export async function POST(request: Request) {
             // First frame is the meta frame, so SSE clients can identify the
             // model from the very first packet on the wire.
             controller.enqueue(
-              encoder.encode(sseFrame({ t: "meta", model, source: "gemini" })),
+              encoder.encode(sseFrame({ t: "meta", model, source: "gemini", search: searchStatus })),
             );
           }
           for (;;) {
@@ -267,8 +337,15 @@ export async function POST(request: Request) {
               answer += rest;
               controller.enqueue(encoder.encode(sseFrame({ t: "tok", s: rest })));
             }
+            // Done frame carries the honest search result: the queries the
+            // model ran and the sources it cited — only what Gemini actually
+            // returned, never fabricated.
+            const sources = searchMetaCapture ? normalizeSources(searchMetaCapture.sources) : [];
+            const queries = searchMetaCapture ? normalizeQueries(searchMetaCapture.queries) : [];
             controller.enqueue(
-              encoder.encode(sseFrame({ t: "done", model })),
+              encoder.encode(
+                sseFrame({ t: "done", model, search: searchStatus, sources, queries }),
+              ),
             );
           } else {
             answer += rest;
@@ -324,6 +401,7 @@ export async function POST(request: Request) {
         "X-ANVIK-SOURCE": "gemini",
         "X-ANVIK-MODEL": model,
         "X-ANVIK-LABEL": "ANVIK",
+        "X-ANVIK-SEARCH-STATUS": searchStatus,
       },
     });
   } catch (err) {

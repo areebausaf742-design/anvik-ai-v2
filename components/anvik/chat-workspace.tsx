@@ -32,6 +32,9 @@ import {
   X,
 } from "lucide-react";
 import { useChatStore, selectActiveConversation, type ChatMessage } from "@/store/use-chat-store";
+import WebSearchMenu from "@/components/anvik/web-search-menu";
+import SourcesPanel from "@/components/anvik/sources-panel";
+import type { SearchMode } from "@/lib/search";
 import { modes } from "@/lib/prompts";
 import AnvikStar from "@/components/anvik/anvik-star";
 import { Brand } from "@/components/anvik/navigation";
@@ -100,6 +103,7 @@ function ChatWorkspaceInner() {
   const [userName, setUserName] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [showPalette, setShowPalette] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -236,6 +240,7 @@ function ChatWorkspaceInner() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "text/event-stream",
           "x-anvik-device": readDeviceId(),
           ...(apiKey ? { "x-google-generative-ai-api-key": apiKey } : {}),
         },
@@ -244,6 +249,7 @@ function ChatWorkspaceInner() {
           mode,
           temperature,
           memory: readMemory(),
+          search: searchMode,
         }),
         signal: controller.signal,
       });
@@ -254,17 +260,78 @@ function ChatWorkspaceInner() {
       }
 
       const modelUsed = response.headers.get("x-anvik-model") ?? "anvik-1.0";
+      const isSSE = (response.headers.get("content-type") ?? "").includes("text/event-stream");
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
       let answer = "";
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        answer += decoder.decode(chunk, { stream: true });
-        updateMessage(conversationId, assistantId, answer);
+      let finalSearchStatus: "on" | "off" | "unavailable" = response.headers.get("x-anvik-search-status") === "on" ? "on" : response.headers.get("x-anvik-search-status") === "unavailable" ? "unavailable" : "off";
+      let finalSources: Array<{ title: string; uri: string; domain: string }> = [];
+      let finalQueries: string[] = [];
+
+      if (isSSE) {
+        // Frame protocol: meta (first packet) -> tok(s) -> done (sources + queries).
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        const handleFrame = (raw: string) => {
+          const frame = raw.trim();
+          if (!frame.startsWith("data:")) return;
+          let parsed: { t?: string; s?: string; model?: string; search?: string; sources?: Array<{ title?: string; uri?: string; domain?: string }>; queries?: string[] };
+          try {
+            parsed = JSON.parse(frame.slice(5).trim());
+          } catch {
+            return;
+          }
+          if (parsed.t === "meta") {
+            setMessageMeta(conversationId, assistantId, {
+              source: "gemini",
+              model: parsed.model ?? modelUsed,
+              searchStatus: parsed.search === "on" || parsed.search === "unavailable" ? parsed.search : "off",
+            });
+          } else if (parsed.t === "tok" && typeof parsed.s === "string" && parsed.s) {
+            answer += parsed.s;
+            updateMessage(conversationId, assistantId, answer);
+          } else if (parsed.t === "done") {
+            if (parsed.search === "on" || parsed.search === "unavailable" || parsed.search === "off") {
+              finalSearchStatus = parsed.search;
+            }
+            if (Array.isArray(parsed.sources)) {
+              finalSources = parsed.sources
+                .filter((s) => typeof s?.uri === "string" && s.uri.trim())
+                .map((s) => ({
+                  title: typeof s.title === "string" && s.title.trim() ? s.title.trim() : s.uri as string,
+                  uri: s.uri as string,
+                  domain: typeof s.domain === "string" && s.domain.trim() ? s.domain.trim() : (s.uri as string),
+                }));
+            }
+            if (Array.isArray(parsed.queries)) {
+              finalQueries = parsed.queries.filter((q): q is string => typeof q === "string" && !!q.trim());
+            }
+          }
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() ?? "";
+          for (const frame of frames) handleFrame(frame);
+        }
+        buffer += decoder.decode();
+        if (buffer.trim()) handleFrame(buffer);
+      } else {
+        // Raw UTF-8 stream (non-SSE deployments / fallback path).
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value: chunk } = await reader.read();
+          if (done) break;
+          answer += decoder.decode(chunk, { stream: true });
+          updateMessage(conversationId, assistantId, answer);
+        }
+        answer += decoder.decode();
       }
-      answer += decoder.decode();
 
       if (!answer.trim()) {
         const emptyMsg = "ANVIK could not answer. Check key or try again.";
@@ -277,6 +344,9 @@ function ChatWorkspaceInner() {
           source: "gemini",
           model: modelUsed,
           isError: false,
+          searchStatus: finalSearchStatus,
+          sources: finalSources,
+          queries: finalQueries,
         });
         recordDailyUsage(modelUsed);
       }
@@ -406,6 +476,8 @@ function ChatWorkspaceInner() {
               </div>
             )}
           </div>
+
+          <WebSearchMenu mode={searchMode} onChange={setSearchMode} />
 
           <div className="chatbar-input-wrap">
             <span
@@ -779,12 +851,21 @@ function ChatWorkspaceInner() {
                   <article key={message.id} className="msg-row msg-enter mb-8">
                     {isThinking ? (
                       <div className="flex items-center gap-3 py-2 text-sm text-[#999999]">
-                        <span className="typing-dots" aria-hidden="true">
-                          <span />
-                          <span />
-                          <span />
-                        </span>
-                        <span>ANVIK is thinking</span>
+                        {message.searchStatus === "on" || (searchMode !== "off" && !message.searchStatus) ? (
+                          <>
+                            <span className="search-pulse-dot" aria-hidden="true" />
+                            <span>Searching the web…</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="typing-dots" aria-hidden="true">
+                              <span />
+                              <span />
+                              <span />
+                            </span>
+                            <span>ANVIK is thinking</span>
+                          </>
+                        )}
                       </div>
                     ) : message.isError ? (
                       <div className="rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-sm text-[#666666]">
@@ -795,7 +876,24 @@ function ChatWorkspaceInner() {
                         <div className={isStreaming ? "stream-cursor" : ""}>
                           <Markdown text={message.content} className="md" />
                         </div>
+
+                        {isStreaming && message.searchStatus === "on" && (
+                          <div className="search-live-badge" role="status">
+                            <span className="search-pulse-dot" aria-hidden="true" />
+                            Searching the web…
+                          </div>
+                        )}
+
                         <div className="mt-1 text-xs text-[#999999]">ANVIK</div>
+
+                        {!isStreaming && message.searchStatus && message.searchStatus !== "off" && (
+                          <SourcesPanel
+                            sources={message.sources ?? []}
+                            queries={message.queries ?? []}
+                            searchStatus={message.searchStatus}
+                            defaultOpen={(message.sources?.length ?? 0) > 0}
+                          />
+                        )}
 
                         {/* Message toolbar */}
                         <div className="msg-toolbar mt-3 flex items-center gap-1">
