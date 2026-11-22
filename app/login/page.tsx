@@ -36,7 +36,7 @@ type Mode = "signin" | "signup" | "forgot";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { session, loading: sessionLoading, signOut } = useSession();
+  const { session, consent, loading: sessionLoading, signOut, refresh } = useSession();
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -49,6 +49,8 @@ export default function LoginPage() {
   const [successNote, setSuccessNote] = useState("");
   const [oauthPending, setOauthPending] = useState(false);
   const mounted = useRef(true);
+  const oauthExchangeStarted = useRef(false);
+  const oauthStartStarted = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -56,9 +58,17 @@ export default function LoginPage() {
     };
   }, []);
 
-  const redirectToApp = useCallback(() => {
-    router.replace("/chat");
-  }, [router]);
+  const postLoginDestination = useCallback(() => {
+    const url = new URL(window.location.href);
+    const next = url.searchParams.get("next");
+    if (!next) return "/chat";
+    try {
+      const target = new URL(next, window.location.origin);
+      return target.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : "/chat";
+    } catch {
+      return "/chat";
+    }
+  }, []);
 
   // OAuth callback: Supabase returns to /login?code=... (the state param,
   // when present, is the server's flow-state UUID — it is never verified or
@@ -66,11 +76,19 @@ export default function LoginPage() {
   useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
-    if (!code) return;
+    const oauthError = url.searchParams.get("error");
+    if (oauthError) {
+      window.history.replaceState({}, "", "/login");
+      setError(url.searchParams.get("error_description") || "Google sign-in was cancelled.");
+      setOauthPending(false);
+      oauthStartStarted.current = false;
+      return;
+    }
+    if (!code || oauthExchangeStarted.current) return;
+    oauthExchangeStarted.current = true;
     setOauthPending(true);
     void (async () => {
-      // Strip the code/state from the address bar after handling.
-      window.history.replaceState({}, "", "/login");
+      window.history.replaceState({}, "", postLoginDestination() === "/chat" ? "/login" : `/login?next=${encodeURIComponent(postLoginDestination())}`);
       const result = await completeGoogleOAuth(code);
       if (!mounted.current) return;
       setOauthPending(false);
@@ -78,6 +96,7 @@ export default function LoginPage() {
         setError(result.error ?? "Google sign-in could not be completed.");
         return;
       }
+      await refresh();
       const user = result.user as SupabaseUser | undefined;
       const displayName =
         (user?.user_metadata?.name as string | undefined) ??
@@ -85,36 +104,51 @@ export default function LoginPage() {
         (user?.user_metadata?.given_name as string | undefined) ??
         "";
       if (displayName) setName(displayName);
-      // Consent is checked server-side in onboarding — fresh users go there.
-      router.replace("/onboarding");
+      const destination = postLoginDestination();
+      router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     })();
-  }, [router]);
+  }, [postLoginDestination, refresh, router]);
 
   // Already signed in — skip the login screen (mirrors returning users).
   useEffect(() => {
-    if (!sessionLoading && session) redirectToApp();
-  }, [sessionLoading, session, redirectToApp]);
+    if (sessionLoading || !session) return;
+    if (consent?.hasAccepted) {
+      router.replace(postLoginDestination());
+    } else {
+      const destination = postLoginDestination();
+      router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
+    }
+  }, [sessionLoading, session, consent, postLoginDestination, router]);
 
   async function handleGoogle() {
+    if (busy || oauthPending || oauthStartStarted.current) return;
+    oauthStartStarted.current = true;
     setError("");
     setBusy(true);
     try {
       const origin = window.location.origin;
-      const result = await startGoogleOAuth(`${origin}/login`, origin);
+      const destination = postLoginDestination();
+      const redirectTo = destination === "/chat"
+        ? `${origin}/login`
+        : `${origin}/login?next=${encodeURIComponent(destination)}`;
+      const result = await startGoogleOAuth(redirectTo, origin);
       if (!result.ok) {
         setError(result.error ?? "Could not start Google sign-in.");
         setBusy(false);
+        oauthStartStarted.current = false;
         return;
       }
       window.location.assign(result.authorizeUrl);
     } catch {
       setError("Could not start Google sign-in.");
       setBusy(false);
+      oauthStartStarted.current = false;
     }
   }
 
   async function handleSignIn(event: React.FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setError("");
     setSuccessNote("");
     if (!email.trim() || !password) {
@@ -130,9 +164,9 @@ export default function LoginPage() {
         setBusy(false);
         return;
       }
-      // Returning user: straight to the app. New users get onboarding first
-      // via the onboarding check — onboarding handles the fresh/returning split.
-      router.replace("/onboarding");
+      await refresh();
+      const destination = postLoginDestination();
+      router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     } catch {
       setError("Could not sign in. Please try again.");
     } finally {
@@ -142,6 +176,7 @@ export default function LoginPage() {
 
   async function handleSignUp(event: React.FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setError("");
     setSuccessNote("");
     const trimmedName = name.trim();
@@ -183,7 +218,9 @@ export default function LoginPage() {
         setBusy(false);
         return;
       }
-      router.replace("/onboarding");
+      await refresh();
+      const destination = postLoginDestination();
+      router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     } catch {
       setError("Could not create your account. Please try again.");
     } finally {
@@ -193,6 +230,7 @@ export default function LoginPage() {
 
   async function handleForgot(event: React.FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setError("");
     if (!email.trim()) {
       setError("Enter your email.");
