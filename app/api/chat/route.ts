@@ -52,8 +52,8 @@ import { EntitlementsStore, supabaseEntitlementHooks } from "@/lib/entitlements"
 import type { PlanId } from "@/lib/plans";
 import { sbSelect, sbUpsert } from "@/lib/supabase";
 import { recordChatExchange } from "@/lib/chat-record";
-import { clientIp, allowPerIp } from "@/lib/rate-limit";
-import { getVerifiedUser, type VerifiedUser } from "@/lib/session";
+import { clientIp, allowDistributed } from "@/lib/rate-limit";
+import { getVerifiedUserIfPresent, type VerifiedUser } from "@/lib/session";
 import {
   ensureEntitlement,
   effectivePlan,
@@ -62,6 +62,7 @@ import {
   recordUsage,
 } from "@/lib/credits";
 import { planById } from "@/lib/plans";
+import { logRouteEvent } from "@/lib/observability";
 
 export const maxDuration = 60;
 
@@ -152,6 +153,7 @@ async function confirmReservation(
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   let body: unknown;
   try {
     body = await request.json();
@@ -223,11 +225,25 @@ export async function POST(request: Request) {
     console.warn(`chat using ${safeKeyLog(key)}`);
   }
 
-  // 5. Per-IP rate limit — max 1 request per 2 seconds, 60 per minute.
+  // 5. Distributed rate limit — max 1 request per 2 seconds, 60 per minute,
+  // keyed by the VERIFIED user id when signed in, else by effective IP.
+  // Never trusts client-supplied identity headers (audit: H-1/H-8).
   const ip = clientIp(request);
-  const pace = allowPerIp(ip, MIN_SPACING_MS, PER_MINUTE);
+  const verifiedUserForLimit = await getVerifiedUserIfPresent(request).catch(() => null);
+  const pace = await allowDistributed(request, "chat", PER_MINUTE, 0, {
+    verifiedUserId: verifiedUserForLimit?.id ?? null,
+    spacingMs: MIN_SPACING_MS,
+  });
   if (!pace.allowed) {
     const retryAfter = Math.max(1, Math.ceil(pace.retryAfterMs / 1000));
+    logRouteEvent({
+      route: "chat",
+      outcome: "rate_limited",
+      status: 429,
+      latencyMs: Date.now() - startedAt,
+      rateLimitSource: pace.source,
+      errorCode: "rate_limit",
+    });
     return Response.json(
       {
         error: "Too many requests. Please wait a few seconds and try again.",
@@ -249,7 +265,9 @@ export async function POST(request: Request) {
   let verifiedUser: VerifiedUser | null = null;
 
   if (!validClientKey) {
-    verifiedUser = await getVerifiedUser(request).catch(() => null);
+    // Reuse the verified identity resolved for the rate limiter — one
+    // Supabase round-trip per request, never a second one.
+    verifiedUser = verifiedUserForLimit;
     if (verifiedUser) {
       // --- per-user credit path (the multi-user system) ---
       const reference = (request.headers.get("x-anvik-request-id") ?? "").trim().slice(0, 160) || crypto.randomUUID();
@@ -416,6 +434,13 @@ export async function POST(request: Request) {
   try {
     if (!result.ok) {
       cancelReservation(reservation);
+      logRouteEvent({
+        route: "chat",
+        outcome: "error",
+        status: result.error.status,
+        latencyMs: Date.now() - startedAt,
+        errorCode: result.error.code,
+      });
       return Response.json(
         { error: result.error.message, detail: result.error.message, code: result.error.code },
         { status: result.error.status },
@@ -423,6 +448,7 @@ export async function POST(request: Request) {
     }
 
     const model = result.model;
+    logRouteEvent({ route: "chat", outcome: "success", status: 200, latencyMs: Date.now() - startedAt, model });
     const upstreamReader = result.stream.getReader();
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();

@@ -1,5 +1,6 @@
 import { detectLanguage, langLabel } from "@/lib/detect";
-import { allow, clientIdentity, LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { getVerifiedUserIfPresent } from "@/lib/session";
 import { serverKey } from "@/lib/provider";
 import {
   KEY_FORMAT_ERROR,
@@ -39,8 +40,14 @@ export async function POST(req: Request) {
     return json({ message: KEY_FORMAT_ERROR, code: "bad_format" }, 401);
   }
 
-  if (!allow(clientIdentity(req, req.headers.get("x-anvik-device")), 12, 100)) {
-    return json({ message: LIMIT_MESSAGE, code: "rate" }, 429);
+  const verified = await getVerifiedUserIfPresent(req);
+  const rate = await allowDistributed(req, "ask", 12, 100, { verifiedUserId: verified?.id ?? null });
+  if (!rate.allowed) {
+    const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+    return new Response(JSON.stringify({ message: LIMIT_MESSAGE, code: "rate" }), {
+      status: 429,
+      headers: { "content-type": "application/json; charset=utf-8", "Retry-After": String(retryAfter) },
+    });
   }
 
   const lang = detectLanguage(question);
