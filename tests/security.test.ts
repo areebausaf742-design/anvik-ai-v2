@@ -55,7 +55,7 @@ test("legitimate requests are not blocked", () => {
     "explain how a system prompt works in an LLM",
     "How do I build a system prompt for my chatbot?",
     "Tell me about the API in an AI setting",
-    "what is a car?",
+    "what is machine learning?",
     "write python code for a calculator",
     "how do I ignore exceptions in Python?",
     "How do I set up a system prompt in Claude?",

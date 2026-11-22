@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { usePathname } from "next/navigation";
 import {
   AlertCircle,
-  ArrowRight,
   ArrowUp,
   AudioLines,
   Bell,
@@ -17,13 +16,11 @@ import {
   Focus,
   Image as ImageIcon,
   KeyRound,
-  Lightbulb,
   Menu,
   MessageSquarePlus,
   Mic,
   PanelLeftClose,
   PanelLeftOpen,
-  PenLine,
   Pencil,
   RefreshCw,
   Search,
@@ -65,23 +62,13 @@ function makeId() {
   return crypto.randomUUID();
 }
 
-const QUICK_ACTIONS = [
-  { label: "Write", icon: PenLine, prompt: "Write a warm, professional email to schedule a meeting next week." },
-  { label: "Code", icon: Code2, prompt: "Write a Python calculator with basic arithmetic operations." },
-  { label: "Learn", icon: Lightbulb, prompt: "Explain photosynthesis in simple terms with real examples." },
-  { label: "Image", icon: ImageIcon, prompt: "Describe a cinematic mountain landscape at golden hour." },
-];
-
-const SUGGESTION_CHIPS = [
-  "Photosynthesis kya hai?",
-  "Calculator ka code likho",
-  "What is car?",
-];
-
-const WELCOME_CARDS = [
-  { title: "Explain photosynthesis in Hindi", desc: "Simple language with real examples from daily life", icon: Lightbulb },
-  { title: "Write calculator code", desc: "Clean, working code you can run right away", icon: Code2 },
-  { title: "Make a study plan", desc: "A 30-day roadmap tailored to your goals", icon: FileText },
+const PLACEHOLDERS = [
+  "Ask ANVIK anything...",
+  "Write code for Java topic...",
+  "Explain Java OOP with example...",
+  "Write Python code for calculator...",
+  "Make a study plan for Class 12...",
+  "Solve Physics numerical step by step...",
 ];
 
 function ChatWorkspaceInner() {
@@ -116,6 +103,8 @@ function ChatWorkspaceInner() {
   const [showPalette, setShowPalette] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [placeholderFading, setPlaceholderFading] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
@@ -165,6 +154,27 @@ function ChatWorkspaceInner() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Rotate the empty-input placeholder every 3 s with a smooth fade.
+  // Rotation stops (and the placeholder hides) while the field is non-empty.
+  const placeholderSwapRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (input.trim()) {
+      setPlaceholderFading(false);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setPlaceholderFading(true);
+      placeholderSwapRef.current = window.setTimeout(() => {
+        setPlaceholderIndex((index) => (index + 1) % PLACEHOLDERS.length);
+        setPlaceholderFading(false);
+      }, 420);
+    }, 3000);
+    return () => {
+      window.clearInterval(interval);
+      if (placeholderSwapRef.current) window.clearTimeout(placeholderSwapRef.current);
+    };
+  }, [input]);
 
   async function runInlineKeyTest() {
     setTestingKey(true);
@@ -366,6 +376,107 @@ function ChatWorkspaceInner() {
     setRenamingId(null);
     setRenameValue("");
   }
+
+  const isEmptyInput = !input.trim();
+
+  const renderChatbar = (options: { className: string; showTooltip?: boolean }) => (
+    <form onSubmit={submit} className={options.className}>
+      <div className="chatbar" data-typing={isEmptyInput ? "false" : "true"}>
+        <div className="chatbar-inner">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              aria-label="Add attachment"
+              aria-expanded={showPhotoMenu}
+              aria-haspopup="menu"
+              onClick={() => setShowPhotoMenu((open) => !open)}
+              className="chatbar-icon-btn"
+            >
+              <span className="text-lg leading-none" aria-hidden="true">+</span>
+            </button>
+            {showPhotoMenu && (
+              <div role="menu" aria-label="Photo actions" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-44 rounded-xl border border-[#E5E5E5] bg-white p-1.5 shadow-lg">
+                <a role="menuitem" href="/vision?source=upload" className="block rounded-lg px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F7F5]">Upload Photo</a>
+                <a role="menuitem" href="/vision?camera=1" className="block rounded-lg px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F7F5]">Take Photo</a>
+              </div>
+            )}
+            {options.showTooltip && showTooltip && (
+              <div className="absolute left-2 bottom-[calc(100%+12px)] z-20 max-w-[260px] rounded-lg bg-[#1A1A1A] px-3 py-1.5 text-xs text-white tooltip-arrow">
+                Try Take Photo — Ask about anything you see
+              </div>
+            )}
+          </div>
+
+          <div className="chatbar-input-wrap">
+            <span
+              aria-hidden="true"
+              className="chatbar-placeholder"
+              data-show={isEmptyInput ? "true" : "false"}
+              data-fade={placeholderFading ? "true" : "false"}
+            >
+              {PLACEHOLDERS[placeholderIndex]}
+            </span>
+            <textarea
+              ref={fieldRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={keySubmit}
+              placeholder=""
+              aria-label="Message ANVIK"
+              rows={1}
+              disabled={pending}
+              className="chatbar-input"
+            />
+          </div>
+
+          <span className="hidden sm:inline shrink-0 text-xs font-medium text-[#999999]" aria-hidden="true">ANVIK 1.0</span>
+
+          <select
+            aria-label="Response mode"
+            value={mode}
+            onChange={(event) => setMode(event.target.value as typeof mode)}
+            className="hidden sm:inline-flex shrink-0 items-center rounded-lg border border-[#EDEDED] bg-white px-2 py-1.5 text-xs font-medium text-[#666666] transition-colors hover:border-[#1A1A1A] focus:outline-none"
+          >
+            {modes.map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+
+          {pending ? (
+            <button
+              type="button"
+              onClick={stop}
+              aria-label="Stop generating"
+              className="chatbar-icon-btn shrink-0 border-[#1A1A1A] text-[#1A1A1A]"
+            >
+              <AudioLines className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={listen}
+              aria-label={listening ? "Stop voice input" : "Use voice input"}
+              aria-pressed={listening}
+              className={`chatbar-icon-btn shrink-0 ${listening ? "chatbar-icon-btn-on" : ""}`}
+            >
+              <Mic className="h-4 w-4" />
+            </button>
+          )}
+
+          <button
+            type="submit"
+            aria-label="Send message"
+            disabled={!input.trim() || pending}
+            className="send-btn shrink-0"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </form>
+  );
 
   const safeConversations = hydrated ? conversations : [];
   const activeMessages = hydrated ? (activeChat?.messages ?? []) : [];
@@ -621,7 +732,7 @@ function ChatWorkspaceInner() {
         {/* Message area */}
         <div className="flex-1 overflow-y-auto thin-scroll">
           {activeMessages.length === 0 ? (
-            <div className="mx-auto flex max-w-[720px] flex-col items-center px-4 pt-20 pb-8 text-center">
+            <div className="mx-auto flex max-w-[720px] flex-col items-center px-4 pt-14 pb-10 text-center sm:px-6 sm:pt-20">
               <AnvikStar size="lg" className="mb-4" />
               <h1
                 className="welcome-fade-in font-serif text-[32px] font-normal leading-tight tracking-[-0.5px] text-[#1A1A1A]"
@@ -634,143 +745,8 @@ function ChatWorkspaceInner() {
                 A calm space to think, create, and get things done.
               </p>
 
-              {/* Quick actions */}
-              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                {QUICK_ACTIONS.map((action) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    className="quick-pill"
-                    onClick={() => setInput(action.prompt)}
-                  >
-                    <action.icon className="h-3.5 w-3.5 text-[#666666]" />
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Input box */}
-              <form onSubmit={submit} className="mt-6 w-full">
-                <div className="premium-input input-pulse p-2.5">
-                  <textarea
-                    ref={fieldRef}
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={keySubmit}
-                    placeholder="How can I help you today?"
-                    aria-label="Message ANVIK"
-                    rows={1}
-                    disabled={pending}
-                    className="max-h-36 min-h-[44px] w-full resize-none bg-transparent px-2 py-1.5 text-[15px] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
-                  />
-                  <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
-                    <div className="flex items-center gap-1.5 relative">
-                      <button
-                        type="button"
-                        aria-label="Add attachment"
-                        aria-expanded={showPhotoMenu}
-                        aria-haspopup="menu"
-                        onClick={() => setShowPhotoMenu((open) => !open)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
-                      >
-                        <span className="text-lg leading-none">+</span>
-                      </button>
-                      {showPhotoMenu && (
-                        <div role="menu" aria-label="Photo actions" className="absolute bottom-10 left-0 z-30 w-44 rounded-xl border border-[#E5E5E5] bg-white p-1.5 shadow-lg">
-                          <a role="menuitem" href="/vision?source=upload" className="block rounded-lg px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F7F5]">Upload Photo</a>
-                          <a role="menuitem" href="/vision?camera=1" className="block rounded-lg px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F7F5]">Take Photo</a>
-                        </div>
-                      )}
-                      {showTooltip && (
-                        <div className="absolute left-10 top-0 z-20 whitespace-nowrap rounded-lg bg-[#1A1A1A] px-3 py-1.5 text-xs text-white tooltip-arrow">
-                          Try Take Photo — Ask about anything you see
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={listen}
-                        aria-label={listening ? "Stop voice input" : "Use voice input"}
-                        aria-pressed={listening}
-                        className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
-                          listening
-                            ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
-                            : "border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
-                        }`}
-                      >
-                        <Mic className="h-4 w-4" />
-                      </button>
-                      {pending && (
-                        <button
-                          type="button"
-                          onClick={stop}
-                          aria-label="Stop generating"
-                          className="flex h-8 items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
-                        >
-                          <AudioLines className="h-3.5 w-3.5" />
-                          Stop
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="hidden sm:inline text-xs font-medium text-[#999999]">ANVIK 1.0</span>
-                      <select
-                        aria-label="Response mode"
-                        value={mode}
-                        onChange={(event) => setMode(event.target.value as typeof mode)}
-                        className="rounded-lg border border-[#EDEDED] bg-white px-2 py-1 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] focus:outline-none"
-                      >
-                        {modes.map((item) => (
-                          <option value={item.id} key={item.id}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="submit"
-                        aria-label="Send message"
-                        disabled={!input.trim() || pending}
-                        className="send-btn"
-                      >
-                        <ArrowUp className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </form>
-
-              {/* Suggestion chips */}
-              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                {SUGGESTION_CHIPS.map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    className="premium-chip"
-                    onClick={() => void sendMessage(chip)}
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-
-              {/* Welcome cards */}
-              <div className="mt-10 grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
-                {WELCOME_CARDS.map((card) => (
-                  <button
-                    key={card.title}
-                    type="button"
-                    className="surface-card p-5 text-left"
-                    onClick={() => void sendMessage(card.title)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <card.icon className="h-5 w-5 text-[#D97757]" />
-                      <ArrowRight className="h-4 w-4 text-[#CCCCCC] opacity-0 transition-opacity group-hover:opacity-100" />
-                    </div>
-                    <h3 className="mt-3 text-sm font-semibold text-[#1A1A1A]">{card.title}</h3>
-                    <p className="mt-1 text-xs leading-relaxed text-[#666666]">{card.desc}</p>
-                  </button>
-                ))}
-              </div>
+              {/* Glowing chatbar — welcome screen */}
+              {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
 
               {error && (
                 <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
@@ -894,7 +870,7 @@ function ChatWorkspaceInner() {
 
         {/* Bottom composer (when in conversation) */}
         {activeMessages.length > 0 && (
-          <div className="shrink-0 px-4 py-3">
+          <div className="shrink-0 px-3 py-3 sm:px-6 sm:py-4">
             {error && (
               <div
                 role="alert"
@@ -945,98 +921,7 @@ function ChatWorkspaceInner() {
               </div>
             )}
 
-            <form onSubmit={submit} className="mx-auto max-w-[720px]">
-              <div className="premium-input p-2.5">
-                <textarea
-                  ref={fieldRef}
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={keySubmit}
-                  placeholder="Ask ANVIK anything..."
-                  aria-label="Message ANVIK"
-                  rows={1}
-                  disabled={pending}
-                  className="max-h-36 min-h-[44px] w-full resize-none bg-transparent px-2 py-1.5 text-[15px] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
-                />
-                <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
-                  <div className="flex items-center gap-1.5">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        aria-label="Add attachment"
-                        aria-haspopup="menu"
-                        aria-expanded={showPhotoMenu}
-                        onClick={() => setShowPhotoMenu((open) => !open)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] transition-colors hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
-                      >
-                        <span className="text-lg leading-none">+</span>
-                      </button>
-                      {showPhotoMenu && (
-                        <div role="menu" aria-label="Add to chat" className="absolute bottom-[calc(100%+8px)] left-0 z-20 w-40 rounded-xl border border-[#EDEDED] bg-white p-1.5 shadow-lg">
-                          <button type="button" role="menuitem" onClick={() => { window.location.assign("/vision?source=upload"); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#1A1A1A] hover:bg-[#F7F7F5]">Upload photo</button>
-                          <button type="button" role="menuitem" onClick={() => { window.location.assign("/vision?camera=1"); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#1A1A1A] hover:bg-[#F7F7F5]">Take a photo</button>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={listen}
-                      aria-label={listening ? "Stop voice input" : "Use voice input"}
-                      aria-pressed={listening}
-                      className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
-                        listening
-                          ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
-                          : "border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
-                      }`}
-                    >
-                      <Mic className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Audio"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
-                    >
-                      <AudioLines className="h-4 w-4" />
-                    </button>
-                    {pending && (
-                      <button
-                        type="button"
-                        onClick={stop}
-                        aria-label="Stop generating"
-                        className="flex h-8 items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
-                      >
-                        <AudioLines className="h-3.5 w-3.5" />
-                        Stop
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="hidden sm:inline text-xs font-medium text-[#999999]">ANVIK 1.0</span>
-                    <select
-                      aria-label="Response mode"
-                      value={mode}
-                      onChange={(event) => setMode(event.target.value as typeof mode)}
-                      className="rounded-lg border border-[#EDEDED] bg-white px-2 py-1 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] focus:outline-none"
-                    >
-                      {modes.map((item) => (
-                        <option value={item.id} key={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="submit"
-                      aria-label="Send message"
-                      disabled={!input.trim() || pending}
-                      className="send-btn"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </form>
+            {renderChatbar({ className: "mx-auto w-full max-w-[720px]" })}
           </div>
         )}
       </section>

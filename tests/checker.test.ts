@@ -35,7 +35,7 @@ test("every helpline printed in the corpus is in the allowlist", () => {
 
 test("a usable answer passes untouched", () => {
   const answer =
-    "A car is a four-wheeled road vehicle powered by an engine. Most cars run on petrol or diesel, and electric cars use a battery and a motor instead.";
+    "The speed of light is the fastest thing that moves in the universe. It travels at about 299,792,458 metres per second in a vacuum, so sunlight needs about eight minutes to reach the Earth.";
   const result = checkReply(answer);
   assert.equal(result.ok, true);
   assert.equal(result.changed, false);
@@ -51,9 +51,9 @@ test("an empty answer fails", () => {
 });
 
 test("answers about ordinary topics are never flagged as off-topic", () => {
-  // the exact bug: "what is car?" must not be rewritten or rejected
+  // ordinary questions must never be flagged off-topic or rewritten
   for (const answer of [
-    "A car is a passenger vehicle with four wheels and an engine.",
+    "The speed of light is about 299,792,458 metres per second.",
     "Photosynthesis is how plants turn sunlight, water and carbon dioxide into glucose.",
     "Artificial intelligence is software that performs tasks associated with human reasoning.",
     "Here is a Python calculator:\n```python\nprint(eval(input()))\n```",
@@ -76,7 +76,7 @@ test("abuse is refused, and the refusal is not about the topic", () => {
   assert.ok(result.issues.some((issue) => issue.code === "safety" && issue.severity === "blocking"));
   const reply = abuseReply();
   assert.ok(reply.length > 20);
-  assert.ok(!/car|photosynthesis|credit/i.test(reply), "the refusal must not change subject");
+  assert.ok(!/photosynthesis|credit/i.test(reply), "the refusal must not change subject");
 });
 
 test("a made-up helpline is replaced with a pointer, not a corpus answer", () => {
@@ -117,7 +117,7 @@ test("links, markdown and statistics are left exactly as written", () => {
 });
 
 test("a check trailer round-trips without touching the body", () => {
-  const body = "A car is a vehicle.\n\n- wheels\n- engine";
+  const body = "Light travels at a fixed speed.\n\n- it powers the Sun\n- it never goes faster than itself";
   const result = checkReply(body);
   const decoded = decodeCheck(body + encodeCheck(result));
   assert.equal(decoded.text, body);

@@ -12,8 +12,8 @@ function partText(part: { text?: string; inlineData?: unknown }): string {
 
 test("a plain conversation maps assistant → model and ends with the user", () => {
   const result = sanitizeTurns([
-    { role: "user", content: "what is a car?" },
-    { role: "assistant", content: "A car is a vehicle." },
+    { role: "user", content: "What is the speed of light?" },
+    { role: "assistant", content: "Light travels at a fixed speed." },
     { role: "user", content: "tell me more" },
   ]);
   assert.equal(result.ok, true);

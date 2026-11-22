@@ -33,19 +33,19 @@ test("phone, Aadhaar and card numbers are removed", () => {
 });
 
 test("an ordinary question is not mangled", () => {
-  const clean = "What is a car and how does its engine work?";
+  const clean = "What is the speed of light and why does it matter?";
   assert.equal(redact(clean).text, clean);
   assert.equal(containsSecret(clean), false);
   assert.equal(containsSecret("my password is abc123"), true);
 });
 
 test("normalisation makes the same question comparable", () => {
-  assert.equal(normalizeQuestion("What is a CAR??"), normalizeQuestion("what is a car"));
+  assert.equal(normalizeQuestion("What is the SPEED of light??"), normalizeQuestion("what is the speed of light"));
 });
 
 test("topics pick content words, not grammar", () => {
-  const topics = topicsOf("What is a car?");
-  assert.ok(topics.includes("car"));
+  const topics = topicsOf("What is the speed of light?");
+  assert.ok(topics.includes("speed"));
   assert.ok(!topics.includes("what"));
   assert.ok(!topics.includes("is"));
 });
@@ -59,14 +59,14 @@ test("memory instruction is one line, and only says what was set", () => {
 
 test("dashboard counts feedback and topics, with no replay counter", () => {
   const feedback: Feedback[] = [
-    { id: "1", question: "what is a car", answer: "a", verdict: "like", lang: "en", topic: "car", createdAt: 3 },
+    { id: "1", question: "what is the speed of light", answer: "a", verdict: "like", lang: "en", topic: "light", createdAt: 3 },
     { id: "2", question: "what is ai", answer: "b", verdict: "like", lang: "en", topic: "ai", createdAt: 2 },
-    { id: "3", question: "what is a car", answer: "c", verdict: "dislike", lang: "en", topic: "car", createdAt: 1 },
+    { id: "3", question: "what is the speed of light", answer: "c", verdict: "dislike", lang: "en", topic: "light", createdAt: 1 },
   ];
   const learning: Learning = {
     feedback,
     corrections: [
-      { id: "4", question: "what is a car", answer: "c", correction: "a vehicle", lang: "en", topic: "car", createdAt: 1 },
+      { id: "4", question: "what is the speed of light", answer: "c", correction: "a fixed value", lang: "en", topic: "light", createdAt: 1 },
     ],
     updatedAt: 1,
   };
@@ -74,7 +74,7 @@ test("dashboard counts feedback and topics, with no replay counter", () => {
   assert.equal(stats.likes, 2);
   assert.equal(stats.dislikes, 1);
   assert.equal(stats.corrections, 1);
-  assert.equal(stats.topTopics[0].topic, "car");
+  assert.equal(stats.topTopics[0].topic, "light");
   assert.equal(stats.topTopics[0].count, 3);
   assert.equal(stats.bestReplies[0].at, 3, "most recent like first");
   assert.equal((stats as unknown as Record<string, unknown>).replays, undefined);
