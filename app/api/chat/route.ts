@@ -228,7 +228,7 @@ export async function POST(request: Request) {
     searchMode === "on" ||
     (searchMode === "auto" && shouldAutoSearch(lastUser?.content ?? ""));
   const searchMetaCapture: SearchMetaCapture | undefined = searchNeeded
-    ? { queries: [], sources: [] }
+    ? { queries: [], sources: [], sawGrounding: false }
     : undefined;
 
   // Web Search: attempt the grounded stream first. When search is needed
@@ -340,11 +340,22 @@ export async function POST(request: Request) {
             // Done frame carries the honest search result: the queries the
             // model ran and the sources it cited — only what Gemini actually
             // returned, never fabricated.
-            const sources = searchMetaCapture ? normalizeSources(searchMetaCapture.sources) : [];
-            const queries = searchMetaCapture ? normalizeQueries(searchMetaCapture.queries) : [];
+            //
+            // Honesty check: a grounded request that produced no
+            // groundingMetadata at all means the model did not use the web —
+            // report it as unavailable rather than pretend the answer was
+            // verified through search.
+            const groundedMetaSeen = searchMetaCapture ? searchMetaCapture.sawGrounding : false;
+            const finalSearchStatus = !searchMetaCapture
+              ? "off"
+              : !groundedMetaSeen
+                ? "unavailable"
+                : searchStatus;
+            const sources = searchMetaCapture && groundedMetaSeen ? normalizeSources(searchMetaCapture.sources) : [];
+            const queries = searchMetaCapture && groundedMetaSeen ? normalizeQueries(searchMetaCapture.queries) : [];
             controller.enqueue(
               encoder.encode(
-                sseFrame({ t: "done", model, search: searchStatus, sources, queries }),
+                sseFrame({ t: "done", model, search: finalSearchStatus, sources, queries }),
               ),
             );
           } else {

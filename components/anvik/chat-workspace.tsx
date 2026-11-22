@@ -263,7 +263,10 @@ function ChatWorkspaceInner() {
       const isSSE = (response.headers.get("content-type") ?? "").includes("text/event-stream");
 
       let answer = "";
-      let finalSearchStatus: "on" | "off" | "unavailable" = response.headers.get("x-anvik-search-status") === "on" ? "on" : response.headers.get("x-anvik-search-status") === "unavailable" ? "unavailable" : "off";
+      // The done frame is authoritative. The header is only an advisory
+      // promise set before the stream starts — never used to claim a verified
+      // search.
+      let finalSearchStatus: "on" | "off" | "unavailable" = "off";
       let finalSources: Array<{ title: string; uri: string; domain: string }> = [];
       let finalQueries: string[] = [];
 
@@ -851,7 +854,7 @@ function ChatWorkspaceInner() {
                   <article key={message.id} className="msg-row msg-enter mb-8">
                     {isThinking ? (
                       <div className="flex items-center gap-3 py-2 text-sm text-[#999999]">
-                        {message.searchStatus === "on" || (searchMode !== "off" && !message.searchStatus) ? (
+                        {message.searchStatus === "on" ? (
                           <>
                             <span className="search-pulse-dot" aria-hidden="true" />
                             <span>Searching the web…</span>

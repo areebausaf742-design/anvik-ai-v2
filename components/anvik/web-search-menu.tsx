@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 import { useEffect, useRef, useState } from "react";
 import { SearchX, Sparkles, Check, Globe } from "lucide-react";
 import type { SearchMode } from "@/lib/search";

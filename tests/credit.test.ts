@@ -24,7 +24,7 @@ test("only flash fallback chain models are callable, and Pro can never be config
 });
 
 test("output and temperature ceilings are enforced as constants", () => {
-  assert.equal(CHAT_MAX_TOKENS, 1200);
+  assert.equal(CHAT_MAX_TOKENS, 2048);
   assert.equal(CODE_MAX_TOKENS, 2048);
   assert.ok(MAX_TEMPERATURE <= 0.9);
 });
