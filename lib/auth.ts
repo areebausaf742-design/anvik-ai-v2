@@ -18,20 +18,27 @@
  * failures are represented as data so the UI can show a clear message.
  */
 
-const SUPABASE_URL = (
-  process.env.NEXT_PUBLIC_SUPABASE_URL ??
-  process.env.SUPABASE_URL ??
-  ""
-).replace(/\/+$/, "");
+// Read lazily on every call — an env var set at runtime (tests, SSR,
+// long-lived server processes) must be visible without a reload.
+function supabaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    process.env.SUPABASE_URL ??
+    ""
+  ).replace(/\/+$/, "");
+}
 
-const ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-  process.env.SUPABASE_ANON_KEY ??
-  "";
+function supabaseKey(): string {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.SUPABASE_ANON_KEY ??
+    ""
+  );
+}
 
 export function authEnabled(): boolean {
-  return Boolean(SUPABASE_URL && ANON_KEY);
+  return Boolean(supabaseUrl() && supabaseKey());
 }
 
 export type SupabaseUser = {
@@ -74,12 +81,12 @@ export type OAuthStartResult =
 /* ------------------------------------------------------------------ */
 
 function authUrl(path: string): string {
-  return `${SUPABASE_URL}/auth/v1${path}`;
+  return `${supabaseUrl()}/auth/v1${path}`;
 }
 
 function headers(bearer?: string): Record<string, string> {
   const h: Record<string, string> = {
-    apikey: ANON_KEY,
+    apikey: supabaseKey(),
     "Content-Type": "application/json",
   };
   if (bearer) h["Authorization"] = `Bearer ${bearer}`;
@@ -162,7 +169,58 @@ async function sha256Base64Url(input: string): Promise<string> {
   return base64UrlEncode(digest);
 }
 
-const OAUTH_STATE_KEY = "anvik-oauth-state";
+const PKCE_VERIFIER_KEY = "anvik-pkce-verifier";
+
+/**
+ * Sanitized diagnostic log — parameter presence and error categories only.
+ * Never logs authorization codes, verifiers, access/refresh tokens, provider
+ * secrets, or any raw value from a request or response body.
+ */
+function authLog(step: string, fields: Record<string, "present" | "absent" | "network_error" | "invalid_response">): void {
+  try {
+    const summary = Object.entries(fields)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(", ");
+    // eslint-disable-next-line no-console
+    console.info(`[anvik-auth] ${step} (${summary})`);
+  } catch {
+    /* diagnostics must never break the flow */
+  }
+}
+
+function storePKCEVerifier(verifier: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(PKCE_VERIFIER_KEY, verifier);
+  } catch {
+    /* storage blocked — startGoogleOAuth still performs the flow best-effort */
+  }
+}
+
+function readPKCEVerifier(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PKCE_VERIFIER_KEY);
+    return raw && raw.trim() ? raw.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPKCEVerifier(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(PKCE_VERIFIER_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+function generateCodeVerifier(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes.buffer as ArrayBuffer);
+}
 
 /**
  * Validate the app-side redirect target for Google sign-in. The target must
@@ -186,10 +244,19 @@ export function checkOAuthRedirectTarget(
 }
 
 /**
- * Build the Google /authorize URL (PKCE). `redirectTo` is the app-side URL
- * Google should return to after sign-in — it must stay on the app's origin.
- * `expectedOrigin` pins that contract; pass the current origin so a buggy
- * caller can never bounce the user to an external domain.
+ * Build the Google /authorize URL (PKCE) and persist the verifier alongside
+ * the current session in localStorage — mirroring the official Supabase
+ * auth-js implementation.
+ *
+ * `redirectTo` is the app-side URL Google should return to after sign-in —
+ * it must stay on the app's origin. `expectedOrigin` pins that contract;
+ * pass the current origin so a buggy caller can never bounce the user to an
+ * external domain. `redirectTo` must be absolute.
+ *
+ * State: the server generates its own state (a flow-state UUID) and strips
+ * client-supplied state params — do NOT send a client state. The PKCE
+ * verifier is the CSRF protection: only the browser that created it can
+ * exchange the authorization code.
  */
 export async function startGoogleOAuth(redirectTo: string, expectedOrigin?: string): Promise<OAuthStartResult> {
   // The redirect target is app-level configuration: it is checked BEFORE the
@@ -199,71 +266,64 @@ export async function startGoogleOAuth(redirectTo: string, expectedOrigin?: stri
   if (!authEnabled()) return { ok: false, error: "Supabase is not configured." };
   const target = new URL(checked.url);
   try {
-    const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
-    const verifier = base64UrlEncode(verifierBytes.buffer as ArrayBuffer);
+    const verifier = generateCodeVerifier();
+    storePKCEVerifier(verifier);
     const challenge = await sha256Base64Url(verifier);
-    const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(24)).buffer as ArrayBuffer);
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem(OAUTH_STATE_KEY, JSON.stringify({ code_verifier: verifier, state }));
-    }
     const url = new URL(authUrl("/authorize"));
     url.searchParams.set("provider", "google");
     url.searchParams.set("redirect_to", target.toString());
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "s256");
-    // State is echoed back by the provider and must be verified on return —
-    // together with the PKCE verifier this is the CSRF/login-confused-deputy
-    // protection.
-    url.searchParams.set("state", state);
+    authLog("authorize_started", { verifier: "present" });
     return { ok: true, authorizeUrl: url.toString() };
   } catch {
     return { ok: false, error: "Could not start Google sign-in." };
   }
 }
 
-function readOAuthState(): { code_verifier: string; state: string } | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(OAUTH_STATE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.code_verifier === "string") return parsed;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function clearOAuthState(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(OAUTH_STATE_KEY);
-}
-
-/* ------------------------------------------------------------------ */
-/* PKCE callback exchange                                               */
-/* ------------------------------------------------------------------ */
-
-export async function completeGoogleOAuth(code: string, returnedState?: string | null): Promise<AuthResult> {
+/**
+ * Exchange the authorization code returned by the OAuth redirect for a
+ * Supabase session. Requires:
+ *  - the `code` present in the return URL (Supabase sends only the code)
+ *  - the verifier stored by the same browser that started the flow
+ *
+ * On any exchange attempt the verifier is consumed (removed) when a network
+ * response is received. If the fetch itself fails (network error/abort) the
+ * verifier is preserved so a retry can continue the flow. No state parameter
+ * is ever read or compared — the server owns state and PKCE is the CSRF
+ * protection; verifying state here was both wrong and the source of the
+ * production "could not be verified" failures.
+ */
+export async function completeGoogleOAuth(code: string): Promise<AuthResult> {
   if (!authEnabled()) return { ok: false, error: "Supabase is not configured." };
-  const stored = readOAuthState();
-  if (!stored || !code) return { ok: false, error: "Google sign-in was not started from this browser." };
-  // CSRF check: the provider echoes the state we generated — refuse anything else.
-  if (!stored.state || !returnedState || stored.state !== returnedState) {
-    return { ok: false, error: "Google sign-in could not be verified. Please try again.", code: "state_mismatch" };
+  if (!code) {
+    authLog("exchange_rejected", { code: "absent" });
+    return { ok: false, error: "Google sign-in was not started from this browser." };
   }
+  const verifier = readPKCEVerifier();
+  if (!verifier) {
+    authLog("exchange_rejected", { code: "present", verifier: "absent" });
+    return { ok: false, error: "Google sign-in was not started from this browser." };
+  }
+  authLog("exchange_started", { code: "present", verifier: "present" });
   try {
     const response = await fetch(authUrl("/token?grant_type=pkce"), {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ auth_code: code, code_verifier: stored.code_verifier }),
+      body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
     });
     const body = await safeJson(response);
+    // Any response — success or failure — consumes the verifier (official
+    // auth-js behavior): a one-shot code must not be replayed.
+    clearPKCEVerifier();
     if (!response.ok) {
+      authLog("exchange_failed", { code: "present", reason: "invalid_response" });
       return { ok: false, error: readError(body, "Google sign-in could not be completed."), code: "oauth_failed" };
     }
     const session = (body as Record<string, unknown>) ?? {};
     const accessToken = typeof session.access_token === "string" ? session.access_token : "";
     if (!accessToken) {
+      authLog("exchange_failed", { code: "present", reason: "invalid_response" });
       return { ok: false, error: "Google sign-in could not be completed.", code: "oauth_failed" };
     }
     const authSession: AuthSession = {
@@ -273,11 +333,14 @@ export async function completeGoogleOAuth(code: string, returnedState?: string |
       token_type: typeof session.token_type === "string" ? session.token_type : "bearer",
     };
     await storeSession(authSession);
-    clearOAuthState();
+    authLog("exchange_succeeded", { code: "present" });
     const me = await getCurrentUser(authSession.access_token);
     return { ok: true, session: authSession, user: me.user ?? { id: "" } };
   } catch {
-    return { ok: false, error: "Google sign-in could not be completed." };
+    // Network failure — the server never received the code, so the verifier
+    // stays stored; a retry continues the same flow.
+    authLog("exchange_network_error", { code: "present", reason: "network_error" });
+    return { ok: false, error: "Could not reach the sign-in service. Please try again." };
   }
 }
 

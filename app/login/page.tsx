@@ -60,17 +60,18 @@ export default function LoginPage() {
     router.replace("/chat");
   }, [router]);
 
-  // OAuth callback: Google returns to /login?code=...&state=...
+  // OAuth callback: Supabase returns to /login?code=... (the state param,
+  // when present, is the server's flow-state UUID — it is never verified or
+  // compared app-side; the PKCE verifier is the protection).
   useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
-    const stateParam = url.searchParams.get("state");
     if (!code) return;
     setOauthPending(true);
     void (async () => {
       // Strip the code/state from the address bar after handling.
       window.history.replaceState({}, "", "/login");
-      const result = await completeGoogleOAuth(code, stateParam);
+      const result = await completeGoogleOAuth(code);
       if (!mounted.current) return;
       setOauthPending(false);
       if (!result.ok) {
@@ -87,7 +88,6 @@ export default function LoginPage() {
       // Consent is checked server-side in onboarding — fresh users go there.
       router.replace("/onboarding");
     })();
-    // stateParam is passed to completeGoogleOAuth, which refuses any mismatch.
   }, [router]);
 
   // Already signed in — skip the login screen (mirrors returning users).
