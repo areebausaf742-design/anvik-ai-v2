@@ -1,10 +1,11 @@
+import { cookies } from "next/headers";
 import { modes, type ModeId } from "@/lib/prompts";
 import { serverKey } from "@/lib/provider";
+import { store } from "@/lib/store";
 import { allow, clientIdentity, LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { CHAT_MAX_TOKENS, CODE_MAX_TOKENS, MAX_TEMPERATURE } from "@/lib/credit";
 import { memoryInstruction, type Memory } from "@/lib/learning";
 import {
-  KEY_FORMAT_ERROR,
   isValidGeminiKeyFormat,
   openGeminiStreamWithFallback,
   type GeminiTurn,
@@ -83,17 +84,40 @@ export async function POST(request: Request) {
   }
 
   const suppliedClientKey = request.headers.get("x-google-generative-ai-api-key")?.trim();
-  if (suppliedClientKey && !isValidGeminiKeyFormat(suppliedClientKey)) {
-    return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 400 });
+  const validClientKey = isValidGeminiKeyFormat(suppliedClientKey) ? suppliedClientKey : undefined;
+  const configuredServerKey = serverKey();
+  const key = validClientKey || configuredServerKey;
+  if (!key) {
+    return Response.json(
+      { error: "ANVIK free key is not set. Connect your own key to continue.", code: "no_server_key" },
+      { status: 401 },
+    );
   }
-
-  const key = suppliedClientKey || serverKey();
-  if (!key || !isValidGeminiKeyFormat(key)) {
-    return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 401 });
+  if (!isValidGeminiKeyFormat(key)) {
+    return Response.json(
+      { error: "ANVIK server key is not valid. Please try again later.", code: "invalid_server_key" },
+      { status: 401 },
+    );
   }
 
   if (!allow(clientIdentity(request, request.headers.get("x-anvik-device")), 16, 150)) {
     return Response.json({ error: LIMIT_MESSAGE, code: "rate_limit" }, { status: 429 });
+  }
+
+  if (!validClientKey) {
+    const jar = await cookies();
+    const deviceId = jar.get("anvik_dev")?.value ?? "nodev";
+    const remaining = await store.decrementQuota(deviceId);
+    if (remaining === null) {
+      return Response.json(
+        {
+          error: "Free limit reached. Connect your own key to continue unlimited.",
+          code: "free_limit_reached",
+          remaining: 0,
+        },
+        { status: 429 },
+      );
+    }
   }
 
   const selectedMode = (validModes.has(String(mode)) ? mode : "smart") as ModeId;
