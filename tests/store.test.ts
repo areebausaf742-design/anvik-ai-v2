@@ -29,6 +29,20 @@ test("plan §6.2 race test: 20 concurrent asks against a quota of 3 yield exactl
   assert.equal(granted, 3, `expected exactly 3 grants, got ${granted}: ${results.join(",")}`);
 });
 
+test("concurrent chat reservations preserve the limit and only charge successful responses", async () => {
+  const deviceId = `reservation-${Date.now()}-${Math.random()}`;
+  const results = await Promise.all(Array.from({ length: 20 }, () => store.reserveQuota(deviceId)));
+  assert.equal(results.filter(Boolean).length, 3);
+  assert.equal(store.questionRemaining(deviceId), 3);
+
+  await Promise.all(results.map((reserved) => reserved && store.settleQuota(deviceId, false)));
+  assert.equal(store.questionRemaining(deviceId), 3);
+
+  assert.equal(await store.reserveQuota(deviceId), true);
+  assert.equal(await store.settleQuota(deviceId, true), 2);
+  assert.equal(store.questionRemaining(deviceId), 2);
+});
+
 test("a second device keeps its own quota", async () => {
   assert.equal(await store.decrementQuota("other-device"), 2);
 });

@@ -95,8 +95,8 @@ export async function POST(request: Request) {
   }
   if (!isValidGeminiKeyFormat(key)) {
     return Response.json(
-      { error: "ANVIK server key is not valid. Please try again later.", code: "invalid_server_key" },
-      { status: 401 },
+      { error: "The configured key format is not supported.", code: "bad_format" },
+      { status: 400 },
     );
   }
 
@@ -104,11 +104,18 @@ export async function POST(request: Request) {
     return Response.json({ error: LIMIT_MESSAGE, code: "rate_limit" }, { status: 429 });
   }
 
+  let freeDeviceId: string | undefined;
+  let quotaSettled = false;
+  const settleQuota = async (successful: boolean) => {
+    if (!freeDeviceId || quotaSettled) return;
+    quotaSettled = true;
+    await store.settleQuota(freeDeviceId, successful);
+  };
+
   if (!validClientKey) {
     const jar = await cookies();
     const deviceId = jar.get("anvik_dev")?.value ?? "nodev";
-    const remaining = await store.decrementQuota(deviceId);
-    if (remaining === null) {
+    if (!(await store.reserveQuota(deviceId))) {
       return Response.json(
         {
           error: "Free limit reached. Connect your own key to continue unlimited.",
@@ -118,6 +125,7 @@ export async function POST(request: Request) {
         { status: 429 },
       );
     }
+    freeDeviceId = deviceId;
   }
 
   const selectedMode = (validModes.has(String(mode)) ? mode : "smart") as ModeId;
@@ -150,13 +158,44 @@ export async function POST(request: Request) {
     });
 
     if (!result.ok) {
+      await settleQuota(false).catch(() => undefined);
       return Response.json(
         { error: result.error.message, detail: result.error.message, code: result.error.code },
         { status: result.error.status },
       );
     }
 
-    return new Response(result.stream, {
+    const quotaReader = freeDeviceId ? result.stream.getReader() : null;
+    const responseStream = quotaReader
+      ? new ReadableStream<Uint8Array>({
+          async start(controller) {
+            try {
+              for (;;) {
+                const { done, value } = await quotaReader.read();
+                if (done) break;
+                controller.enqueue(value);
+              }
+              try {
+                await settleQuota(true);
+              } catch {
+                // Keep a completed model response available if quota persistence fails.
+              }
+              controller.close();
+            } catch (error) {
+              await settleQuota(false).catch(() => undefined);
+              controller.error(error);
+            } finally {
+              quotaReader.releaseLock();
+            }
+          },
+          cancel(reason) {
+            void quotaReader.cancel(reason);
+            void settleQuota(false).catch(() => undefined);
+          },
+        })
+      : result.stream;
+
+    return new Response(responseStream, {
       status: 200,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
@@ -168,6 +207,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
+    await settleQuota(false).catch(() => undefined);
     if (err instanceof Error && err.name === "AbortError") {
       return new Response(null, { status: 499 });
     }

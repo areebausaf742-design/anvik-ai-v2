@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { isValidGeminiKeyFormat } from "@/lib/gemini";
+import { MODEL_FALLBACK_CHAIN, validateGeminiServerKey } from "@/lib/gemini";
 import { serverKey } from "@/lib/provider";
 import { store } from "@/lib/store";
 
@@ -12,13 +12,22 @@ export async function GET() {
   const remaining = store.questionRemaining(deviceId);
   const configuredKey = serverKey();
   const hasServerKey = Boolean(configuredKey);
+  const validation = configuredKey
+    ? await validateGeminiServerKey(configuredKey)
+    : { googleStatus: null, invalid: false };
   const status = !hasServerKey
     ? "not_configured"
-    : !isValidGeminiKeyFormat(configuredKey)
+    : validation.invalid
       ? "invalid_server_key"
       : remaining === 0
         ? "limit_reached"
         : "ok";
 
-  return Response.json({ hasServerKey, status, remaining });
+  return Response.json({
+    hasServerKey,
+    status,
+    remaining,
+    googleStatus: validation.googleStatus,
+    modelUsed: MODEL_FALLBACK_CHAIN[0],
+  });
 }
