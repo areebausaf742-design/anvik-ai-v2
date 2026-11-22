@@ -100,7 +100,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const origin = window.location.origin;
-      const result = await startGoogleOAuth(`${origin}/login`);
+      const result = await startGoogleOAuth(`${origin}/login`, origin);
       if (!result.ok) {
         setError(result.error ?? "Could not start Google sign-in.");
         setBusy(false);

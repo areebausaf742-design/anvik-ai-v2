@@ -164,8 +164,40 @@ async function sha256Base64Url(input: string): Promise<string> {
 
 const OAUTH_STATE_KEY = "anvik-oauth-state";
 
-export async function startGoogleOAuth(redirectTo: string): Promise<OAuthStartResult> {
+/**
+ * Validate the app-side redirect target for Google sign-in. The target must
+ * parse as a URL and stay on the expected origin — the app never forwards an
+ * OAuth return to an external domain, even if a buggy caller passed one.
+ */
+export function checkOAuthRedirectTarget(
+  redirectTo: string,
+  expectedOrigin?: string,
+): { ok: true; url: string } | { ok: false; error: string } {
+  let target: URL;
+  try {
+    target = new URL(redirectTo);
+  } catch {
+    return { ok: false, error: "Google sign-in is not available on this page." };
+  }
+  if (expectedOrigin && target.origin !== expectedOrigin) {
+    return { ok: false, error: "Google sign-in is not available on this page." };
+  }
+  return { ok: true, url: target.toString() };
+}
+
+/**
+ * Build the Google /authorize URL (PKCE). `redirectTo` is the app-side URL
+ * Google should return to after sign-in — it must stay on the app's origin.
+ * `expectedOrigin` pins that contract; pass the current origin so a buggy
+ * caller can never bounce the user to an external domain.
+ */
+export async function startGoogleOAuth(redirectTo: string, expectedOrigin?: string): Promise<OAuthStartResult> {
+  // The redirect target is app-level configuration: it is checked BEFORE the
+  // provider check so a bad caller fails closed even when the provider is set.
+  const checked = checkOAuthRedirectTarget(redirectTo, expectedOrigin);
+  if (!checked.ok) return { ok: false, error: checked.error };
   if (!authEnabled()) return { ok: false, error: "Supabase is not configured." };
+  const target = new URL(checked.url);
   try {
     const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
     const verifier = base64UrlEncode(verifierBytes.buffer as ArrayBuffer);
@@ -176,7 +208,7 @@ export async function startGoogleOAuth(redirectTo: string): Promise<OAuthStartRe
     }
     const url = new URL(authUrl("/authorize"));
     url.searchParams.set("provider", "google");
-    url.searchParams.set("redirect_to", redirectTo);
+    url.searchParams.set("redirect_to", target.toString());
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "s256");
     // State is echoed back by the provider and must be verified on return —
