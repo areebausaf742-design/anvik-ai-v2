@@ -1,106 +1,11 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import React, { Children, Fragment, isValidElement, useState, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { Check, Copy } from "lucide-react";
-
-type Block =
-  | { kind: "code"; lang: string; text: string }
-  | { kind: "heading"; level: number; text: string }
-  | { kind: "ul"; items: string[] }
-  | { kind: "ol"; items: string[] }
-  | { kind: "quote"; text: string }
-  | { kind: "rule" }
-  | { kind: "p"; text: string };
-
-function parse(markdown: string): Block[] {
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  const blocks: Block[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    const fence = line.match(/^\s*```(\S*)\s*$/);
-    if (fence) {
-      const lang = fence[1] ?? "";
-      const body: string[] = [];
-      i += 1;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
-        body.push(lines[i]);
-        i += 1;
-      }
-      i += 1;
-      blocks.push({ kind: "code", lang, text: body.join("\n") });
-      continue;
-    }
-
-    if (/^\s*$/.test(line)) {
-      i += 1;
-      continue;
-    }
-
-    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
-    if (heading) {
-      blocks.push({ kind: "heading", level: heading[1].length, text: heading[2].trim() });
-      i += 1;
-      continue;
-    }
-
-    if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) {
-      blocks.push({ kind: "rule" });
-      i += 1;
-      continue;
-    }
-
-    if (/^\s*>\s?/.test(line)) {
-      const body: string[] = [];
-      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
-        body.push(lines[i].replace(/^\s*>\s?/, ""));
-        i += 1;
-      }
-      blocks.push({ kind: "quote", text: body.join("\n") });
-      continue;
-    }
-
-    if (/^\s*[-*•]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*•]\s+/, ""));
-        i += 1;
-      }
-      blocks.push({ kind: "ul", items });
-      continue;
-    }
-
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
-        i += 1;
-      }
-      blocks.push({ kind: "ol", items });
-      continue;
-    }
-
-    const para: string[] = [];
-    while (
-      i < lines.length &&
-      !/^\s*$/.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
-      !/^\s{0,3}#{1,6}\s/.test(lines[i]) &&
-      !/^\s*[-*•]\s+/.test(lines[i]) &&
-      !/^\s*\d+[.)]\s+/.test(lines[i]) &&
-      !/^\s*>\s?/.test(lines[i])
-    ) {
-      para.push(lines[i]);
-      i += 1;
-    }
-    if (para.length) blocks.push({ kind: "p", text: para.join("\n") });
-    else i += 1;
-  }
-
-  return blocks;
-}
 
 const KEYWORDS = new Set([
   "const", "let", "var", "function", "return", "if", "else", "for", "while", "switch",
@@ -222,49 +127,68 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
   return out;
 }
 
+const markdownComponents: Components = {
+  a({ node: _node, href, children, ...props }) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer noopener" {...props}>
+        {children}
+      </a>
+    );
+  },
+  p({ node: _node, children }) {
+    return <p className="md-p">{children}</p>;
+  },
+  ul({ node: _node, children }) {
+    return <ul className="md-ul">{children}</ul>;
+  },
+  ol({ node: _node, children }) {
+    return <ol className="md-ol">{children}</ol>;
+  },
+  blockquote({ node: _node, children }) {
+    return <blockquote className="md-quote">{children}</blockquote>;
+  },
+  hr() {
+    return <hr className="md-rule" />;
+  },
+  code({ node: _node, className, children, ...props }) {
+    return (
+      <code className={className ? `md-code-block ${className}` : "md-code"} {...props}>
+        {children}
+      </code>
+    );
+  },
+  pre({ children }) {
+    const code = Children.toArray(children).find(isValidElement);
+    if (!code) return <pre className="md-pre">{children}</pre>;
+
+    const props = code.props as { className?: string; children?: ReactNode };
+    const language = props.className?.match(/language-([^\s]+)/)?.[1] ?? "";
+    const codeText = String(props.children ?? "").replace(/\n$/, "");
+    return <CodeBlock lang={language} text={codeText} />;
+  },
+  table({ children }) {
+    return (
+      <div className="md-table-wrap">
+        <table className="md-table">{children}</table>
+      </div>
+    );
+  },
+};
+
 export default function Markdown({ text, className = "md" }: { text: string; className?: string }) {
   if (!text) return null;
-  const blocks = parse(text);
-  const nodes: ReactNode[] = blocks.map((block, index) => {
-    const key = `b-${index}`;
-    switch (block.kind) {
-      case "code":
-        return <CodeBlock key={key} lang={block.lang} text={block.text} />;
-      case "heading": {
-        const Tag = (`h${Math.min(block.level + 2, 6)}`) as "h3" | "h4" | "h5" | "h6";
-        return <Tag key={key} className="md-h">{inline(block.text, key)}</Tag>;
-      }
-      case "ul":
-        return (
-          <ul key={key} className="md-ul">
-            {block.items.map((item, i) => <li key={`${key}-${i}`}>{inline(item, `${key}-${i}`)}</li>)}
-          </ul>
-        );
-      case "ol":
-        return (
-          <ol key={key} className="md-ol">
-            {block.items.map((item, i) => <li key={`${key}-${i}`}>{inline(item, `${key}-${i}`)}</li>)}
-          </ol>
-        );
-      case "quote":
-        return <blockquote key={key} className="md-quote">{inline(block.text, key)}</blockquote>;
-      case "rule":
-        return <hr key={key} className="md-rule" />;
-      default:
-        return (
-          <p key={key} className="md-p">
-            {block.text.split("\n").map((line, i) => (
-              <Fragment key={`${key}-${i}`}>
-                {i > 0 && <br />}
-                {inline(line, `${key}-${i}`)}
-              </Fragment>
-            ))}
-          </p>
-        );
-    }
-  });
 
-  return <div className={className}>{nodes}</div>;
+  return (
+    <div className={className}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={markdownComponents}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 export function PlainText({ text }: { text: string }) {

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 /* ==========================================================================
    ANVIK AI — Premium White (#FFFFFF), soft orange star (#D97757)
@@ -491,6 +492,58 @@ body {
   font-weight: 600;
   color: #1A1A1A;
 }
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 18px 0 8px;
+  color: #1A1A1A;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.3px;
+}
+.md h1 { font-size: 21px; }
+.md h2 { font-size: 19px; }
+.md h3 { font-size: 17px; }
+.md h4,
+.md h5,
+.md h6 { font-size: 15px; }
+.md-table-wrap {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.md-table th,
+.md-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md-table th {
+  background: #F7F7F5;
+  font-weight: 600;
+}
+.md-table tr:last-child td { border-bottom: 0; }
+.md .katex-display {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  text-align: center;
+}
+.md .katex { font-size: 1.04em; }
 
 /* ============================ syntax tokens ============================ */
 .tok-kw { color: #B45309; font-weight: 500; }
