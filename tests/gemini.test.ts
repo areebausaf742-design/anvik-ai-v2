@@ -68,6 +68,12 @@ test("server key validation flags only Google's explicit invalid-key response", 
   );
   assert.deepEqual(invalid, { googleStatus: 400, invalid: true });
 
+  const apiKeyInvalid = await validateGeminiServerKey(
+    VALID_TEST_KEY,
+    async () => new Response('{"error":{"message":"API_KEY_INVALID"}}', { status: 400 }),
+  );
+  assert.deepEqual(apiKeyInvalid, { googleStatus: 400, invalid: true });
+
   for (const status of [403, 404, 429, 500]) {
     const result = await validateGeminiServerKey(
       VALID_TEST_KEY,
@@ -159,29 +165,84 @@ test("stops immediately on 401 or 429 without cascading 404 fallback", async () 
   if (!res401.ok) assert.equal(res401.error.message, KEY_INVALID_ERROR);
 
   calls = 0;
+  // 429 = quota: retry the same model with backoff, then fall back to the next model.
   const res429 = await openGeminiStreamWithFallback({
     apiKey: VALID_TEST_KEY,
     systemInstruction: "test",
     contents: [{ role: "user", parts: [{ text: "hii" }] }],
-    fetchImpl: async () => {
+    retryDelaysMs: [1, 1],
+    fetchImpl: async (input) => {
       calls += 1;
+      if (!String(input).includes("gemini-2.0-flash-lite")) {
+        return new Response("Quota exceeded", { status: 429 });
+      }
+      return new Response(sseStream(["ok after fallback"]), { status: 200 });
+    },
+  });
+  // 3 attempts on 2.5-flash + 3 attempts on 2.0-flash + 1 attempt on 2.0-flash-lite
+  assert.equal(calls, 7);
+  assert.equal(res429.ok, true);
+  if (res429.ok) assert.equal(res429.model, "gemini-2.0-flash-lite");
+});
+
+test("429 and 500 are retried with backoff, then fall back to the next model", async () => {
+  const attempted: string[] = [];
+  const result = await openGeminiStreamWithFallback({
+    apiKey: VALID_TEST_KEY,
+    systemInstruction: "Answer directly.",
+    contents: [{ role: "user", parts: [{ text: "what is car?" }] }],
+    retryDelaysMs: [1, 1],
+    fetchImpl: async (input) => {
+      const url = String(input);
+      attempted.push(url);
+      if (url.includes("gemini-2.5-flash")) {
+        return new Response("Quota exceeded", { status: 429 });
+      }
+      if (url.includes("gemini-2.0-flash") && !url.includes("lite")) {
+        return new Response("Server error", { status: 500 });
+      }
+      return new Response(sseStream(["fallback answer"]), { status: 200 });
+    },
+  });
+
+  // 2.5-flash: 3 attempts; 2.0-flash: 3 attempts; 2.0-flash-lite: 1 attempt
+  assert.equal(attempted.length, 7, `attempted ${attempted.length}`);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.model, "gemini-2.0-flash-lite");
+
+});
+
+test("exhausted retries on the last model return the classified error", async () => {
+  const attempted: string[] = [];
+  const result = await openGeminiStreamWithFallback({
+    apiKey: VALID_TEST_KEY,
+    systemInstruction: "test",
+    contents: [{ role: "user", parts: [{ text: "hii" }] }],
+    retryDelaysMs: [1, 1],
+    fetchImpl: async (input) => {
+      attempted.push(String(input));
       return new Response("Quota exceeded", { status: 429 });
     },
   });
-  assert.equal(calls, 1);
-  assert.equal(res429.ok, false);
-  if (!res429.ok) assert.equal(res429.error.message, QUOTA_ERROR);
+
+  assert.equal(attempted.length, 9, "3 attempts per model across 3 models");
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "quota_exceeded");
 });
 
 test("network failure maps honestly to No internet. Try again", async () => {
+  let calls = 0;
   const result = await openGeminiStreamWithFallback({
     apiKey: VALID_TEST_KEY,
     systemInstruction: "test",
     contents: [{ role: "user", parts: [{ text: "what is AI?" }] }],
+    retryDelaysMs: [1, 1],
     fetchImpl: async () => {
+      calls += 1;
       throw new TypeError("fetch failed");
     },
   });
+  assert.equal(calls, 9, "network errors are retried per model, then the chain ends");
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.error.message, NETWORK_ERROR);
