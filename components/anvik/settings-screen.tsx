@@ -13,13 +13,12 @@ import {
   EyeOff,
   Gauge,
   KeyRound,
-  Moon,
   ShieldCheck,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
-import TiltCard from "@/components/anvik/tilt-card";
+import AnvikStar from "@/components/anvik/anvik-star";
 import ErrorBoundary from "@/components/anvik/error-boundary";
 import { modes } from "@/lib/prompts";
 import { useChatStore } from "@/store/use-chat-store";
@@ -152,47 +151,85 @@ function SettingsScreenInner() {
   const quotaPercent = quota ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
 
   return (
-    <main className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6">
+    <main className="mx-auto max-w-3xl space-y-6 px-4 py-10 sm:px-6">
       <div>
         <Link
           href="/chat"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-[#999999] hover:text-[#1A1A1A]"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back to Chat
         </Link>
-        <p className="mt-4 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#22D3EE]">
-          <Sparkles className="h-3.5 w-3.5" /> Settings
-        </p>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-          Control your{" "}
-          <span className="gradient-text">Gemini workspace.</span>
+        <div className="mt-4 flex items-center gap-2">
+          <AnvikStar size="sm" />
+          <p className="text-xs font-medium uppercase tracking-widest text-[#999999]">Settings</p>
+        </div>
+        <h1 className="mt-2 font-serif text-[32px] font-normal tracking-[-0.5px] text-[#1A1A1A]">
+          Your ANVIK workspace
         </h1>
-        <p className="mt-2 text-sm text-slate-400">
-          Add and verify your Google AI Studio key, check your daily quota, and manage local data.
+        <p className="mt-2 text-sm text-[#666666]">
+          Manage your keys, quota, preferences, and local data.
         </p>
       </div>
 
-      {/* Gemini API Key */}
-      <TiltCard className="glass-card rounded-2xl p-5 sm:p-6">
+      {/* ANVIK Free Key */}
+      <div className="surface-card p-5 sm:p-6">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C3AED]/20 text-[#22D3EE]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#D97757]">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-base font-semibold text-[#1A1A1A]">ANVIK Free Key (Automatic)</h2>
+            <p className="text-xs text-[#666666]">
+              The free key is provided automatically and requires no setup.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-2 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3 py-2 text-xs text-[#666666]">
+            {savedKey ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
+                Active key: <code className="font-mono text-[#1A1A1A]">{maskKey(savedKey)}</code>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="h-4 w-4 text-[#999999]" />
+                No free key detected — add your own below
+              </>
+            )}
+          </span>
+          <a
+            href="https://aistudio.google.com/app/apikey"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
+          >
+            Get Free Key <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
+      </div>
+
+      {/* Your Own Key */}
+      <div className="surface-card p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]">
             <KeyRound className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-lg font-bold text-white">Gemini API Key</h2>
-            <p className="text-xs text-slate-400">
-              Saved only in this browser&apos;s localStorage and sent with your Chat, Image, Code, Voice, and Vision requests.
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Your Own Key (Optional)</h2>
+            <p className="text-xs text-[#666666]">
+              Paste an ANVIK key to use your own quota. Saved only in this browser.
             </p>
           </div>
         </div>
 
         <div className="mt-5 space-y-3">
-          {savedKey ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
+          {savedKey && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
                 <span>
-                  Saved key: <code className="font-mono text-white">{maskKey(savedKey)}</code>
+                  Saved: <code className="font-mono text-[#1A1A1A]">{maskKey(savedKey)}</code>
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -200,41 +237,41 @@ function SettingsScreenInner() {
                   type="button"
                   onClick={() => void handleTestKey()}
                   disabled={testingKey}
-                  className="btn-gradient rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white"
+                  className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A] disabled:opacity-40"
                 >
-                  {testingKey ? "Testing..." : "Test Key"}
+                  {testingKey ? "Testing..." : "Test"}
                 </button>
                 <button
                   type="button"
                   onClick={removeKey}
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-rose-500/20 hover:text-rose-200"
+                  className="inline-flex items-center gap-1 rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
                 >
                   <X className="h-3.5 w-3.5" /> Remove
                 </button>
               </div>
             </div>
-          ) : null}
+          )}
 
           <form onSubmit={saveGeminiKey} className="flex flex-col gap-2.5 sm:flex-row">
             <div className="relative flex-1">
-              <label className="sr-only" htmlFor="gemini-api-key">
-                Gemini API key
+              <label className="sr-only" htmlFor="anvik-api-key">
+                ANVIK API key
               </label>
               <input
-                id="gemini-api-key"
+                id="anvik-api-key"
                 type={showKeyInput ? "text" : "password"}
                 autoComplete="off"
                 spellCheck={false}
                 value={geminiKey}
                 onChange={(event) => setGeminiKey(event.target.value)}
-                placeholder={savedKey ? "Paste a new key (starts with AIza...)" : "Paste Gemini key (AIza...)"}
-                className="w-full rounded-xl border border-white/15 bg-[#050508]/80 py-2.5 pr-10 pl-4 font-mono text-xs text-white placeholder:text-slate-500 focus:border-[#22D3EE] focus:outline-none"
+                placeholder="Paste ANVIK Key"
+                className="w-full rounded-xl border border-[#EDEDED] bg-white py-2.5 pr-10 pl-4 font-mono text-xs text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#1A1A1A] focus:outline-none"
               />
               <button
                 type="button"
                 aria-label={showKeyInput ? "Hide key" : "Show key"}
                 onClick={() => setShowKeyInput((v) => !v)}
-                className="absolute inset-y-0 right-2 flex items-center px-2 text-slate-400 hover:text-white"
+                className="absolute inset-y-0 right-2 flex items-center px-2 text-[#999999] hover:text-[#1A1A1A]"
               >
                 {showKeyInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -243,26 +280,26 @@ function SettingsScreenInner() {
               <button
                 type="submit"
                 disabled={!geminiKey.trim()}
-                className="btn-gradient rounded-xl px-4 py-2.5 text-xs font-semibold text-white"
+                className="rounded-xl bg-[#1A1A1A] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#333] disabled:opacity-30"
               >
-                {keySaved ? "Saved!" : "Save Key"}
+                {keySaved ? "Saved!" : "Save"}
               </button>
               {!savedKey && (
                 <button
                   type="button"
                   onClick={() => void handleTestKey()}
                   disabled={testingKey || !geminiKey.trim()}
-                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-45"
+                  className="rounded-xl border border-[#EDEDED] bg-white px-4 py-2.5 text-xs font-semibold text-[#1A1A1A] hover:border-[#1A1A1A] disabled:opacity-40"
                 >
-                  {testingKey ? "Testing..." : "Test Key"}
+                  {testingKey ? "Testing..." : "Test"}
                 </button>
               )}
             </div>
           </form>
 
           {keyError && (
-            <p className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2 text-xs text-rose-200" role="alert">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+            <p className="flex items-center gap-2 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3.5 py-2 text-xs text-[#666666]" role="alert">
+              <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
               <span>{keyError}</span>
             </p>
           )}
@@ -270,101 +307,61 @@ function SettingsScreenInner() {
           {testResult && (
             <p
               role="status"
-              className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs ${
+              className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs ${
                 testResult.ok
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                  : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                  ? "border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]"
+                  : "border-[#EDEDED] bg-[#F7F7F5] text-[#666666]"
               }`}
             >
               {testResult.ok ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-[#1A1A1A]" />
               ) : (
-                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
               )}
               <span>{testResult.text}</span>
             </p>
           )}
+        </div>
+      </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-slate-400">
-            <a
-              href="https://aistudio.google.com/app/apikey"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-[#22D3EE] hover:underline"
-            >
-              Get a free Gemini key at Google AI Studio <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-            <span>Format: starts with AIza, 35+ characters</span>
+      {/* Quota */}
+      <div className="surface-card p-5">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]">
+            <Gauge className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Quota Status</h2>
+            <p className="text-xs text-[#666666]">Daily request tracker (resets midnight IST).</p>
           </div>
         </div>
-      </TiltCard>
-
-      {/* Quota & Theme Status */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <TiltCard className="glass-card rounded-2xl p-5">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#22D3EE]/15 text-[#22D3EE]">
-              <Gauge className="h-5 w-5" />
+        <div className="mt-4 space-y-2">
+          <div className="flex items-baseline justify-between text-xs">
+            <span className="text-[#666666]">
+              <b className="text-base font-bold text-[#1A1A1A]">{quota?.used ?? 0}</b> / {quota?.limit ?? 100} used today
             </span>
-            <div>
-              <h2 className="text-base font-bold text-white">Quota Status</h2>
-              <p className="text-xs text-slate-400">
-                Daily request tracker on this device (resets midnight IST).
-              </p>
-            </div>
+            <span className="font-mono text-[#1A1A1A]">{quota?.remaining ?? 100} left</span>
           </div>
-
-          <div className="mt-4 space-y-2">
-            <div className="flex items-baseline justify-between text-xs">
-              <span className="text-slate-300">
-                <b className="text-base font-bold text-white">{quota?.used ?? 0}</b> / {quota?.limit ?? 100} used today
-              </span>
-              <span className="font-mono text-[#22D3EE]">{quota?.remaining ?? 100} left</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#22D3EE] transition-all"
-                style={{ width: `${quotaPercent}%` }}
-              />
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Active model fallback: <code className="text-slate-200">{quota?.lastModel ?? "gemini-2.0-flash"}</code> → 2.5-flash → 1.5-flash
-            </p>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0F0EE]">
+            <div
+              className="h-full rounded-full bg-[#1A1A1A] transition-all"
+              style={{ width: `${quotaPercent}%` }}
+            />
           </div>
-        </TiltCard>
-
-        <TiltCard className="glass-card rounded-2xl p-5">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C3AED]/20 text-violet-300">
-              <Moon className="h-5 w-5" />
-            </span>
-            <div className="flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-base font-bold text-white">Appearance</h2>
-                <span className="rounded-md border border-[#7C3AED]/40 bg-[#7C3AED]/20 px-2 py-0.5 text-[11px] font-semibold text-violet-200">
-                  Dark Mode Locked On
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-slate-400">
-                Deep black <code className="text-slate-200">#050508</code> canvas with frosted glass surfaces is permanently enabled to eliminate bright flashes.
-              </p>
-            </div>
-          </div>
-        </TiltCard>
+        </div>
       </div>
 
       {/* Mode & Temperature */}
-      <TiltCard className="glass-card rounded-2xl p-5 sm:p-6">
+      <div className="surface-card p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold text-white">Default Conversation Mode</h2>
-            <p className="text-xs text-slate-400">Choose how Gemini shapes new conversations.</p>
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Default Conversation Mode</h2>
+            <p className="text-xs text-[#666666]">Choose how ANVIK shapes new conversations.</p>
           </div>
-          <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-xs text-[#22D3EE]">
+          <span className="rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-2.5 py-1 font-mono text-xs text-[#1A1A1A]">
             Temp {temperature.toFixed(2)}
           </span>
         </div>
-
         <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {modes.map((item) => {
             const active = mode === item.id;
@@ -375,22 +372,21 @@ function SettingsScreenInner() {
                 onClick={() => setMode(item.id)}
                 className={`flex items-center justify-between rounded-xl border p-3 text-left transition ${
                   active
-                    ? "border-[#22D3EE]/60 bg-gradient-to-r from-[#7C3AED]/25 to-[#22D3EE]/15 text-white"
-                    : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.07]"
+                    ? "border-[#1A1A1A] bg-[#F7F7F5] text-[#1A1A1A]"
+                    : "border-[#EDEDED] bg-white text-[#666666] hover:border-[#1A1A1A]"
                 }`}
               >
                 <div>
                   <b className="block text-sm font-semibold">{item.label}</b>
-                  <small className="text-xs text-slate-400">{item.hint}</small>
+                  <small className="text-xs text-[#999999]">{item.hint}</small>
                 </div>
-                {active && <Check className="h-4 w-4 text-[#22D3EE]" />}
+                {active && <Check className="h-4 w-4 text-[#1A1A1A]" />}
               </button>
             );
           })}
         </div>
-
         <div className="mt-5">
-          <label htmlFor="creativity" className="block text-xs font-semibold text-slate-300">
+          <label htmlFor="creativity" className="block text-xs font-semibold text-[#666666]">
             Response creativity ({temperature.toFixed(2)})
           </label>
           <input
@@ -401,36 +397,33 @@ function SettingsScreenInner() {
             step="0.05"
             value={Math.min(0.85, temperature)}
             onChange={(event) => setTemperature(Number(event.target.value))}
-            className="mt-2 w-full accent-[#22D3EE]"
+            className="mt-2 w-full accent-[#1A1A1A]"
           />
-          <div className="flex justify-between text-[11px] text-slate-500">
+          <div className="flex justify-between text-[11px] text-[#999999]">
             <span>Precise</span>
             <span>Creative</span>
           </div>
         </div>
-      </TiltCard>
+      </div>
 
       {/* Memory & Learning */}
-      <TiltCard className="glass-card rounded-2xl p-5 sm:p-6">
+      <div className="surface-card p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C3AED]/20 text-[#22D3EE]">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]">
               <Brain className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-base font-bold text-white">Personal Memory &amp; Learning</h2>
-              <p className="text-xs text-slate-400">Stored locally on this device to personalize Gemini responses.</p>
+              <h2 className="text-base font-semibold text-[#1A1A1A]">Personal Memory</h2>
+              <p className="text-xs text-[#666666]">Stored locally to personalize responses.</p>
             </div>
           </div>
           {memorySaved && (
-            <span className="text-xs font-semibold text-emerald-400" role="status">
-              Saved
-            </span>
+            <span className="text-xs font-semibold text-[#1A1A1A]" role="status">Saved</span>
           )}
         </div>
-
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="block text-xs text-slate-300">
+          <label className="block text-xs text-[#666666]">
             <span>Your name</span>
             <input
               type="text"
@@ -439,16 +432,15 @@ function SettingsScreenInner() {
               placeholder="What should ANVIK call you?"
               onChange={(event) => setMemory({ ...memory, name: event.target.value })}
               onBlur={() => remember({ name: memory.name.trim() })}
-              className="mt-1.5 w-full rounded-xl border border-white/15 bg-[#050508]/70 px-3.5 py-2 text-sm text-white placeholder:text-slate-500 focus:border-[#22D3EE] focus:outline-none"
+              className="mt-1.5 w-full rounded-xl border border-[#EDEDED] bg-white px-3.5 py-2 text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#1A1A1A] focus:outline-none"
             />
           </label>
-
-          <label className="block text-xs text-slate-300">
+          <label className="block text-xs text-[#666666]">
             <span>Preferred language</span>
             <select
               value={memory.lang}
               onChange={(event) => remember({ lang: event.target.value as Memory["lang"] })}
-              className="mt-1.5 w-full rounded-xl border border-white/15 bg-[#0a0a14] px-3.5 py-2 text-sm text-white focus:border-[#22D3EE] focus:outline-none"
+              className="mt-1.5 w-full rounded-xl border border-[#EDEDED] bg-white px-3.5 py-2 text-sm text-[#1A1A1A] focus:border-[#1A1A1A] focus:outline-none"
             >
               <option value="en">English</option>
               <option value="hi-Latn">Hinglish</option>
@@ -456,7 +448,6 @@ function SettingsScreenInner() {
             </select>
           </label>
         </div>
-
         <div className="mt-4 grid grid-cols-3 gap-2.5">
           {(
             [
@@ -471,48 +462,42 @@ function SettingsScreenInner() {
               onClick={() => remember({ style: item.id })}
               className={`rounded-xl border p-2.5 text-left text-xs transition ${
                 memory.style === item.id
-                  ? "border-[#22D3EE]/60 bg-[#22D3EE]/15 text-white"
-                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.07]"
+                  ? "border-[#1A1A1A] bg-[#F7F7F5] text-[#1A1A1A]"
+                  : "border-[#EDEDED] bg-white text-[#666666] hover:border-[#1A1A1A]"
               }`}
             >
               <b className="block font-semibold">{item.label}</b>
-              <span className="text-[11px] text-slate-400">{item.hint}</span>
+              <span className="text-[11px] text-[#999999]">{item.hint}</span>
             </button>
           ))}
         </div>
-
-        <div className="mt-5 grid grid-cols-3 gap-3 rounded-xl border border-white/10 bg-[#050508]/60 p-3 text-center text-xs">
+        <div className="mt-5 grid grid-cols-3 gap-3 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] p-3 text-center text-xs">
           <div>
-            <b className="block text-lg font-bold text-white">{stats.corrections}</b>
-            <span className="text-slate-400">Corrections</span>
+            <b className="block text-lg font-bold text-[#1A1A1A]">{stats.corrections}</b>
+            <span className="text-[#666666]">Corrections</span>
           </div>
           <div>
-            <b className="block text-lg font-bold text-white">{stats.likes}</b>
-            <span className="text-slate-400">Helpful</span>
+            <b className="block text-lg font-bold text-[#1A1A1A]">{stats.likes}</b>
+            <span className="text-[#666666]">Helpful</span>
           </div>
           <div>
-            <b className="block text-lg font-bold text-white">{stats.dislikes}</b>
-            <span className="text-slate-400">Not right</span>
+            <b className="block text-lg font-bold text-[#1A1A1A]">{stats.dislikes}</b>
+            <span className="text-[#666666]">Not right</span>
           </div>
         </div>
-
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={() => {
-              clearMemory();
-              setMemory(DEFAULT_MEMORY);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-white/10"
+            onClick={() => { clearMemory(); setMemory(DEFAULT_MEMORY); }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
           >
             <Trash2 className="h-3.5 w-3.5" /> Reset Memory
           </button>
-
           {!confirmClearLearning ? (
             <button
               type="button"
               onClick={() => setConfirmClearLearning(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-white/10"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
             >
               <Trash2 className="h-3.5 w-3.5" /> Clear Feedback
             </button>
@@ -520,51 +505,44 @@ function SettingsScreenInner() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  clearLearning();
-                  setLearning(EMPTY_LEARNING);
-                  setConfirmClearLearning(false);
-                }}
-                className="rounded-xl bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-rose-500"
+                onClick={() => { clearLearning(); setLearning(EMPTY_LEARNING); setConfirmClearLearning(false); }}
+                className="rounded-xl bg-[#1A1A1A] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#333]"
               >
-                Confirm clear feedback
+                Confirm clear
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmClearLearning(false)}
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs text-slate-300"
+                className="rounded-xl border border-[#EDEDED] bg-white px-3 py-2 text-xs text-[#666666]"
               >
                 Cancel
               </button>
             </div>
           )}
         </div>
-      </TiltCard>
+      </div>
 
-      {/* Danger Zone: Clear History */}
-      <TiltCard className="glass-card rounded-2xl border-rose-500/25 p-5 sm:p-6">
+      {/* Clear History */}
+      <div className="surface-card p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-400">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]">
               <ShieldCheck className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-base font-bold text-white">Clear All Local History</h2>
-              <p className="text-xs text-slate-400">
-                Deletes saved chats and generated image gallery from this browser (your API key stays untouched).
-              </p>
+              <h2 className="text-base font-semibold text-[#1A1A1A]">Clear All Local History</h2>
+              <p className="text-xs text-[#666666]">Deletes saved chats and image gallery from this browser. Your key stays untouched.</p>
             </div>
           </div>
-
           {historyCleared ? (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-200">
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-2 text-xs font-semibold text-[#1A1A1A]">
               <Check className="h-4 w-4" /> History Cleared
             </span>
           ) : !confirmClearHistory ? (
             <button
               type="button"
               onClick={() => setConfirmClearHistory(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/25"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#EDEDED] bg-white px-4 py-2 text-xs font-semibold text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
             >
               <Trash2 className="h-4 w-4" /> Clear History
             </button>
@@ -573,21 +551,21 @@ function SettingsScreenInner() {
               <button
                 type="button"
                 onClick={confirmWipeAllHistory}
-                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-500"
+                className="rounded-xl bg-[#1A1A1A] px-4 py-2 text-xs font-semibold text-white hover:bg-[#333]"
               >
-                Confirm Delete All
+                Confirm Delete
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmClearHistory(false)}
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs text-slate-300"
+                className="rounded-xl border border-[#EDEDED] bg-white px-3 py-2 text-xs text-[#666666]"
               >
                 Cancel
               </button>
             </div>
           )}
         </div>
-      </TiltCard>
+      </div>
     </main>
   );
 }

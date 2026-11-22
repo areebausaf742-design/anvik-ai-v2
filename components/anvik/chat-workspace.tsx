@@ -1,32 +1,44 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import Link from "next/link";
 import {
   AlertCircle,
+  ArrowRight,
   ArrowUp,
-  ArrowUpRight,
   AudioLines,
+  Bell,
   Check,
   CheckCircle2,
+  Code2,
   Copy,
-  ImagePlus,
+  Eye,
+  FileText,
+  Focus,
+  Image as ImageIcon,
   KeyRound,
+  Lightbulb,
   Menu,
   MessageSquarePlus,
   Mic,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PenLine,
+  Pencil,
+  RefreshCw,
   Search,
+  Share2,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   X,
 } from "lucide-react";
 import { useChatStore, selectActiveConversation, type ChatMessage } from "@/store/use-chat-store";
-import { modes, promptIdeas } from "@/lib/prompts";
-import Orb from "@/components/anvik/orb";
+import { modes } from "@/lib/prompts";
+import AnvikStar from "@/components/anvik/anvik-star";
+import { Brand } from "@/components/anvik/navigation";
 import Markdown from "@/components/anvik/markdown";
-import FeedbackBar from "@/components/anvik/feedback-bar";
 import ErrorBoundary from "@/components/anvik/error-boundary";
-import TiltCard from "@/components/anvik/tilt-card";
 import {
   KEY_FORMAT_MESSAGE,
   isValidGeminiKey,
@@ -55,6 +67,25 @@ function makeId() {
   return crypto.randomUUID();
 }
 
+const QUICK_ACTIONS = [
+  { label: "Write", icon: PenLine, prompt: "Write a warm, professional email to schedule a meeting next week." },
+  { label: "Code", icon: Code2, prompt: "Write a Python calculator with basic arithmetic operations." },
+  { label: "Learn", icon: Lightbulb, prompt: "Explain photosynthesis in simple terms with real examples." },
+  { label: "Image", icon: ImageIcon, prompt: "Describe a cinematic mountain landscape at golden hour." },
+];
+
+const SUGGESTION_CHIPS = [
+  "Photosynthesis kya hai?",
+  "Calculator ka code likho",
+  "What is car?",
+];
+
+const WELCOME_CARDS = [
+  { title: "Explain photosynthesis in Hindi", desc: "Simple language with real examples from daily life", icon: Lightbulb },
+  { title: "Write calculator code", desc: "Clean, working code you can run right away", icon: Code2 },
+  { title: "Make a study plan", desc: "A 30-day roadmap tailored to your goals", icon: FileText },
+];
+
 function ChatWorkspaceInner() {
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
@@ -76,10 +107,17 @@ function ChatWorkspaceInner() {
   const [keyTestStatus, setKeyTestStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [testingKey, setTestingKey] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [search, setSearch] = useState("");
   const [listening, setListening] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [hasValidKey, setHasValidKey] = useState(true);
+  const [userName, setUserName] = useState("");
+  const [welcomeTyped, setWelcomeTyped] = useState("");
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const endRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
@@ -90,8 +128,48 @@ function ChatWorkspaceInner() {
     setHydrated(true);
     const raw = readRawApiKey();
     setHasValidKey(raw.length === 0 ? false : isValidGeminiKey(raw));
+    const mem = readMemory();
+    setUserName(mem.name.trim());
     const prompt = new URLSearchParams(window.location.search).get("prompt");
     if (prompt) setInput(prompt.slice(0, 1600));
+    const seenTip = localStorage.getItem("anvik-tip-seen");
+    if (!seenTip) {
+      setShowTooltip(true);
+      setTimeout(() => {
+        setShowTooltip(false);
+        localStorage.setItem("anvik-tip-seen", "1");
+      }, 5000);
+    }
+  }, []);
+
+  useEffect(() => {
+    const mem = readMemory();
+    if (mem.name.trim() !== userName) setUserName(mem.name.trim());
+  }, [activeChat]);
+
+  useEffect(() => {
+    if (!userName) return;
+    let i = 0;
+    const full = `Welcome, ${userName}`;
+    const timer = setInterval(() => {
+      i++;
+      setWelcomeTyped(full.slice(0, i));
+      if (i >= full.length) clearInterval(timer);
+    }, 50);
+    return () => clearInterval(timer);
+  }, [userName]);
+
+  useEffect(() => {
+    if (!userName) {
+      let i = 0;
+      const full = "Welcome";
+      const timer = setInterval(() => {
+        i++;
+        setWelcomeTyped(full.slice(0, i));
+        if (i >= full.length) clearInterval(timer);
+      }, 80);
+      return () => clearInterval(timer);
+    }
   }, []);
 
   useEffect(() => {
@@ -99,6 +177,21 @@ function ChatWorkspaceInner() {
   }, [activeChat?.messages, pending]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setShowPalette((v) => !v);
+      }
+      if (e.key === "Escape") {
+        setShowPalette(false);
+        setFocusMode(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function runInlineKeyTest() {
     setTestingKey(true);
@@ -163,8 +256,7 @@ function ChatWorkspaceInner() {
         throw new Error(mapHttpErrorMessage(response.status, issue?.error ?? issue?.detail));
       }
 
-      const modelUsed = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
-      const label = response.headers.get("x-anvik-label") ?? "From Gemini";
+      const modelUsed = response.headers.get("x-anvik-model") ?? "anvik-1.0";
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -178,7 +270,7 @@ function ChatWorkspaceInner() {
       answer += decoder.decode();
 
       if (!answer.trim()) {
-        const emptyMsg = "Gemini returned an empty response. Please try again.";
+        const emptyMsg = "ANVIK could not answer. Check key or try again.";
         updateMessage(conversationId, assistantId, emptyMsg);
         setMessageMeta(conversationId, assistantId, { isError: true });
         setError(emptyMsg);
@@ -187,7 +279,6 @@ function ChatWorkspaceInner() {
         setMessageMeta(conversationId, assistantId, {
           source: "gemini",
           model: modelUsed,
-          credit: label,
           isError: false,
         });
         recordDailyUsage(modelUsed);
@@ -266,6 +357,29 @@ function ChatWorkspaceInner() {
     }
   }
 
+  function startRename(chatId: string, currentTitle: string) {
+    setRenamingId(chatId);
+    setRenameValue(currentTitle);
+  }
+
+  function confirmRename() {
+    if (renamingId && renameValue.trim()) {
+      const chats = useChatStore.getState().conversations;
+      const chat = chats.find((c) => c.id === renamingId);
+      if (chat) {
+        const msgs = [...chat.messages];
+        useChatStore.setState({
+          conversations: chats.map((c) =>
+            c.id === renamingId ? { ...c, title: renameValue.trim().slice(0, 60) } : c,
+          ),
+        });
+        void msgs;
+      }
+    }
+    setRenamingId(null);
+    setRenameValue("");
+  }
+
   const safeConversations = hydrated ? conversations : [];
   const activeMessages = hydrated ? (activeChat?.messages ?? []) : [];
   const filteredChats = safeConversations.filter((chat) =>
@@ -276,351 +390,492 @@ function ChatWorkspaceInner() {
     error.toLowerCase().includes("key") ||
     error.toLowerCase().includes("aistudio");
 
+  const welcomeText = userName ? `Welcome, ${userName}` : "Welcome";
+
   return (
-    <div className="relative flex h-[calc(100dvh-105px)] w-full overflow-hidden bg-[#050508] sm:h-[calc(100dvh-61px)]">
-      {/* Left Sidebar */}
-      <aside
-        aria-label="Chat history"
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-[#08080f]/95 p-4 backdrop-blur-2xl transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex items-center justify-between gap-2 pb-3 lg:hidden">
-          <span className="text-sm font-bold tracking-tight gradient-text">Conversations</span>
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <button
-          type="button"
-          className="btn-gradient flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white"
-          onClick={() => {
-            createConversation();
-            setError("");
-            setSidebarOpen(false);
-          }}
+    <div className="relative flex h-[100dvh] w-full overflow-hidden bg-white">
+      {/* ==================== Sidebar ==================== */}
+      {!focusMode && (
+        <aside
+          aria-label="Sidebar"
+          className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[#EDEDED] bg-[#F7F7F5] sidebar-slide lg:static lg:z-auto lg:translate-x-0 ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
         >
-          <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
-          New chat
-        </button>
+          <div className="flex items-center justify-between px-4 py-4">
+            <Brand />
+            <button
+              type="button"
+              aria-label="Close sidebar"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[#999999] hover:bg-[#EDEDED] hover:text-[#1A1A1A] lg:hidden"
+              onClick={() => setSidebarOpen(false)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
-        <label className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300 focus-within:border-[#22D3EE]/60">
-          <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
-          <span className="sr-only">Search conversations</span>
-          <input
-            aria-label="Search conversations"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search chats..."
-            className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
-          />
-        </label>
+          <div className="px-3 pb-2">
+            <button
+              type="button"
+              className="new-btn"
+              onClick={() => {
+                createConversation();
+                setError("");
+                setSidebarOpen(false);
+              }}
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              New
+            </button>
+          </div>
 
-        <div className="mt-4 mb-2 flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          <span>History</span>
-          <span>{filteredChats.length}</span>
-        </div>
-
-        <div className="flex-1 space-y-1 overflow-y-auto pr-1">
-          {filteredChats.map((chat) => {
-            const isActive = chat.id === activeId;
-            return (
-              <div
-                key={chat.id}
-                className={`group flex items-center gap-1 rounded-xl border px-2 py-1.5 transition ${
-                  isActive
-                    ? "border-[#7C3AED]/50 bg-[#7C3AED]/15 text-white"
-                    : "border-transparent text-slate-300 hover:bg-white/[0.05] hover:text-white"
-                }`}
+          <nav className="mt-1 px-3">
+            {[
+              { href: "/chat", label: "Search", icon: Search },
+              { href: "/library", label: "Projects", icon: FileText },
+              { href: "/library", label: "Artifacts", icon: Sparkles },
+              { href: "/image", label: "Image", icon: ImageIcon },
+            ].map((item, i) => (
+              <a
+                key={`${item.label}-${i}`}
+                href={item.href}
+                className="chat-item"
               >
+                <item.icon className="h-4 w-4 shrink-0 text-[#999999]" />
+                <span>{item.label}</span>
+              </a>
+            ))}
+          </nav>
+
+          <div className="mt-4 flex items-center justify-between px-4 pb-1">
+            <span className="text-xs font-medium text-[#999999]">Chats</span>
+            <button
+              type="button"
+              aria-label="Filter chats"
+              className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <label className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1.5 focus-within:border-[#1A1A1A]">
+            <Search className="h-3.5 w-3.5 shrink-0 text-[#999999]" />
+            <span className="sr-only">Search conversations</span>
+            <input
+              aria-label="Search conversations"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search..."
+              className="w-full bg-transparent text-xs text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
+            />
+          </label>
+
+          <div className="flex-1 space-y-0.5 overflow-y-auto px-2 thin-scroll">
+            {filteredChats.map((chat) => {
+              const isActive = chat.id === activeId;
+              const isRenaming = renamingId === chat.id;
+              return (
+                <div key={chat.id} className={`chat-item group ${isActive ? "active" : ""}`}>
+                  {isRenaming ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={confirmRename}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") confirmRename();
+                        if (e.key === "Escape") {
+                          setRenamingId(null);
+                          setRenameValue("");
+                        }
+                      }}
+                      className="flex-1 bg-white px-1 text-xs text-[#1A1A1A] outline-none ring-1 ring-[#1A1A1A] rounded"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center text-left"
+                      onClick={() => {
+                        setActive(chat.id);
+                        setError("");
+                        setSidebarOpen(false);
+                      }}
+                    >
+                      <span className="truncate">{chat.title}</span>
+                    </button>
+                  )}
+                  {!isRenaming && (
+                    <div className="chat-actions flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        aria-label="Rename chat"
+                        title="Rename"
+                        onClick={() => startRename(chat.id, chat.title)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${chat.title}`}
+                        title="Delete"
+                        onClick={() => deleteConversation(chat.id)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filteredChats.length === 0 && hydrated && (
+              <div className="px-3 py-8 text-center">
+                <p className="text-xs text-[#999999]">No chats yet</p>
                 <button
                   type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs font-medium"
+                  className="mt-2 text-xs font-medium text-[#1A1A1A] underline"
                   onClick={() => {
-                    setActive(chat.id);
+                    createConversation();
                     setError("");
-                    setSidebarOpen(false);
                   }}
                 >
-                  <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${
-                      isActive ? "bg-[#22D3EE] shadow-[0_0_8px_#22D3EE]" : "bg-slate-600"
-                    }`}
-                  />
-                  <span className="truncate">{chat.title}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Delete ${chat.title}`}
-                  title="Delete chat"
-                  onClick={() => deleteConversation(chat.id)}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-80 transition hover:bg-rose-500/20 hover:text-rose-300 sm:opacity-60 sm:group-hover:opacity-100"
-                >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Start new chat
                 </button>
               </div>
-            );
-          })}
-          {filteredChats.length === 0 && (
-            <p className="px-2 py-4 text-xs text-slate-500">
-              Your Gemini conversations will appear here.
-            </p>
-          )}
-        </div>
-
-        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs">
-          <div className="flex items-center justify-between font-semibold text-white">
-            <span className="flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-[#22D3EE]" aria-hidden="true" />
-              Powered by Gemini
-            </span>
+            )}
           </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-            Live streaming via gemini-2.0-flash with automatic 2.5 &amp; 1.5 fallback.
-          </p>
-        </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/10 pt-3 text-xs">
-          <Link
-            href="/image"
-            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-slate-300 hover:bg-white/[0.08] hover:text-white"
-          >
-            <ImagePlus className="h-3.5 w-3.5 text-[#22D3EE]" aria-hidden="true" />
-            <span>Image</span>
-          </Link>
-          <Link
-            href="/settings"
-            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-slate-300 hover:bg-white/[0.08] hover:text-white"
-          >
-            <KeyRound className="h-3.5 w-3.5 text-[#7C3AED]" aria-hidden="true" />
-            <span>API Key</span>
-          </Link>
-        </div>
-      </aside>
+          <div className="mt-2 border-t border-[#EDEDED] px-3 py-3">
+            <a href="/settings" className="chat-item">
+              <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" />
+              <span>Settings</span>
+            </a>
+          </div>
+        </aside>
+      )}
 
-      {sidebarOpen && (
+      {sidebarOpen && !focusMode && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs lg:hidden"
+          className="fixed inset-0 z-40 bg-black/10 lg:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-label="Close sidebar"
         />
       )}
 
-      {/* Main Chat Pane */}
-      <section className="flex min-w-0 flex-1 flex-col">
-        {/* Sub-header with centered animated Orb */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-[#050508]/80 px-3 py-2 backdrop-blur-md sm:px-5">
+      {/* ==================== Main Area ==================== */}
+      <section className="flex min-w-0 flex-1 flex-col bg-white">
+        {/* Top bar */}
+        <div className="flex shrink-0 items-center justify-between gap-2 px-4 py-2.5 border-b border-[#EDEDED]">
           <div className="flex items-center gap-2">
+            {!focusMode && (
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5] lg:hidden"
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open sidebar"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            )}
+            {focusMode && (
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5]"
+                onClick={() => setFocusMode(false)}
+                aria-label="Exit focus mode"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </button>
+            )}
+            <span className="text-xs text-[#999999]">
+              Free plan · <a href="/pricing" className="text-[#666666] hover:text-[#1A1A1A] underline">Upgrade</a>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 lg:hidden"
-              onClick={() => setSidebarOpen(true)}
-              aria-label="Open chat history"
+              onClick={() => setShowPalette(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-[#EDEDED] px-2.5 py-1.5 text-xs text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
             >
-              <Menu className="h-4 w-4" />
+              <Search className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Search</span>
+              <kbd className="hidden sm:inline ml-1 rounded border border-[#EDEDED] px-1 text-[10px] text-[#999999]">Ctrl K</kbd>
             </button>
             <button
               type="button"
-              onClick={() => {
-                createConversation();
-                setError("");
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10 lg:hidden"
+              onClick={() => setFocusMode((v) => !v)}
+              aria-label="Toggle focus mode"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                focusMode ? "bg-[#1A1A1A] text-white" : "text-[#666666] hover:bg-[#F7F7F5]"
+              }`}
             >
-              <MessageSquarePlus className="h-3.5 w-3.5 text-[#22D3EE]" />
-              <span>New</span>
+              {focusMode ? <PanelLeftClose className="h-4 w-4" /> : <Focus className="h-4 w-4" />}
             </button>
+            {!focusMode && (
+              <button
+                type="button"
+                aria-label="Notifications"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5]"
+              >
+                <Bell className="h-4 w-4" />
+              </button>
+            )}
           </div>
-
-          <div className="flex items-center gap-2.5">
-            <Orb size="mini" active={pending} />
-            <div className="leading-tight">
-              <span className="block text-sm font-bold tracking-tight gradient-text">ANVIK</span>
-              <span className="block text-[10px] font-medium tracking-wider text-slate-400">
-                {pending ? "STREAMING LIVE" : "ONE MIND · GEMINI"}
-              </span>
-            </div>
-          </div>
-
-          <label className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-slate-300">
-            <span className="hidden text-slate-400 sm:inline">Mode</span>
-            <select
-              aria-label="AI mode"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as typeof mode)}
-              className="bg-transparent text-xs font-medium text-white focus:outline-none"
-            >
-              {modes.map((item) => (
-                <option value={item.id} key={item.id} className="bg-[#0b0b14] text-white">
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
-        {/* Scrollable Message Area */}
-        <div className="flex-1 overflow-y-auto px-3 py-5 sm:px-6">
-          {!hasValidKey && activeMessages.length === 0 && (
-            <div className="mx-auto mb-5 flex max-w-3xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#7C3AED]/40 bg-[#7C3AED]/10 px-4 py-3 text-xs text-slate-200">
-              <span>
-                Add your free Google AI Studio key in Settings to start chatting live with Gemini.
-              </span>
-              <Link
-                href="/settings"
-                className="inline-flex items-center gap-1 font-semibold text-[#22D3EE] hover:underline"
-              >
-                Add Gemini Key <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-          )}
-
+        {/* Message area */}
+        <div className="flex-1 overflow-y-auto thin-scroll">
           {activeMessages.length === 0 ? (
-            <div className="mx-auto flex max-w-3xl flex-col items-center py-6 text-center sm:py-10">
-              <Orb size="large" active={pending} />
-              <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
-                One Mind.{" "}
-                <span className="gradient-text">Infinite Possibilities.</span>
+            <div className="mx-auto flex max-w-[720px] flex-col items-center px-4 pt-20 pb-8 text-center">
+              <AnvikStar size="lg" className="mb-4" />
+              <h1
+                className="font-serif text-[32px] font-normal leading-tight tracking-[-0.5px] text-[#1A1A1A]"
+                style={{ letterSpacing: "-0.5px" }}
+              >
+                {welcomeTyped}
+                <span className="stream-cursor" />
               </h1>
-              <p className="mt-2 max-w-lg text-sm text-slate-400">
-                Ask anything in English, Hindi, or Hinglish. Every reply streams straight from Gemini.
-              </p>
 
-              <div className="mt-7 grid w-full grid-cols-1 gap-3 text-left sm:grid-cols-2">
-                {promptIdeas.map(({ title, text }) => (
-                  <TiltCard key={title} className="glass-card rounded-2xl">
-                    <button
-                      type="button"
-                      onClick={() => void sendMessage(text)}
-                      className="flex h-full w-full items-start justify-between gap-3 p-4 text-left"
-                    >
-                      <div>
-                        <b className="block text-sm font-semibold text-white">{title}</b>
-                        <small className="mt-1 block text-xs leading-relaxed text-slate-400">
-                          {text}
-                        </small>
-                      </div>
-                      <ArrowUpRight className="h-4 w-4 shrink-0 text-[#22D3EE]" aria-hidden="true" />
-                    </button>
-                  </TiltCard>
+              {/* Quick actions */}
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                {QUICK_ACTIONS.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="quick-pill"
+                    onClick={() => setInput(action.prompt)}
+                  >
+                    <action.icon className="h-3.5 w-3.5 text-[#666666]" />
+                    {action.label}
+                  </button>
                 ))}
               </div>
+
+              {/* Input box */}
+              <form onSubmit={submit} className="mt-6 w-full">
+                <div className="premium-input input-pulse p-2.5">
+                  <textarea
+                    ref={fieldRef}
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={keySubmit}
+                    placeholder="How can I help you today?"
+                    aria-label="Message ANVIK"
+                    rows={1}
+                    disabled={pending}
+                    className="max-h-36 min-h-[44px] w-full resize-none bg-transparent px-2 py-1.5 text-[15px] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
+                  />
+                  <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+                    <div className="flex items-center gap-1.5 relative">
+                      <button
+                        type="button"
+                        aria-label="Add attachment"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
+                      >
+                        <span className="text-lg leading-none">+</span>
+                      </button>
+                      {showTooltip && (
+                        <div className="absolute left-10 top-0 z-20 whitespace-nowrap rounded-lg bg-[#1A1A1A] px-3 py-1.5 text-xs text-white tooltip-arrow">
+                          Try Take Photo — Ask about anything you see
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={listen}
+                        aria-label={listening ? "Stop voice input" : "Use voice input"}
+                        aria-pressed={listening}
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                          listening
+                            ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
+                            : "border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
+                        }`}
+                      >
+                        <Mic className="h-4 w-4" />
+                      </button>
+                      {pending && (
+                        <button
+                          type="button"
+                          onClick={stop}
+                          aria-label="Stop generating"
+                          className="flex h-8 items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
+                        >
+                          <AudioLines className="h-3.5 w-3.5" />
+                          Stop
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="hidden sm:inline text-xs font-medium text-[#999999]">ANVIK 1.0</span>
+                      <select
+                        aria-label="Response mode"
+                        value={mode}
+                        onChange={(event) => setMode(event.target.value as typeof mode)}
+                        className="rounded-lg border border-[#EDEDED] bg-white px-2 py-1 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] focus:outline-none"
+                      >
+                        {modes.map((item) => (
+                          <option value={item.id} key={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        aria-label="Send message"
+                        disabled={!input.trim() || pending}
+                        className="send-btn"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </form>
+
+              {/* Suggestion chips */}
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                {SUGGESTION_CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    className="premium-chip"
+                    onClick={() => void sendMessage(chip)}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              {/* Welcome cards */}
+              <div className="mt-10 grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
+                {WELCOME_CARDS.map((card) => (
+                  <button
+                    key={card.title}
+                    type="button"
+                    className="surface-card p-5 text-left"
+                    onClick={() => void sendMessage(card.title)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <card.icon className="h-5 w-5 text-[#D97757]" />
+                      <ArrowRight className="h-4 w-4 text-[#CCCCCC] opacity-0 transition-opacity group-hover:opacity-100" />
+                    </div>
+                    <h3 className="mt-3 text-sm font-semibold text-[#1A1A1A]">{card.title}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-[#666666]">{card.desc}</p>
+                  </button>
+                ))}
+              </div>
+
+              {!hasValidKey && (
+                <div className="mt-6 max-w-md rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
+                  Add your free ANVIK key in Settings to start chatting.
+                  <a href="/settings" className="ml-1 font-medium text-[#1A1A1A] underline">Add Key</a>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="mx-auto flex max-w-3xl flex-col gap-5">
+            <div className="mx-auto max-w-[720px] px-4 py-6">
               {activeMessages.map((message, index) => {
                 const isUser = message.role === "user";
                 const isLastAssistant = !isUser && index === activeMessages.length - 1;
                 const isThinking = !isUser && !message.content && pending && isLastAssistant;
+                const isStreaming = !isUser && pending && isLastAssistant && !!message.content;
 
                 if (isUser) {
                   return (
-                    <article key={message.id} className="flex justify-end">
-                      <div className="max-w-[85%] rounded-2xl rounded-br-sm border border-[#7C3AED]/45 bg-gradient-to-br from-[#7C3AED]/30 to-[#7C3AED]/15 px-4 py-3 text-sm leading-relaxed text-white shadow-lg shadow-[#7C3AED]/10 backdrop-blur-md sm:max-w-[72%]">
-                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-violet-200/80">
-                          You
-                        </span>
-                        <p className="whitespace-pre-wrap">{message.content}</p>
-                      </div>
+                    <article key={message.id} className="msg-enter mb-6">
+                      <p className="whitespace-pre-wrap text-[15px] leading-[1.7] text-[#1A1A1A]">{message.content}</p>
                     </article>
                   );
                 }
 
                 return (
-                  <article key={message.id} className="flex items-start gap-3">
-                    <div className="mt-1 shrink-0">
-                      <Orb size="mini" active={pending && isLastAssistant} />
-                    </div>
-                    <div
-                      className={`min-w-0 flex-1 rounded-2xl rounded-bl-sm border px-4 py-3.5 backdrop-blur-xl ${
-                        message.isError
-                          ? "border-rose-500/40 bg-rose-500/10 text-rose-100"
-                          : "border-white/15 bg-white/[0.06] text-slate-100 shadow-lg shadow-black/30"
-                      }`}
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold tracking-wider gradient-text">
-                            ANVIK
-                          </span>
-                          {!message.isError && (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#67e8f9]">
-                              From Gemini
-                            </span>
-                          )}
+                  <article key={message.id} className="msg-row msg-enter mb-8">
+                    {isThinking ? (
+                      <div className="flex items-center gap-3 py-2 text-sm text-[#999999]">
+                        <span className="typing-dots" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </span>
+                        <span>ANVIK is thinking</span>
+                      </div>
+                    ) : message.isError ? (
+                      <div className="rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-sm text-[#666666]">
+                        {message.content}
+                      </div>
+                    ) : (
+                      <>
+                        <div className={isStreaming ? "stream-cursor" : ""}>
+                          <Markdown text={message.content} className="md" />
                         </div>
+                        <div className="mt-1 text-xs text-[#999999]">ANVIK</div>
 
-                        {message.content && !isThinking && !message.isError && (
+                        {/* Message toolbar */}
+                        <div className="msg-toolbar mt-3 flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => void copyMessage(message)}
-                            aria-label="Copy response"
-                            className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+                            aria-label="Copy"
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#999999] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
                           >
-                            {copied === message.id ? (
-                              <Check className="h-3 w-3 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
+                            {copied === message.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                             <span>{copied === message.id ? "Copied" : "Copy"}</span>
                           </button>
-                        )}
-                      </div>
-
-                      {isThinking ? (
-                        <div className="flex items-center gap-3 py-1 text-sm text-slate-300">
-                          <span className="typing-dots" aria-hidden="true">
-                            <span />
-                            <span />
-                            <span />
-                          </span>
-                          <span>ANVIK is thinking</span>
+                          <button
+                            type="button"
+                            aria-label="Helpful"
+                            onClick={() => setMessageMeta(activeChat?.id ?? "", message.id, { verdict: "like" })}
+                            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-[#F7F7F5] ${
+                              message.verdict === "like" ? "text-[#1A1A1A] font-medium" : "text-[#999999] hover:text-[#1A1A1A]"
+                            }`}
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" />
+                            <span>Helpful</span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Not right"
+                            onClick={() => setMessageMeta(activeChat?.id ?? "", message.id, { verdict: "dislike" })}
+                            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-[#F7F7F5] ${
+                              message.verdict === "dislike" ? "text-[#1A1A1A] font-medium" : "text-[#999999] hover:text-[#1A1A1A]"
+                            }`}
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                            <span>Not right</span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Regenerate"
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#999999] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            <span>Regenerate</span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Share"
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#999999] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                            <span>Share</span>
+                          </button>
                         </div>
-                      ) : message.isError ? (
-                        <div className="space-y-2 text-sm text-rose-200">
-                          <p>{message.content}</p>
-                        </div>
-                      ) : (
-                        <Markdown text={message.content} className="md" />
-                      )}
-
-                      {message.content && !pending && !message.isError && (
-                        <FeedbackBar
-                          question={questionFor(activeMessages, message.id)}
-                          answer={message.content}
-                          credit={message.credit ?? "From Gemini"}
-                          model={message.model}
-                          verdict={message.verdict}
-                          taught={message.taught}
-                          onVerdict={(verdict) =>
-                            setMessageMeta(activeChat?.id ?? "", message.id, { verdict })
-                          }
-                          onTaught={() =>
-                            setMessageMeta(activeChat?.id ?? "", message.id, { taught: true })
-                          }
-                          onError={setError}
-                        />
-                      )}
-                    </div>
+                      </>
+                    )}
                   </article>
                 );
               })}
 
               {pending && activeMessages[activeMessages.length - 1]?.content && (
-                <div className="flex items-center gap-2 pl-11 text-xs text-slate-400">
+                <div className="flex items-center gap-2 pl-1 text-xs text-[#999999]">
                   <span className="typing-dots" aria-hidden="true">
                     <span />
                     <span />
                     <span />
                   </span>
-                  <span>ANVIK is thinking...</span>
                 </div>
               )}
 
@@ -629,117 +884,212 @@ function ChatWorkspaceInner() {
           )}
         </div>
 
-        {/* Bottom Composer Dock */}
-        <div className="shrink-0 border-t border-white/10 bg-[#050508]/95 px-3 py-2.5 backdrop-blur-xl sm:px-6 sm:py-3">
-          {error && (
-            <div
-              role="alert"
-              className="mx-auto mb-2.5 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2 text-xs text-rose-200"
-            >
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" aria-hidden="true" />
-                <span>{error}</span>
-              </div>
-              {showKeyHelper && (
+        {/* Bottom composer (when in conversation) */}
+        {activeMessages.length > 0 && (
+          <div className="shrink-0 px-4 py-3">
+            {error && (
+              <div
+                role="alert"
+                className="mx-auto mb-2.5 flex max-w-[720px] flex-wrap items-center justify-between gap-2 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-3.5 py-2 text-xs text-[#666666]"
+              >
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void runInlineKeyTest()}
-                    disabled={testingKey}
-                    className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/20"
-                  >
-                    {testingKey ? "Testing..." : "Test Key"}
-                  </button>
-                  <Link
-                    href="/settings"
-                    className="rounded-lg bg-[#7C3AED] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#6d28d9]"
-                  >
-                    Settings
-                  </Link>
+                  <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
+                  <span>{error}</span>
                 </div>
-              )}
-            </div>
-          )}
-
-          {keyTestStatus && (
-            <div
-              role="status"
-              className={`mx-auto mb-2.5 flex max-w-3xl items-center gap-2 rounded-xl border px-3.5 py-2 text-xs ${
-                keyTestStatus.ok
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                  : "border-rose-500/40 bg-rose-500/10 text-rose-200"
-              }`}
-            >
-              {keyTestStatus.ok ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-              ) : (
-                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-              )}
-              <span>{keyTestStatus.text}</span>
-            </div>
-          )}
-
-          <form
-            onSubmit={submit}
-            className="mx-auto max-w-3xl rounded-2xl border border-white/15 bg-white/[0.05] p-2.5 shadow-xl shadow-black/50 focus-within:border-[#7C3AED]/60"
-          >
-            <textarea
-              ref={fieldRef}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={keySubmit}
-              placeholder="Ask ANVIK anything..."
-              aria-label="Message ANVIK"
-              rows={1}
-              disabled={pending}
-              className="max-h-36 min-h-[40px] w-full resize-none bg-transparent px-2 py-1.5 text-sm text-white placeholder:text-slate-400 focus:outline-none"
-            />
-            <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={listen}
-                  aria-label={listening ? "Stop voice input" : "Use voice input"}
-                  aria-pressed={listening}
-                  className={`flex h-9 w-9 items-center justify-center rounded-xl border transition ${
-                    listening
-                      ? "border-[#22D3EE] bg-[#22D3EE]/20 text-[#22D3EE]"
-                      : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Mic className="h-4 w-4" />
-                </button>
-                {pending && (
-                  <button
-                    type="button"
-                    onClick={stop}
-                    aria-label="Stop generating"
-                    className="flex h-9 items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/15 px-3 text-xs font-medium text-rose-200 hover:bg-rose-500/25"
-                  >
-                    <AudioLines className="h-3.5 w-3.5" />
-                    Stop
-                  </button>
+                {showKeyHelper && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void runInlineKeyTest()}
+                      disabled={testingKey}
+                      className="rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
+                    >
+                      {testingKey ? "Testing..." : "Test Key"}
+                    </button>
+                    <a
+                      href="/settings"
+                      className="rounded-lg bg-[#1A1A1A] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#333]"
+                    >
+                      Settings
+                    </a>
+                  </div>
                 )}
               </div>
+            )}
 
-              <div className="flex items-center gap-2.5">
-                <span className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold tracking-wider text-slate-300">
-                  <Sparkles className="h-3 w-3 text-[#22D3EE]" aria-hidden="true" />
-                  POWERED BY GEMINI
-                </span>
-                <button
-                  type="submit"
-                  aria-label="Send message"
-                  disabled={!input.trim() || pending}
-                  className="btn-gradient flex h-9 w-9 items-center justify-center rounded-xl text-white"
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </button>
+            {keyTestStatus && (
+              <div
+                role="status"
+                className={`mx-auto mb-2.5 flex max-w-[720px] items-center gap-2 rounded-xl border px-3.5 py-2 text-xs ${
+                  keyTestStatus.ok
+                    ? "border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]"
+                    : "border-[#EDEDED] bg-[#F7F7F5] text-[#666666]"
+                }`}
+              >
+                {keyTestStatus.ok ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-[#1A1A1A]" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
+                )}
+                <span>{keyTestStatus.text}</span>
               </div>
-            </div>
-          </form>
-        </div>
+            )}
+
+            <form onSubmit={submit} className="mx-auto max-w-[720px]">
+              <div className="premium-input p-2.5">
+                <textarea
+                  ref={fieldRef}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={keySubmit}
+                  placeholder="Ask ANVIK anything..."
+                  aria-label="Message ANVIK"
+                  rows={1}
+                  disabled={pending}
+                  className="max-h-36 min-h-[44px] w-full resize-none bg-transparent px-2 py-1.5 text-[15px] text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
+                />
+                <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      aria-label="Add attachment"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
+                    >
+                      <span className="text-lg leading-none">+</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={listen}
+                      aria-label={listening ? "Stop voice input" : "Use voice input"}
+                      aria-pressed={listening}
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                        listening
+                          ? "border-[#1A1A1A] bg-[#1A1A1A] text-white"
+                          : "border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
+                      }`}
+                    >
+                      <Mic className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Audio"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
+                    >
+                      <AudioLines className="h-4 w-4" />
+                    </button>
+                    {pending && (
+                      <button
+                        type="button"
+                        onClick={stop}
+                        aria-label="Stop generating"
+                        className="flex h-8 items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
+                      >
+                        <AudioLines className="h-3.5 w-3.5" />
+                        Stop
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="hidden sm:inline text-xs font-medium text-[#999999]">ANVIK 1.0</span>
+                    <select
+                      aria-label="Response mode"
+                      value={mode}
+                      onChange={(event) => setMode(event.target.value as typeof mode)}
+                      className="rounded-lg border border-[#EDEDED] bg-white px-2 py-1 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] focus:outline-none"
+                    >
+                      {modes.map((item) => (
+                        <option value={item.id} key={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="submit"
+                      aria-label="Send message"
+                      disabled={!input.trim() || pending}
+                      className="send-btn"
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
       </section>
+
+      {/* ==================== Command Palette ==================== */}
+      {showPalette && (
+        <div
+          className="palette-overlay fixed inset-0 z-[100] flex items-start justify-center bg-black/10 pt-[15vh] backdrop-blur-sm"
+          onClick={() => setShowPalette(false)}
+        >
+          <div
+            className="palette-panel w-full max-w-[560px] mx-4 rounded-2xl border border-[#EDEDED] bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 border-b border-[#EDEDED] px-4 py-3">
+              <Search className="h-4 w-4 text-[#999999]" />
+              <input
+                autoFocus
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Ask ANVIK anything..."
+                className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setShowPalette(false);
+                    void sendMessage(search);
+                    setSearch("");
+                  }
+                }}
+              />
+              <kbd className="rounded border border-[#EDEDED] px-1.5 py-0.5 text-[10px] text-[#999999]">ESC</kbd>
+            </div>
+            <div className="max-h-[320px] overflow-y-auto p-2 thin-scroll">
+              {filteredChats.length > 0 && (
+                <>
+                  <div className="px-2 py-1.5 text-xs font-medium text-[#999999]">Chats</div>
+                  {filteredChats.slice(0, 6).map((chat) => (
+                    <button
+                      key={chat.id}
+                      type="button"
+                      className="chat-item w-full"
+                      onClick={() => {
+                        setActive(chat.id);
+                        setShowPalette(false);
+                        setSearch("");
+                      }}
+                    >
+                      <MessageSquarePlus className="h-4 w-4 text-[#999999]" />
+                      <span className="truncate">{chat.title}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+              <div className="px-2 py-1.5 text-xs font-medium text-[#999999]">Actions</div>
+              {[
+                { label: "New chat", icon: MessageSquarePlus, action: () => { createConversation(); setShowPalette(false); } },
+                { label: "Image Studio", icon: ImageIcon, href: "/image" },
+                { label: "Vision Studio", icon: Eye, href: "/vision" },
+                { label: "Settings", icon: KeyRound, href: "/settings" },
+              ].map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href ?? "#"}
+                  onClick={item.action}
+                  className="chat-item w-full"
+                >
+                  <item.icon className="h-4 w-4 text-[#999999]" />
+                  <span>{item.label}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -750,16 +1100,4 @@ export default function ChatWorkspace() {
       <ChatWorkspaceInner />
     </ErrorBoundary>
   );
-}
-
-function questionFor(messages: ChatMessage[], replyId: string): string {
-  const index = messages.findIndex((message) => message.id === replyId);
-  for (let i = index - 1; i >= 0; i -= 1) {
-    if (messages[i].role === "user") return messages[i].content;
-  }
-  return "";
-}
-
-export function deviceId(): string {
-  return readDeviceId();
 }

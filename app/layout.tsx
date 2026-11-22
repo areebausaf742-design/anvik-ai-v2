@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import "@fontsource-variable/manrope";
+import "@fontsource-variable/inter";
 import "./globals.css";
-import Navigation from "@/components/anvik/navigation";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://anvik.ai";
 
@@ -12,12 +11,12 @@ export const metadata: Metadata = {
     template: "%s — ANVIK AI",
   },
   description:
-    "ANVIK AI is your dark, ultra-fast personal AI workspace powered by Gemini — chat, code lab, image studio, voice mode, and vision.",
+    "ANVIK AI is your ultra-fast personal AI workspace — chat, code, image, voice, and vision in one calm, premium interface.",
   applicationName: "ANVIK AI",
   openGraph: {
     title: "ANVIK AI — One Mind. Infinite Possibilities.",
     description:
-      "Chat, Code Lab, Image Studio, Voice, and Vision — live streaming powered by Gemini.",
+      "Chat, Code, Image, Voice, and Vision — one premium AI workspace.",
     type: "website",
     siteName: "ANVIK AI",
     url: siteUrl,
@@ -25,31 +24,26 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "ANVIK AI — One Mind. Infinite Possibilities.",
-    description: "Chat, Code Lab, Image Studio, Voice, and Vision — powered by Gemini.",
+    description: "Chat, Code, Image, Voice, and Vision — one premium AI workspace.",
   },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#050508",
-  colorScheme: "dark",
+  themeColor: "#FFFFFF",
+  colorScheme: "light",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      className="dark"
-      style={{ backgroundColor: "#050508", color: "#f8fafc" }}
-    >
-      <body className="min-h-dvh bg-[#050508] text-slate-100 antialiased">
+    <html lang="en" style={{ backgroundColor: "#FFFFFF", color: "#1A1A1A" }}>
+      <body className="min-h-dvh bg-white text-[#1A1A1A] antialiased">
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
-        <Navigation />
         <div id="main-content">{children}</div>
       </body>
     </html>
