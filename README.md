@@ -21,12 +21,17 @@ steps, the fee, the office and the official page — free to start, no account r
   numbers are stripped before anything is written. Feedback is a record, not a lookup: it never
   replaces a fresh answer.
 - **Image studio** (`/image`) — Gemini image generation when a key is present, automatically falling
-  back to the free Pollinations Flux endpoint. The gallery stores **URLs**, capped at 6, never base64.
+  back to the free Pollinations Flux endpoint. The gallery stores compressed images in this browser,
+  capped at 12.
 - **Code lab** (`/code`) — streams a code draft plus an explanation from `/api/code`.
 - **Voice** (`/voice`) — browser speech recognition, then the transcript is answered by `/api/voice`.
 - **Vision** (`/vision`) — upload an image (≤3 MB) and ask about it.
 - **Answer engine** (`/api/ask`, `/j/[slug]`) — the corpus-backed, three-language answer path with
   quota, rate limiting, moderation and a spend ceiling. Public answers get their own shareable page.
+- **Projects** (`/projects`) — every conversation as a searchable project: grouped by recency,
+  with rename, two-step delete and Open-in-Chat deep links.
+- **Artifacts** (`/artifacts`) — every image rendered in the studio, kept on this device: download,
+  copy prompt, two-step delete, empty-state CTA back to the studio.
 - **Settings** (`/settings`) — add or remove a browser-local Gemini key, pick a mode, set response
   character, clear history.
 
