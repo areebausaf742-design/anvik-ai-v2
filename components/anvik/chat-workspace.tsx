@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   AlertCircle,
   ArrowUp,
@@ -126,7 +127,18 @@ function ChatWorkspaceInner() {
     // or a login / OAuth / onboarding boundary that set a one-shot pending
     // request — starts with a fresh, empty conversation. Same-tab reloads and
     // route navigation preserve the current conversation.
-    ensureFreshChat();
+    // Deep link from the Projects page (/chat?project=<id>): open that
+    // conversation instead of starting a fresh one. Only consumed when the
+    // target still exists — a stale link falls back to the fresh-chat contract.
+    const projectId = new URLSearchParams(window.location.search).get("project");
+    const targetProject = projectId
+      ? useChatStore.getState().conversations.find((conversation) => conversation.id === projectId)
+      : undefined;
+    if (targetProject) {
+      setActive(targetProject.id);
+    } else {
+      ensureFreshChat();
+    }
     const mem = readMemory();
     setUserName(mem.name.trim());
     const prompt = new URLSearchParams(window.location.search).get("prompt");
@@ -139,11 +151,14 @@ function ChatWorkspaceInner() {
         localStorage.setItem("anvik-tip-seen", "1");
       }, 5000);
     }
-  }, []);
+  }, [setActive]);
 
   useEffect(() => {
     const mem = readMemory();
-    if (mem.name.trim() !== userName) setUserName(mem.name.trim());
+    setUserName((current) => {
+      const next = mem.name.trim();
+      return next === current ? current : next;
+    });
   }, [activeChat]);
 
 
@@ -662,8 +677,8 @@ function ChatWorkspaceInner() {
           <nav className="mt-1 px-3">
             {[
               { href: "/", label: "Chat", icon: MessageSquarePlus },
-              { href: "/library", label: "Projects", icon: FileText },
-              { href: "/library", label: "Artifacts", icon: Sparkles },
+              { href: "/projects", label: "Projects", icon: FileText },
+              { href: "/artifacts", label: "Artifacts", icon: Sparkles },
               { href: "/image", label: "Image", icon: ImageIcon },
               { href: "/code", label: "Code", icon: Code2 },
               { href: "/vision", label: "Vision", icon: Eye },
@@ -783,9 +798,9 @@ function ChatWorkspaceInner() {
               href={session ? "/account" : "/login"}
               className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#F0F0EE]"
             >
-              <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
+              <span aria-hidden="true" className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
                 {profile?.avatarUrl ? (
-                  <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  <Image src={profile.avatarUrl} alt="" fill sizes="32px" className="object-cover" />
                 ) : (
                   (profile?.name?.trim().charAt(0).toUpperCase() || userName.trim().charAt(0).toUpperCase() || "A")
                 )}

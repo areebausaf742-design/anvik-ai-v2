@@ -16,6 +16,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${root}/`, changeFrequency: "weekly", priority: 1 },
     { url: `${root}/chat`, changeFrequency: "weekly", priority: 0.8 },
     { url: `${root}/library`, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${root}/projects`, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${root}/artifacts`, changeFrequency: "monthly", priority: 0.5 },
     { url: `${root}/pricing`, changeFrequency: "monthly", priority: 0.5 },
     { url: `${root}/about`, changeFrequency: "yearly", priority: 0.4 },
   ];

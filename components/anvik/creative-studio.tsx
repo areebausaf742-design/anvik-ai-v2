@@ -35,6 +35,12 @@ import {
   testGeminiKeyRequest,
   validateStoredKeyBeforeSend,
 } from "@/lib/client-api";
+import {
+  compressImageForStorage,
+  persistGallery,
+  readGallery,
+  type GeneratedImage,
+} from "@/lib/gallery";
 
 const IMAGE_STYLES = ["Cinematic", "Anime", "3D", "Photoreal", "Cyberpunk"];
 const IMAGE_IDEAS = [
@@ -43,16 +49,7 @@ const IMAGE_IDEAS = [
   "A floating cyberpunk library above neon clouds, 3D isometric render",
 ];
 
-const GALLERY_STORAGE_KEY = "anvik-image-gallery";
 const MAX_GALLERY = 12;
-
-type GeneratedImage = {
-  image: string;
-  prompt: string;
-  style: string;
-  provider?: string;
-  model?: string;
-};
 
 function promptWithStyle(value: string, selectedStyle: string) {
   const basePrompt = value
@@ -61,37 +58,6 @@ function promptWithStyle(value: string, selectedStyle: string) {
     .replace(/[.,\s]+$/, "")
     .trim();
   return basePrompt ? `${basePrompt}, in ${selectedStyle.toLowerCase()} style` : "";
-}
-
-function isGeneratedImage(value: unknown): value is GeneratedImage {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<GeneratedImage>;
-  return typeof item.image === "string" && typeof item.prompt === "string" && typeof item.style === "string";
-}
-
-/** Compress large Gemini data URLs to ~512px WebP/JPEG so 12 images fit inside localStorage. */
-async function compressImageForStorage(src: string): Promise<string> {
-  if (!src.startsWith("data:") || src.length < 180_000) return src;
-  try {
-    const img = document.createElement("img");
-    img.src = src;
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("decode failed"));
-    });
-    const maxDim = 512;
-    const scale = Math.min(1, maxDim / Math.max(img.width || maxDim, img.height || maxDim));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(img.width * scale));
-    canvas.height = Math.max(1, Math.round(img.height * scale));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return src;
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const webp = canvas.toDataURL("image/webp", 0.78);
-    return webp.length < src.length ? webp : canvas.toDataURL("image/jpeg", 0.78);
-  } catch {
-    return src;
-  }
 }
 
 function InlineKeyAlert({
@@ -179,32 +145,17 @@ function ImageStudio() {
   const [copiedId, setCopiedId] = useState("");
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(GALLERY_STORAGE_KEY);
-      if (!saved) return;
-      const parsed: unknown = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return;
-      const keep = parsed.filter(isGeneratedImage).slice(0, MAX_GALLERY);
-      setGallery(keep);
-    } catch {
-      setGallery([]);
-    }
+    setGallery(readGallery());
   }, []);
 
   function saveGallery(nextGallery: GeneratedImage[]) {
     const limited = nextGallery.slice(0, MAX_GALLERY);
     setGallery(limited);
-    let candidate = limited;
-    while (candidate.length > 0) {
-      try {
-        localStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(candidate));
-        setNotice("");
-        return;
-      } catch {
-        candidate = candidate.slice(0, candidate.length - 1);
-      }
+    if (!persistGallery(limited)) {
+      setNotice("Browser storage is tight; keeping the latest renders in this session.");
+      return;
     }
-    setNotice("Browser storage is tight; keeping the latest renders in this session.");
+    setNotice("");
   }
 
   async function generate(event: React.FormEvent) {
@@ -254,6 +205,7 @@ function ImageStudio() {
           style: result.style ?? style,
           provider: result.provider,
           model: result.model,
+          createdAt: Date.now(),
         },
         ...gallery,
       ]);
