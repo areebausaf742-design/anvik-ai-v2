@@ -41,13 +41,13 @@ export function mapClientFetchError(err: unknown): string {
 
 export function mapHttpErrorMessage(status: number, serverMessage?: string): string {
   if (status === 401 || status === 403) {
-    if (serverMessage && serverMessage.includes("aistudio.google.com")) {
+    if (serverMessage && /ANVIK free key is not set|aistudio\.google\.com/i.test(serverMessage)) {
       return serverMessage;
     }
     return "Key invalid or expired. Check your saved API key and try again.";
   }
   if (status === 429) {
-    return "Free quota finished. Wait 1 hour or check your account or saved key";
+    return "Free limit reached. Connect your own key to continue unlimited.";
   }
   if (status === 503) {
     return serverMessage || "No internet. Try again";

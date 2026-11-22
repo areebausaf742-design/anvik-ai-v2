@@ -41,17 +41,14 @@ import { Brand } from "@/components/anvik/navigation";
 import Markdown from "@/components/anvik/markdown";
 import ErrorBoundary from "@/components/anvik/error-boundary";
 import {
-  KEY_FORMAT_MESSAGE,
-  isValidGeminiKey,
+  readApiKey,
   readDeviceId,
-  readRawApiKey,
   recordDailyUsage,
 } from "@/lib/client-key";
 import {
   mapClientFetchError,
   mapHttpErrorMessage,
   testGeminiKeyRequest,
-  validateStoredKeyBeforeSend,
 } from "@/lib/client-api";
 import { readMemory } from "@/lib/learning";
 
@@ -113,7 +110,6 @@ function ChatWorkspaceInner() {
   const [search, setSearch] = useState("");
   const [listening, setListening] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [hasValidKey, setHasValidKey] = useState(true);
   const [userName, setUserName] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
@@ -128,8 +124,6 @@ function ChatWorkspaceInner() {
 
   useEffect(() => {
     setHydrated(true);
-    const raw = readRawApiKey();
-    setHasValidKey(raw.length === 0 ? false : isValidGeminiKey(raw));
     const mem = readMemory();
     setUserName(mem.name.trim());
     const prompt = new URLSearchParams(window.location.search).get("prompt");
@@ -178,20 +172,34 @@ function ChatWorkspaceInner() {
     const res = await testGeminiKeyRequest();
     setTestingKey(false);
     setKeyTestStatus({ ok: res.ok, text: res.ok ? res.message : res.error });
-    if (res.ok) {
-      setError("");
-      setHasValidKey(true);
-    }
+    if (res.ok) setError("");
   }
 
   async function sendMessage(value = input) {
     const content = value.trim();
     if (!content || pending) return;
 
-    const keyCheck = validateStoredKeyBeforeSend();
-    if (!keyCheck.ok) {
-      setError(keyCheck.error);
-      setHasValidKey(false);
+    const apiKey = readApiKey();
+    let quota: { hasServerKey: boolean; status: string; remaining: number };
+    try {
+      const quotaResponse = await fetch("/api/quota", { cache: "no-store" });
+      if (!quotaResponse.ok) throw new Error("Could not check the free chat limit. Please try again.");
+      quota = (await quotaResponse.json()) as typeof quota;
+    } catch (cause) {
+      setError(mapClientFetchError(cause));
+      return;
+    }
+
+    if (!apiKey && (!quota.hasServerKey || quota.status === "not_configured")) {
+      setError("ANVIK free key not set. Connect your own key.");
+      return;
+    }
+    if (!apiKey && quota.status === "invalid_server_key") {
+      setError("ANVIK server key is invalid. Connect your own key to continue.");
+      return;
+    }
+    if (!apiKey && (quota.status === "limit_reached" || quota.remaining <= 0)) {
+      setError("Free limit reached. Connect your own key to continue unlimited.");
       return;
     }
 
@@ -219,7 +227,7 @@ function ChatWorkspaceInner() {
         headers: {
           "Content-Type": "application/json",
           "x-anvik-device": readDeviceId(),
-          ...(keyCheck.apiKey ? { "x-google-generative-ai-api-key": keyCheck.apiKey } : {}),
+          ...(apiKey ? { "x-google-generative-ai-api-key": apiKey } : {}),
         },
         body: JSON.stringify({
           messages: history,
@@ -364,10 +372,8 @@ function ChatWorkspaceInner() {
   const filteredChats = safeConversations.filter((chat) =>
     chat.title.toLowerCase().includes(search.toLowerCase()),
   );
-  const showKeyHelper =
-    error === KEY_FORMAT_MESSAGE ||
-    error.toLowerCase().includes("key") ||
-    error.toLowerCase().includes("aistudio");
+  const showConnectButton = error.includes("Connect your own key");
+  const showKeyHelper = showConnectButton || /key invalid|invalid or expired/i.test(error);
 
   const welcomeText = userName ? `Welcome, ${userName}` : "Welcome";
 
@@ -766,10 +772,14 @@ function ChatWorkspaceInner() {
                 ))}
               </div>
 
-              {!hasValidKey && (
-                <div className="mt-6 max-w-md rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
-                  Add your free ANVIK key in Settings to start chatting.
-                  <a href="/settings" className="ml-1 font-medium text-[#1A1A1A] underline">Add Key</a>
+              {error && (
+                <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
+                  <span>{error}</span>
+                  {showConnectButton && (
+                    <a href="/settings" className="rounded-lg bg-[#1A1A1A] px-2.5 py-1.5 font-medium text-white hover:bg-[#333]">
+                      Connect
+                    </a>
+                  )}
                 </div>
               )}
             </div>
@@ -896,19 +906,21 @@ function ChatWorkspaceInner() {
                 </div>
                 {showKeyHelper && (
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void runInlineKeyTest()}
-                      disabled={testingKey}
-                      className="rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
-                    >
-                      {testingKey ? "Testing..." : "Test Key"}
-                    </button>
+                    {!showConnectButton && (
+                      <button
+                        type="button"
+                        onClick={() => void runInlineKeyTest()}
+                        disabled={testingKey}
+                        className="rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
+                      >
+                        {testingKey ? "Testing..." : "Test Key"}
+                      </button>
+                    )}
                     <a
                       href="/settings"
                       className="rounded-lg bg-[#1A1A1A] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#333]"
                     >
-                      Settings
+                      {showConnectButton ? "Connect" : "Settings"}
                     </a>
                   </div>
                 )}
