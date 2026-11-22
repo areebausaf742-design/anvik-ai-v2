@@ -36,6 +36,8 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "image.pollinations.ai" },
       { protocol: "https", hostname: "*.pollinations.ai" },
+      // Google avatars render in the account + chat headers.
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
   async headers() {

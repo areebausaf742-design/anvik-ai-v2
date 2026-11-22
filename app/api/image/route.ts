@@ -1,5 +1,6 @@
 import { serverKey } from "@/lib/provider";
-import { allow, clientIdentity, LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { getVerifiedUserIfPresent } from "@/lib/session";
 import {
   IMAGE_MODEL_FALLBACK_CHAIN,
   KEY_FORMAT_ERROR,
@@ -136,8 +137,14 @@ export async function POST(request: Request) {
     return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 401 });
   }
 
-  if (!allow(clientIdentity(request, request.headers.get("x-anvik-device")), 6, 40)) {
-    return Response.json({ error: LIMIT_MESSAGE }, { status: 429 });
+  const verified = await getVerifiedUserIfPresent(request);
+  const rate = await allowDistributed(request, "image", 6, 40, { verifiedUserId: verified?.id ?? null });
+  if (!rate.allowed) {
+    const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+    return Response.json(
+      { error: LIMIT_MESSAGE, code: "rate" },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    );
   }
 
   const selectedStyle = typeof style === "string" && styles.has(style) ? style : "Cinematic";

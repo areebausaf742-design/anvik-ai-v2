@@ -5,6 +5,10 @@ import "./globals.css";
 import "./pricing/pricing.css";
 import "./auth/auth.css";
 import { SessionProvider } from "@/components/anvik/session-provider";
+// Vercel Web Analytics + Speed Insights — privacy-conscious, no cookies:
+// no identifiers, no content, no raw IPs; just geo/page/performance.
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://anvik.ai";
 
@@ -51,6 +55,8 @@ export default function RootLayout({
         <SessionProvider>
           <div id="main-content">{children}</div>
         </SessionProvider>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

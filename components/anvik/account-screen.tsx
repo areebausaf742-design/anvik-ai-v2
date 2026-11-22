@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -212,8 +213,8 @@ export default function AccountScreen() {
           <section className="account-card" aria-label="Profile">
             <h2>Profile</h2>
             <div className="acct-profile">
-              <span className="acct-avatar" aria-hidden="true">
-                {profile?.avatarUrl ? <img src={profile.avatarUrl} alt="" /> : <>{initials}</>}
+              <span className="acct-avatar relative" aria-hidden="true">
+                {profile?.avatarUrl ? <Image src={profile.avatarUrl} alt="" fill sizes="54px" className="object-cover" /> : <>{initials}</>}
               </span>
               <div style={{ minWidth: 0, flex: 1 }}>
                 {editingName ? (

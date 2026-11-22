@@ -1,4 +1,5 @@
-import { allow, clientIdentity } from "@/lib/rate-limit";
+import { allowDistributed } from "@/lib/rate-limit";
+import { getVerifiedUserIfPresent } from "@/lib/session";
 import { redact } from "@/lib/learning";
 import { sbInsert, supabaseEnabled } from "@/lib/supabase";
 
@@ -36,8 +37,14 @@ export async function POST(request: Request) {
     return Response.json({ stored: false, sync: "not configured" }, { status: 202 });
   }
 
-  if (!allow(`learn:${clientIdentity(request, request.headers.get("x-anvik-device"))}`, 20, 240)) {
-    return Response.json({ stored: false, error: "Too many requests." }, { status: 429 });
+  const verified = await getVerifiedUserIfPresent(request);
+  const rate = await allowDistributed(request, "learn", 20, 240, { verifiedUserId: verified?.id ?? null });
+  if (!rate.allowed) {
+    const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+    return Response.json(
+      { stored: false, error: "Too many requests." },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    );
   }
 
   let body: Body;

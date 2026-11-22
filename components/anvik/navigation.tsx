@@ -1,22 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import {
   FolderOpen,
   Image as ImageIcon,
   LayoutGrid,
-  MessageSquareText,
-  Search,
+  MessageSquarePlus,
   Settings2,
-  Sparkles,
 } from "lucide-react";
 import AnvikStar from "@/components/anvik/anvik-star";
 
 const NAV_ITEMS = [
-  { href: "/chat", label: "Search", icon: Search },
-  { href: "/chat", label: "Projects", icon: FolderOpen },
-  { href: "/library", label: "Artifacts", icon: LayoutGrid },
+  { href: "/chat", label: "Chat", icon: MessageSquarePlus },
+  { href: "/projects", label: "Projects", icon: FolderOpen },
+  { href: "/artifacts", label: "Artifacts", icon: LayoutGrid },
   { href: "/image", label: "Image", icon: ImageIcon },
   { href: "/settings", label: "Settings", icon: Settings2 },
 ];
@@ -35,15 +32,6 @@ export function Brand() {
       </span>
     </Link>
   );
-}
-
-export default function Navigation() {
-  const pathname = usePathname();
-  const router = useRouter();
-  void pathname;
-  void router;
-
-  return null;
 }
 
 export { NAV_ITEMS };

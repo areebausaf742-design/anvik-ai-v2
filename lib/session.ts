@@ -119,6 +119,19 @@ export async function getVerifiedUser(request: Request): Promise<VerifiedUser | 
   }
 }
 
+/**
+ * Cheap bearer gate: only performs the Supabase user-verification round-trip
+ * when the request actually carries an Authorization: Bearer header. Returns
+ * the verified user, or null for guests / invalid tokens. Never trusts a
+ * client-supplied identity (device id, email, plan) — only the verified
+ * token. Never throws.
+ */
+export async function getVerifiedUserIfPresent(request: Request): Promise<VerifiedUser | null> {
+  const header = request.headers.get("authorization") ?? "";
+  if (!header.toLowerCase().startsWith("bearer ")) return null;
+  return getVerifiedUser(request).catch(() => null);
+}
+
 /** Helper for "require auth" routes — returns the user or a 401 response. */
 export async function requireUser(
   request: Request,
