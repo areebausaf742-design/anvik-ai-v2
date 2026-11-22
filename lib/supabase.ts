@@ -7,38 +7,28 @@
  * is also what keeps /j/[slug], /sitemap.xml and /api/ask alive on a read-only
  * filesystem (Vercel) instead of returning 500.
  *
- * Expected schema — create once in the Supabase SQL editor:
+ * New schema (migration in `supabase/migrations/`):
+ *   chats        — one row per ANVIK conversation
+ *   messages     — one row per user and per assistant turn, with model_used
+ *   quota_usage  — one row per (ip_hash, day), count of free answers used
  *
- *   create table if not exists anvik_questions (
- *     id text primary key, device_id text not null, text text not null,
- *     lang text not null, slug text, idempotency_key text,
- *     created_at bigint not null, status text not null
- *   );
- *   create table if not exists anvik_answers (
- *     id text primary key, question_id text not null, body text not null,
- *     model text not null, prompt_tokens int, output_tokens int,
- *     cached_tokens int, cost_paise int, latency_ms int,
- *     is_public boolean, published_at bigint not null,
- *     moderation_state text not null, reviewed boolean not null,
- *     lang text not null, slug text not null
- *   );
- *   create index if not exists anvik_answers_slug on anvik_answers (slug);
- *   create index if not exists anvik_answers_public on anvik_answers (is_public, reviewed);
- *   create table if not exists anvik_moderation (
- *     id text primary key, question_text text, stage text, reason_code text,
- *     action text, created_at bigint not null
- *   );
- *   alter table anvik_questions enable row level security;
- *   alter table anvik_answers enable row level security;
- *   alter table anvik_moderation enable row level security;
- *   -- server side only: the service-role key bypasses RLS, the anon key must not write.
+ * All three tables are RLS-enabled: anon may insert/select chats (their own,
+ * keyed by user_id) and messages that belong to such a chat; quota_usage has
+ * NO anon policies — it is server-only. The server writes via the service-role
+ * key, which bypasses RLS entirely.
+ *
+ * Required env: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) + SUPABASE_SERVICE_ROLE_KEY
+ * (or SUPABASE_ANON_KEY/SUPABASE_SERVICE_KEY as fallbacks).
  */
 
-const base = () => (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
+const base = () =>
+  (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
+
 const key = () =>
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
   process.env.SUPABASE_SERVICE_KEY ??
   process.env.SUPABASE_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   "";
 
 export function supabaseEnabled(): boolean {
@@ -73,6 +63,26 @@ export async function sbSelect<T>(table: string, query: string): Promise<T[] | n
 
 /** Insert rows, ignoring duplicates. Returns true when the write landed. */
 export async function sbInsert(table: string, rows: Record<string, unknown>[]): Promise<boolean> {
+  if (!supabaseEnabled() || rows.length === 0) return false;
+  try {
+    const response = await fetch(`${base()}/rest/v1/${table}`, {
+      method: "POST",
+      headers: { ...headers(), Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(rows),
+      signal: AbortSignal.timeout(4000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Upsert rows by their conflict columns (PostgREST merge-duplicates).
+ * Requires a unique constraint on the conflict columns — see the migration.
+ * Never throws; returns false on any failure.
+ */
+export async function sbUpsert(table: string, rows: Record<string, unknown>[]): Promise<boolean> {
   if (!supabaseEnabled() || rows.length === 0) return false;
   try {
     const response = await fetch(`${base()}/rest/v1/${table}`, {

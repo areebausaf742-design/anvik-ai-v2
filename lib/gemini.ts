@@ -1,6 +1,23 @@
 /**
- * Gemini API client — live-only, with explicit model fallback and honest errors.
- * Only HTTP 404 (model unavailable/not found) triggers fallback to the next model.
+ * Gemini API client — live-only, explicit model fallback, honest errors.
+ *
+ * The model chain (gemini-2.5-flash → gemini-2.0-flash → gemini-2.0-flash-lite)
+ * is deliberately short and current: retired models (pro, 1.5-*) are never
+ * called. Fallback and retry policy:
+ *
+ *   404            → next model immediately (bad model for this key/tier)
+ *   429 / 500 / 502 / 503 / network error
+ *                   → retry the SAME model with backoff (1s, 2s), then the next
+ *                     model, then give up with an honest classified error
+ *   401 / 403 / 400 → terminal: bad key or bad request, never "server key invalid"
+ *
+ * A fresh connection waits the request's own signal; the whole call — first
+ * byte and the stream — is capped at 60 seconds so a slow upstream can never
+ * hang a request forever. Callers pass `retryDelaysMs`/`timeoutMs` in tests
+ * to keep suite time flat; production defaults are 1s/2s and 60s.
+ *
+ * The AQ prefix is a first-class Google key format — accepted everywhere
+ * below alongside AIza.
  */
 
 export const MODEL_FALLBACK_CHAIN = [
@@ -8,6 +25,9 @@ export const MODEL_FALLBACK_CHAIN = [
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
 ] as const;
+
+export const DEFAULT_RETRY_DELAYS_MS = [1000, 2000];
+export const DEFAULT_TIMEOUT_MS = 60_000;
 
 export async function validateGeminiServerKey(
   apiKey: string,
@@ -22,9 +42,13 @@ export async function validateGeminiServerKey(
       return { googleStatus: response.status, invalid: false };
     }
     const body = await response.text().catch(() => "");
+    const lower = body.toLowerCase();
     return {
       googleStatus: response.status,
-      invalid: body.toLowerCase().includes("api key not valid"),
+      invalid:
+        lower.includes("api key not valid") ||
+        lower.includes("api_key_invalid") ||
+        lower.includes("api-key-invalid"),
     };
   } catch {
     return { googleStatus: null, invalid: false };
@@ -41,6 +65,7 @@ export const KEY_FORMAT_ERROR = "Key looks wrong. Paste a new key from aistudio.
 export const KEY_INVALID_ERROR = "That API key is invalid or expired. Update your key in ANVIK Settings.";
 export const QUOTA_ERROR = "Free quota finished. Wait 1 hour or use another Google account key";
 export const NETWORK_ERROR = "No internet. Try again";
+export const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 export type GeminiErrorCode =
   | "bad_format"
@@ -63,13 +88,14 @@ export function getGeminiBaseUrl(): string {
 export function isValidGeminiKeyFormat(key: string | undefined | null): boolean {
   if (!key) return false;
   const trimmed = key.trim();
+  // Both legacy AIza keys (legacy) and the newer AQ keys are valid Google keys.
   return trimmed.length <= 512 && (trimmed.startsWith("AIza") || trimmed.startsWith("AQ"));
 }
 
 export function classifyGeminiError(status: number, rawBody = ""): ClassifiedError {
   const lower = rawBody.toLowerCase();
 
-  if (lower.includes("api_key_invalid") || lower.includes("api key not valid")) {
+  if (lower.includes("api_key_invalid") || lower.includes("api key not valid") || lower.includes("api-key-invalid")) {
     return {
       status: status === 403 ? 403 : 401,
       message: KEY_INVALID_ERROR,
@@ -116,6 +142,10 @@ export type GeminiStreamOptions = {
   maxOutputTokens?: number;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  /** Test-only: delay before the 1st/2nd retry (defaults 1000/2000ms). */
+  retryDelaysMs?: number[];
+  /** Test-only: per-call timeout in ms (default 60s). */
+  timeoutMs?: number;
 };
 
 export type GeminiStreamResult =
@@ -138,18 +168,53 @@ function buildGenerationConfig(
     temperature,
     maxOutputTokens,
   };
-  // Disable thinking wait on 2.5 Flash so first token arrives in < 1 second
+  // Disable thinking wait on 2.5 Flash so the first token arrives < 1 second.
   if (model === "gemini-2.5-flash") {
     config.thinkingConfig = { thinkingBudget: 0 };
   }
   return config;
 }
 
-/**
- * Opens a streaming SSE connection to Gemini, falling back across
- * gemini-2.5-flash -> gemini-2.0-flash -> gemini-2.0-flash-lite ONLY on HTTP 404.
- * Converts Gemini's SSE frames into immediate UTF-8 text chunks.
- */
+/* ------------------------------------------------------------------ */
+/* retry / timeout helpers                                             */
+/* ------------------------------------------------------------------ */
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Combine the caller's signal with a 60s cap. */
+function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!signal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, timeout]);
+  return signal.aborted ? signal : timeout;
+}
+
+/** True when the failure is worth retrying the same model for. */
+function isRetryable(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503;
+}
+
+/* ------------------------------------------------------------------ */
+/* streaming call — SSE upstream → plain UTF-8 text                    */
+/* ------------------------------------------------------------------ */
+
 export async function openGeminiStreamWithFallback(
   options: GeminiStreamOptions,
 ): Promise<GeminiStreamResult> {
@@ -164,133 +229,64 @@ export async function openGeminiStreamWithFallback(
   const baseUrl = getGeminiBaseUrl();
   const temperature = options.temperature ?? 0.65;
   const maxOutputTokens = options.maxOutputTokens ?? 1024;
+  const delays = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let lastError: ClassifiedError | null = null;
 
   for (const model of MODEL_FALLBACK_CHAIN) {
-    let response: Response;
-    try {
-      response = await doFetch(
-        `${baseUrl}/models/${model}:streamGenerateContent?alt=sse`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": options.apiKey.trim(),
-          },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: options.systemInstruction }] },
-            contents: options.contents,
-            generationConfig: buildGenerationConfig(model, temperature, maxOutputTokens),
-          }),
-          signal: options.signal,
-        },
-      );
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        throw err;
-      }
-      return {
-        ok: false,
-        error: { status: 503, message: NETWORK_ERROR, code: "network" },
-      };
-    }
-
-    if (response.status === 404) {
-      lastError = classifyGeminiError(404, await response.text().catch(() => ""));
-      continue;
-    }
-
-    if (!response.ok || !response.body) {
-      const raw = await response.text().catch(() => "");
-      return {
-        ok: false,
-        error: classifyGeminiError(response.status, raw),
-      };
-    }
-
-    const upstreamBody = response.body;
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-
-    const textStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const reader = upstreamBody.getReader();
-        let buffer = "";
-        let emittedAny = false;
+    for (let attempt = 0; attempt < delays.length + 1; attempt++) {
+      if (attempt > 0) {
         try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith("data:")) continue;
-              const payload = trimmed.slice(5).trim();
-              if (!payload || payload === "[DONE]") continue;
-              try {
-                const frame = JSON.parse(payload) as {
-                  candidates?: Array<{
-                    content?: { parts?: Array<{ text?: string }> };
-                    finishReason?: string;
-                  }>;
-                };
-                const parts = frame.candidates?.[0]?.content?.parts;
-                if (Array.isArray(parts)) {
-                  const text = parts.map((p) => p.text ?? "").join("");
-                  if (text) {
-                    emittedAny = true;
-                    controller.enqueue(encoder.encode(text));
-                  }
-                }
-              } catch {
-                // Skip partial/malformed SSE frames
-              }
-            }
-          }
-          if (buffer.trim().startsWith("data:")) {
-            const payload = buffer.trim().slice(5).trim();
-            if (payload && payload !== "[DONE]") {
-              try {
-                const frame = JSON.parse(payload) as {
-                  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-                };
-                const text =
-                  frame.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-                if (text) {
-                  emittedAny = true;
-                  controller.enqueue(encoder.encode(text));
-                }
-              } catch {
-                // Ignore trailing partial frame
-              }
-            }
-          }
-          if (!emittedAny) {
-            controller.enqueue(
-              encoder.encode("ANVIK returned an empty response for that prompt. Please try rephrasing."),
-            );
-          }
-        } catch (err) {
-          if (!(err instanceof Error && err.name === "AbortError")) {
-            controller.enqueue(encoder.encode("\n\n_Stream interrupted. Please try again._"));
-          }
-        } finally {
-          reader.releaseLock();
-          try {
-            controller.close();
-          } catch {
-            /* already closed */
-          }
+          await sleep(delays[attempt - 1], options.signal);
+        } catch {
+          throw new DOMException("The operation was aborted.", "AbortError");
         }
-      },
-      cancel() {
-        void upstreamBody.cancel();
-      },
-    });
+      }
 
-    return { ok: true, model, stream: textStream };
+      let response: Response;
+      try {
+        response = await doFetch(
+          `${baseUrl}/models/${model}:streamGenerateContent?alt=sse`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": options.apiKey.trim(),
+            },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: options.systemInstruction }] },
+              contents: options.contents,
+              generationConfig: buildGenerationConfig(model, temperature, maxOutputTokens),
+            }),
+            signal: withTimeout(options.signal, timeoutMs),
+          },
+        );
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
+        // Network layer down — retry with backoff, then the next model.
+        lastError = { status: 503, message: NETWORK_ERROR, code: "network" };
+        continue;
+      }
+
+      if (response.status === 404) {
+        // Model unavailable for this key: move to the next model immediately.
+        lastError = classifyGeminiError(404, await response.text().catch(() => ""));
+        break;
+      }
+
+      if (!response.ok || !response.body) {
+        const raw = await response.text().catch(() => "");
+        const classified = classifyGeminiError(response.status, raw);
+        if (isRetryable(response.status)) {
+          lastError = classified;
+          if (attempt < delays.length) continue; // same model, next attempt
+          break; // retries exhausted — move to the next model
+        }
+        return { ok: false, error: classified };
+      }
+
+      return { ok: true, model, stream: toTextStream(response.body) };
+    }
   }
 
   return {
@@ -302,6 +298,90 @@ export async function openGeminiStreamWithFallback(
     },
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* SSE upstream → plain UTF-8 text (retry-safe: only used on 200s)     */
+/* ------------------------------------------------------------------ */
+
+function toTextStream(upstreamBody: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = upstreamBody.getReader();
+      let buffer = "";
+      let emittedAny = false;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            emitFrame(line, (text) => {
+              emittedAny = true;
+              controller.enqueue(encoder.encode(text));
+            });
+          }
+        }
+        const tail = buffer.trim();
+        if (tail.startsWith("data:")) {
+          emitFrame(buffer, (text) => {
+            emittedAny = true;
+            controller.enqueue(encoder.encode(text));
+          });
+        }
+        if (!emittedAny) {
+          controller.enqueue(
+            encoder.encode("ANVIK returned an empty response for that prompt. Please try rephrasing."),
+          );
+        }
+      } catch (err) {
+        if (!(err instanceof Error && err.name === "AbortError")) {
+          controller.enqueue(encoder.encode("\n\n_Stream interrupted. Please try again._"));
+        }
+      } finally {
+        reader.releaseLock();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+      }
+    },
+    cancel() {
+      void upstreamBody.cancel();
+    },
+  });
+}
+
+function emitFrame(line: string, emit: (text: string) => void): void {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) return;
+  const payload = trimmed.slice(5).trim();
+  if (!payload || payload === "[DONE]") return;
+  try {
+    const frame = JSON.parse(payload) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+        finishReason?: string;
+      }>;
+    };
+    const parts = frame.candidates?.[0]?.content?.parts;
+    if (Array.isArray(parts)) {
+      const text = parts.map((p) => p.text ?? "").join("");
+      if (text) emit(text);
+    }
+  } catch {
+    // Skip partial/malformed SSE frames
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* one-shot call — used by test-key and the image / code paths         */
+/* ------------------------------------------------------------------ */
 
 export type GeminiTextResult =
   | { ok: true; model: string; text: string }
@@ -315,6 +395,8 @@ export async function generateGeminiTextWithFallback(options: {
   temperature?: number;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  retryDelaysMs?: number[];
+  timeoutMs?: number;
 }): Promise<GeminiTextResult> {
   if (!isValidGeminiKeyFormat(options.apiKey)) {
     return {
@@ -325,54 +407,70 @@ export async function generateGeminiTextWithFallback(options: {
 
   const doFetch = options.fetchImpl ?? fetch;
   const baseUrl = getGeminiBaseUrl();
+  const delays = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let lastError: ClassifiedError | null = null;
 
   for (const model of MODEL_FALLBACK_CHAIN) {
-    let response: Response;
-    try {
-      response = await doFetch(`${baseUrl}/models/${model}:generateContent`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": options.apiKey.trim(),
-        },
-        body: JSON.stringify({
-          ...(options.systemInstruction
-            ? { systemInstruction: { parts: [{ text: options.systemInstruction }] } }
-            : {}),
-          contents: [{ role: "user", parts: [{ text: options.prompt }] }],
-          generationConfig: buildGenerationConfig(
-            model,
-            options.temperature ?? 0.4,
-            options.maxOutputTokens ?? 256,
-          ),
-        }),
-        signal: options.signal,
-      });
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") throw err;
-      return {
-        ok: false,
-        error: { status: 503, message: NETWORK_ERROR, code: "network" },
-      };
-    }
+    for (let attempt = 0; attempt < delays.length + 1; attempt++) {
+      if (attempt > 0) {
+        try {
+          await sleep(delays[attempt - 1], options.signal);
+        } catch {
+          throw new DOMException("The operation was aborted.", "AbortError");
+        }
+      }
 
-    if (response.status === 404) {
-      lastError = classifyGeminiError(404, await response.text().catch(() => ""));
-      continue;
-    }
+      let response: Response;
+      try {
+        response = await doFetch(`${baseUrl}/models/${model}:generateContent`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": options.apiKey.trim(),
+          },
+          body: JSON.stringify({
+            ...(options.systemInstruction
+              ? { systemInstruction: { parts: [{ text: options.systemInstruction }] } }
+              : {}),
+            contents: [{ role: "user", parts: [{ text: options.prompt }] }],
+            generationConfig: buildGenerationConfig(
+              model,
+              options.temperature ?? 0.4,
+              options.maxOutputTokens ?? 256,
+            ),
+          }),
+          signal: withTimeout(options.signal, timeoutMs),
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
+        lastError = { status: 503, message: NETWORK_ERROR, code: "network" };
+        continue;
+      }
 
-    if (!response.ok) {
-      const raw = await response.text().catch(() => "");
-      return { ok: false, error: classifyGeminiError(response.status, raw) };
-    }
+      if (response.status === 404) {
+        lastError = classifyGeminiError(404, await response.text().catch(() => ""));
+        break;
+      }
 
-    const json = (await response.json().catch(() => null)) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    } | null;
-    const text =
-      json?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
-    return { ok: true, model, text };
+      if (!response.ok) {
+        const raw = await response.text().catch(() => "");
+        const classified = classifyGeminiError(response.status, raw);
+        if (isRetryable(response.status)) {
+          lastError = classified;
+          if (attempt < delays.length) continue; // same model, next attempt
+          break; // retries exhausted — move to the next model
+        }
+        return { ok: false, error: classified };
+      }
+
+      const json = (await response.json().catch(() => null)) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      } | null;
+      const text =
+        json?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
+      return { ok: true, model, text };
+    }
   }
 
   return {

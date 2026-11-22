@@ -1,7 +1,7 @@
 /**
  * In-process sliding-window limiter (plan §6.2) shared by every AI route.
  *
- * /api/ask had this and the five paid Gemini routes did not, so a script could
+ * /api/ask had this and the paid Gemini routes did not, so a script could
  * loop /api/chat and /api/image against a server key for free (audit H-1).
  * Limits are per client identity: cookie device id when present, else IP.
  *
@@ -11,6 +11,7 @@
  */
 
 const hits = new Map<string, number[]>();
+const lastSpacing = new Map<string, number>();
 
 export function clientIp(request: Request): string {
   const vercel = request.headers.get("x-vercel-forwarded-for");
@@ -45,6 +46,49 @@ export function allow(identity: string, perMin = 6, perHour = 40): boolean {
 export function hourlyCount(identity: string): number {
   const now = Date.now();
   return (hits.get(identity) ?? []).filter((t) => now - t < 3_600_000).length;
+}
+
+/* ------------------------------------------------------------------ */
+/* per-IP rate limit: min spacing + per-minute cap                     */
+/* ------------------------------------------------------------------ */
+
+export type SpacingDecision =
+  | { allowed: true }
+  | { allowed: false; retryAfterMs: number; reason: "spacing" | "per_minute" };
+
+/**
+ * The /api/chat rate limit: at most one request per `minSpacingMs` and at most
+ * `perMinute` per minute per IP. Spacing is tracked independently of the
+ * minute window so a flood of rapid hits cannot walk past the per-minute cap
+ * by slow-slotting.
+ */
+export function allowPerIp(
+  identity: string,
+  minSpacingMs: number,
+  perMinute: number,
+  now = Date.now(),
+): SpacingDecision {
+  // Min spacing between requests.
+  const last = lastSpacing.get(identity) ?? 0;
+  if (last > 0 && now - last < minSpacingMs) {
+    return { allowed: false, retryAfterMs: minSpacingMs - (now - last), reason: "spacing" };
+  }
+
+  const list = (hits.get(identity) ?? []).filter((t) => now - t < 60_000);
+  if (list.length >= perMinute) {
+    hits.set(identity, list);
+    return { allowed: false, retryAfterMs: 60_000, reason: "per_minute" };
+  }
+
+  hits.set(identity, [...list, now]);
+  lastSpacing.set(identity, now);
+  return { allowed: true };
+}
+
+/** Visible for tests only. */
+export function _resetRateLimits(): void {
+  hits.clear();
+  lastSpacing.clear();
 }
 
 export const LIMIT_MESSAGE =

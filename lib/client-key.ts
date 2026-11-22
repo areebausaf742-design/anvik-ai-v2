@@ -16,7 +16,8 @@ export const KEY_FORMAT_MESSAGE = "That key doesn't look right. Check its format
 export function isValidGeminiKey(value: string | undefined | null): boolean {
   if (!value) return false;
   const trimmed = value.trim();
-  return trimmed.startsWith("AIza") && trimmed.length >= 35;
+  // Both legacy AIza keys and the newer AQ keys are valid Google keys.
+  return (trimmed.startsWith("AIza") || trimmed.startsWith("AQ")) && trimmed.length >= 35;
 }
 
 export function readRawApiKey(): string {

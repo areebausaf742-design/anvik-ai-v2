@@ -8,7 +8,7 @@ import {
 } from "@/lib/gemini";
 
 const supportedTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-const MAX_BASE64 = 5_600_000;
+const MAX_BASE64 = 4_200_000; // ~3 MB of binary (base64 inflates binary by ~4/3)
 
 function normaliseBase64(value: string): string {
   const comma = value.startsWith("data:") ? value.indexOf(",") : -1;
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
   const data = normaliseBase64(image);
   if (data.length > MAX_BASE64) {
-    return Response.json({ error: "Use an image under 4 MB." }, { status: 413 });
+    return Response.json({ error: "Use an image under 3 MB." }, { status: 413 });
   }
   const question = typeof prompt === "string" ? prompt.slice(0, 1200).trim() : "";
 
