@@ -65,7 +65,7 @@ export default function History() {
 
       {loaded && items.length === 0 ? (
         <p className="ghost-note" style={{ marginTop: 22 }}>
-          Nothing here yet. <Link href="/chat">Open Chat</Link> to start a conversation with Gemini.
+          Nothing here yet. <Link href="/chat">Open Chat</Link> to start a conversation with ANVIK.
         </p>
       ) : (
         <>

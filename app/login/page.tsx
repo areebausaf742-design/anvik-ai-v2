@@ -52,7 +52,7 @@ export default function LoginPage() {
             <LockKeyhole />
             <p>
               <b>Your key and your history stay in this browser.</b>
-              Add a free Gemini key in Settings to turn on live answers; nothing is uploaded to an
+              Add an ANVIK key in Settings to turn on live answers; nothing is uploaded to an
               account.
             </p>
           </div>

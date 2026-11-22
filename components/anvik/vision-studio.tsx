@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
   AlertCircle,
   ArrowUp,
+  Camera,
   Check,
   CheckCircle2,
   Copy,
@@ -31,6 +32,10 @@ const MAX_BYTES = 3 * 1024 * 1024;
 function VisionStudioInner() {
   const [image, setImage] = useState("");
   const [mediaType, setMediaType] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [fileName, setFileName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
@@ -42,22 +47,90 @@ function VisionStudioInner() {
   const [keyStatus, setKeyStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  function chooseFile(file?: File) {
+  useEffect(() => {
+    if (videoRef.current && streamRef.current) videoRef.current.srcObject = streamRef.current;
+    return () => streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, [cameraOpen]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("camera") === "1") void openCamera();
+    if (params.get("source") === "upload") document.getElementById("vision-file")?.click();
+  }, []);
+
+  async function openCamera() {
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      streamRef.current = stream;
+      setCameraOpen(true);
+    } catch {
+      setCameraError("Allow camera access in your browser settings, then try again.");
+    }
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 1600 / video.videoWidth, 1600 / video.videoHeight);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setImage(canvas.toDataURL("image/jpeg", 0.86).split(",")[1] ?? "");
+    setMediaType("image/jpeg");
+    setFileName("Camera photo");
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setCameraOpen(false);
+    setAnswer("");
+  }
+
+  async function chooseFile(file?: File) {
     if (!file) return;
-    if (!file.type.startsWith("image/") || file.size > MAX_BYTES) {
-      setError("Choose a JPG, PNG, WebP or GIF image under 3 MB.");
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!supportedTypes.includes(file.type)) {
+      setError("Choose a JPG, PNG, WebP or GIF image.");
       return;
     }
+
+    let upload: Blob = file;
+    if (file.size > MAX_BYTES) {
+      try {
+        const bitmap = await createImageBitmap(file);
+        const scale = Math.min(1, 1800 / bitmap.width, 1800 / bitmap.height);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+        let quality = 0.86;
+        let compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        while (compressed && compressed.size > MAX_BYTES && quality > 0.42) {
+          quality -= 0.12;
+          compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        }
+        if (!compressed || compressed.size > MAX_BYTES) {
+          setError("This image is too large to compress under 3 MB. Choose a smaller image.");
+          return;
+        }
+        upload = compressed;
+      } catch {
+        setError("That image could not be compressed. Try a smaller file.");
+        return;
+      }
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       setImage(String(reader.result).split(",")[1] ?? "");
-      setMediaType(file.type);
+      setMediaType(upload.type || file.type);
       setFileName(file.name);
       setAnswer("");
       setError("");
     };
     reader.onerror = () => setError("That image could not be opened. Try another file.");
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(upload);
   }
 
   function reset() {
@@ -117,8 +190,8 @@ function VisionStudioInner() {
         throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail));
       }
 
-      const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
-      setModelUsed(model);
+      const model = response.headers.get("x-anvik-model") ?? "ANVIK 1.0";
+      setModelUsed("ANVIK 1.0");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -159,27 +232,26 @@ function VisionStudioInner() {
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#22D3EE]">
+          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#C65E3A]">
             <Eye className="h-3.5 w-3.5" /> Vision Studio
           </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            Ask Gemini about{" "}
-            <span className="gradient-text">any image.</span>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#1A1A1A] sm:text-4xl">
+            Ask ANVIK about any image.
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Upload a photo, diagram, document, or screenshot and ask a question. Streamed live from Gemini.
+          <p className="mt-2 max-w-2xl text-sm text-[#666666]">
+            Upload a photo, diagram, document, or screenshot and ask ANVIK a question.
           </p>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-3 py-1.5 text-xs font-medium text-[#67e8f9]">
-          <Sparkles className="h-3.5 w-3.5" /> From Gemini
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-[#FAFAF8] px-3 py-1.5 text-xs font-medium text-[#C65E3A]">
+          <Sparkles className="h-3.5 w-3.5" /> ANVIK
         </span>
       </div>
 
       <form onSubmit={analyze} className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <TiltCard className="glass-card rounded-2xl p-4">
+        <TiltCard className="border border-[#EDEDED] bg-white shadow-sm rounded-2xl p-4">
           <label
             htmlFor="vision-file"
-            className="flex min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-white/20 bg-[#050508]/60 p-4 text-center transition hover:border-[#22D3EE]/60"
+            className="flex min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#D9D9D9] bg-[#FAFAF8] p-4 text-center transition hover:border-[#C65E3A]"
           >
             {image ? (
               <div className="space-y-3">
@@ -193,16 +265,16 @@ function VisionStudioInner() {
                     className="h-full w-full object-contain"
                   />
                 </div>
-                <span className="block truncate text-xs text-slate-300">{fileName}</span>
+                <span className="block truncate text-xs text-[#666666]">{fileName}</span>
               </div>
             ) : (
               <>
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#7C3AED]/20 text-[#22D3EE]">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#F7F7F5] text-[#C65E3A]">
                   <ImagePlus className="h-6 w-6" />
                 </div>
-                <b className="text-sm font-semibold text-white">Upload an image</b>
-                <small className="mt-1 text-xs text-slate-400">JPG, PNG, WebP or GIF · up to 3 MB</small>
-                <span className="mt-4 rounded-xl border border-white/15 bg-white/5 px-4 py-1.5 text-xs font-medium text-slate-200">
+                <b className="text-sm font-semibold text-[#1A1A1A]">Upload an image</b>
+                <small className="mt-1 text-xs text-[#666666]">JPG, PNG, WebP or GIF · up to 3 MB</small>
+                <span className="mt-4 rounded-xl border border-[#E5E5E5] bg-white px-4 py-1.5 text-xs font-medium text-[#1A1A1A]">
                   Browse files
                 </span>
               </>
@@ -215,11 +287,34 @@ function VisionStudioInner() {
               className="sr-only"
             />
           </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => document.getElementById("vision-file")?.click()} className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]">
+              <ImagePlus className="mr-1.5 inline size-3.5" />Upload Photo
+            </button>
+            <button type="button" onClick={() => void openCamera()} className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]">
+              <Camera className="mr-1.5 inline size-3.5" />Take Photo
+            </button>
+            {image && (
+              <button type="button" onClick={() => void openCamera()} className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]">
+                <Camera className="mr-1.5 inline size-3.5" />Retake
+              </button>
+            )}
+          </div>
+          {cameraError && <p role="alert" className="mt-2 text-xs text-[#666666]">{cameraError}</p>}
+          {cameraOpen && (
+            <div className="mt-3 rounded-xl border border-[#E5E5E5] bg-white p-3">
+              <video ref={videoRef} autoPlay playsInline aria-label="Live camera preview" className="max-h-64 w-full rounded-lg object-contain" />
+              <div className="mt-2 flex gap-2">
+                <button type="button" onClick={capturePhoto} className="rounded-lg bg-[#1A1A1A] px-3 py-2 text-xs font-medium text-white">Capture</button>
+                <button type="button" onClick={() => { streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setCameraOpen(false); }} className="rounded-lg border border-[#E5E5E5] px-3 py-2 text-xs text-[#1A1A1A]">Cancel</button>
+              </div>
+            </div>
+          )}
         </TiltCard>
 
-        <TiltCard className="glass-card flex flex-col justify-between rounded-2xl p-5">
+        <TiltCard className="border border-[#EDEDED] bg-white shadow-sm flex flex-col justify-between rounded-2xl p-5">
           <div>
-            <label htmlFor="vision-question" className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+            <label htmlFor="vision-question" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
               Question about this image
             </label>
             <textarea
@@ -229,7 +324,7 @@ function VisionStudioInner() {
               maxLength={1200}
               rows={5}
               placeholder="Explain what is shown here, extract text, or summarize the key details..."
-              className="mt-2 w-full rounded-xl border border-white/15 bg-[#050508]/70 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-[#22D3EE] focus:outline-none"
+              className="mt-2 w-full rounded-xl border border-[#E5E5E5] bg-[#FAFAF8] px-4 py-3 text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#1A1A1A] focus:outline-none"
             />
           </div>
 
@@ -237,7 +332,7 @@ function VisionStudioInner() {
             <button
               type="submit"
               disabled={!image || pending}
-              className="btn-gradient inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white"
+              className="bg-[#1A1A1A] hover:bg-[#333333] inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white"
             >
               {pending ? (
                 <>
@@ -258,7 +353,7 @@ function VisionStudioInner() {
               <button
                 type="button"
                 onClick={reset}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-xs font-medium text-slate-200 hover:bg-white/10"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#E5E5E5] bg-white px-4 py-2.5 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
               >
                 <X className="h-3.5 w-3.5" /> Remove
               </button>
@@ -282,13 +377,13 @@ function VisionStudioInner() {
                 type="button"
                 onClick={() => void runKeyTest()}
                 disabled={testingKey}
-                className="rounded-lg border border-white/20 bg-white/10 px-3 py-1 font-semibold text-white hover:bg-white/20"
+                className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1 font-semibold text-[#1A1A1A] hover:bg-[#F7F7F5]"
               >
                 {testingKey ? "Testing..." : "Test Key"}
               </button>
               <Link
                 href="/settings"
-                className="rounded-lg bg-[#7C3AED] px-3 py-1 font-semibold text-white hover:bg-[#6d28d9]"
+                className="rounded-lg bg-[#1A1A1A] px-3 py-1 font-semibold text-white hover:bg-[#333333]"
               >
                 Open Settings
               </Link>
@@ -316,7 +411,7 @@ function VisionStudioInner() {
       )}
 
       {pending && !answer && (
-        <div className="glass-card mt-6 flex items-center gap-3 rounded-2xl p-5 text-sm text-slate-300" role="status">
+        <div className="border border-[#EDEDED] bg-white shadow-sm mt-6 flex items-center gap-3 rounded-2xl p-5 text-sm text-[#666666]" role="status">
           <span className="typing-dots" aria-hidden="true">
             <span />
             <span />
@@ -327,17 +422,17 @@ function VisionStudioInner() {
       )}
 
       {answer && (
-        <section className="glass-card mt-6 rounded-2xl p-5">
+        <section className="border border-[#EDEDED] bg-white shadow-sm mt-6 rounded-2xl p-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#67e8f9]">
-              <Sparkles className="h-3.5 w-3.5" /> From Gemini
-              {modelUsed ? <span className="text-slate-400">· {modelUsed}</span> : null}
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#C65E3A]">
+              <Sparkles className="h-3.5 w-3.5" /> ANVIK
+              {modelUsed ? <span className="text-[#666666]">· {modelUsed}</span> : null}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => void copyAnswer()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs text-slate-200 hover:bg-white/10"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-2.5 py-1 text-xs text-[#666666] hover:bg-white/10"
               >
                 {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied ? "Copied" : "Copy"}
@@ -346,7 +441,7 @@ function VisionStudioInner() {
                 type="button"
                 aria-label="Clear analysis"
                 onClick={() => setAnswer("")}
-                className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-300 hover:bg-white/10"
+                className="rounded-lg border border-white/10 bg-[#F7F7F5] p-1.5 text-[#666666] hover:bg-white/10"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>

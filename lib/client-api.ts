@@ -44,15 +44,15 @@ export function mapHttpErrorMessage(status: number, serverMessage?: string): str
     if (serverMessage && serverMessage.includes("aistudio.google.com")) {
       return serverMessage;
     }
-    return "Key invalid or expired. Create new key in Google AI Studio";
+    return "Key invalid or expired. Check your saved API key and try again.";
   }
   if (status === 429) {
-    return "Free quota finished. Wait 1 hour or use another Google account key";
+    return "Free quota finished. Wait 1 hour or check your account or saved key";
   }
   if (status === 503) {
     return serverMessage || "No internet. Try again";
   }
-  return serverMessage || "Gemini could not complete this request. Please try again.";
+  return serverMessage || "ANVIK could not complete this request. Please try again.";
 }
 
 export async function testGeminiKeyRequest(candidateKey?: string): Promise<KeyCheckResult> {
@@ -90,7 +90,7 @@ export async function testGeminiKeyRequest(candidateKey?: string): Promise<KeyCh
     return {
       ok: true,
       model: data.model ?? "gemini-2.0-flash",
-      message: data.message ?? `Connected (${data.model ?? "gemini-2.0-flash"})`,
+      message: data.message ?? "ANVIK is ready.",
     };
   } catch (err) {
     return { ok: false, error: mapClientFetchError(err), code: "network" };

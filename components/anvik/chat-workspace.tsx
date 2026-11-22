@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { usePathname } from "next/navigation";
 import {
   AlertCircle,
   ArrowRight,
@@ -87,6 +88,7 @@ const WELCOME_CARDS = [
 ];
 
 function ChatWorkspaceInner() {
+  const pathname = usePathname();
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
   const mode = useChatStore((state) => state.mode);
@@ -113,8 +115,8 @@ function ChatWorkspaceInner() {
   const [copied, setCopied] = useState<string | null>(null);
   const [hasValidKey, setHasValidKey] = useState(true);
   const [userName, setUserName] = useState("");
-  const [welcomeTyped, setWelcomeTyped] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -147,30 +149,6 @@ function ChatWorkspaceInner() {
     if (mem.name.trim() !== userName) setUserName(mem.name.trim());
   }, [activeChat]);
 
-  useEffect(() => {
-    if (!userName) return;
-    let i = 0;
-    const full = `Welcome, ${userName}`;
-    const timer = setInterval(() => {
-      i++;
-      setWelcomeTyped(full.slice(0, i));
-      if (i >= full.length) clearInterval(timer);
-    }, 50);
-    return () => clearInterval(timer);
-  }, [userName]);
-
-  useEffect(() => {
-    if (!userName) {
-      let i = 0;
-      const full = "Welcome";
-      const timer = setInterval(() => {
-        i++;
-        setWelcomeTyped(full.slice(0, i));
-        if (i >= full.length) clearInterval(timer);
-      }, 80);
-      return () => clearInterval(timer);
-    }
-  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -186,6 +164,7 @@ function ChatWorkspaceInner() {
       }
       if (e.key === "Escape") {
         setShowPalette(false);
+        setShowPhotoMenu(false);
         setFocusMode(false);
       }
     }
@@ -398,8 +377,8 @@ function ChatWorkspaceInner() {
       {!focusMode && (
         <aside
           aria-label="Sidebar"
-          className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[#EDEDED] bg-[#F7F7F5] sidebar-slide lg:static lg:z-auto lg:translate-x-0 ${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[#EDEDED] bg-[#F7F7F5] sidebar-slide md:static md:z-auto md:translate-x-0 ${
+            sidebarOpen ? "visible translate-x-0" : "invisible -translate-x-full md:visible"
           }`}
         >
           <div className="flex items-center justify-between px-4 py-4">
@@ -407,7 +386,7 @@ function ChatWorkspaceInner() {
             <button
               type="button"
               aria-label="Close sidebar"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[#999999] hover:bg-[#EDEDED] hover:text-[#1A1A1A] lg:hidden"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[#999999] hover:bg-[#EDEDED] hover:text-[#1A1A1A] md:hidden"
               onClick={() => setSidebarOpen(false)}
             >
               <X className="h-4 w-4" />
@@ -431,15 +410,17 @@ function ChatWorkspaceInner() {
 
           <nav className="mt-1 px-3">
             {[
-              { href: "/chat", label: "Search", icon: Search },
+              { href: "/", label: "Chat", icon: MessageSquarePlus },
               { href: "/library", label: "Projects", icon: FileText },
               { href: "/library", label: "Artifacts", icon: Sparkles },
               { href: "/image", label: "Image", icon: ImageIcon },
+              { href: "/code", label: "Code", icon: Code2 },
+              { href: "/vision", label: "Vision", icon: Eye },
             ].map((item, i) => (
               <a
                 key={`${item.label}-${i}`}
                 href={item.href}
-                className="chat-item"
+                className={`chat-item ${item.label === "Chat" ? pathname === "/" || pathname === "/chat" ? "active" : "" : pathname.startsWith(item.href) ? "active" : ""}`}
               >
                 <item.icon className="h-4 w-4 shrink-0 text-[#999999]" />
                 <span>{item.label}</span>
@@ -547,9 +528,13 @@ function ChatWorkspaceInner() {
           </div>
 
           <div className="mt-2 border-t border-[#EDEDED] px-3 py-3">
-            <a href="/settings" className="chat-item">
-              <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" />
-              <span>Settings</span>
+            <a href="/settings" className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#F0F0EE]">
+              <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
+                {userName.trim().charAt(0).toUpperCase() || "A"}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#1A1A1A]">{userName || "Your account"}</span>
+              <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" aria-hidden="true" />
+              <span className="sr-only">Account settings</span>
             </a>
           </div>
         </aside>
@@ -558,7 +543,7 @@ function ChatWorkspaceInner() {
       {sidebarOpen && !focusMode && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-black/10 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/10 md:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-label="Close sidebar"
         />
@@ -572,7 +557,7 @@ function ChatWorkspaceInner() {
             {!focusMode && (
               <button
                 type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5] lg:hidden"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5] md:hidden"
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Open sidebar"
               >
@@ -596,9 +581,10 @@ function ChatWorkspaceInner() {
 
           <div className="flex items-center gap-1">
             <button
-              type="button"
-              onClick={() => setShowPalette(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-[#EDEDED] px-2.5 py-1.5 text-xs text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
+  type="button"
+  onClick={() => setShowPalette(true)}
+  aria-label="Search conversations"
+  className="flex items-center gap-1.5 rounded-lg border border-[#EDEDED] px-2.5 py-1.5 text-xs text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
             >
               <Search className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Search</span>
@@ -632,12 +618,15 @@ function ChatWorkspaceInner() {
             <div className="mx-auto flex max-w-[720px] flex-col items-center px-4 pt-20 pb-8 text-center">
               <AnvikStar size="lg" className="mb-4" />
               <h1
-                className="font-serif text-[32px] font-normal leading-tight tracking-[-0.5px] text-[#1A1A1A]"
+                className="welcome-fade-in font-serif text-[32px] font-normal leading-tight tracking-[-0.5px] text-[#1A1A1A]"
                 style={{ letterSpacing: "-0.5px" }}
               >
-                {welcomeTyped}
-                <span className="stream-cursor" />
+                {welcomeText}
               </h1>
+
+              <p className="mt-2 max-w-md text-sm leading-6 text-[#666666]">
+                A calm space to think, create, and get things done.
+              </p>
 
               {/* Quick actions */}
               <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
@@ -673,10 +662,19 @@ function ChatWorkspaceInner() {
                       <button
                         type="button"
                         aria-label="Add attachment"
+                        aria-expanded={showPhotoMenu}
+                        aria-haspopup="menu"
+                        onClick={() => setShowPhotoMenu((open) => !open)}
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
                       >
                         <span className="text-lg leading-none">+</span>
                       </button>
+                      {showPhotoMenu && (
+                        <div role="menu" aria-label="Photo actions" className="absolute bottom-10 left-0 z-30 w-44 rounded-xl border border-[#E5E5E5] bg-white p-1.5 shadow-lg">
+                          <a role="menuitem" href="/vision?source=upload" className="block rounded-lg px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F7F5]">Upload Photo</a>
+                          <a role="menuitem" href="/vision?camera=1" className="block rounded-lg px-3 py-2 text-left text-sm text-[#1A1A1A] hover:bg-[#F7F7F5]">Take Photo</a>
+                        </div>
+                      )}
                       {showTooltip && (
                         <div className="absolute left-10 top-0 z-20 whitespace-nowrap rounded-lg bg-[#1A1A1A] px-3 py-1.5 text-xs text-white tooltip-arrow">
                           Try Take Photo — Ask about anything you see
@@ -950,13 +948,24 @@ function ChatWorkspaceInner() {
                 />
                 <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
                   <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      aria-label="Add attachment"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
-                    >
-                      <span className="text-lg leading-none">+</span>
-                    </button>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        aria-label="Add attachment"
+                        aria-haspopup="menu"
+                        aria-expanded={showPhotoMenu}
+                        onClick={() => setShowPhotoMenu((open) => !open)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] text-[#666666] transition-colors hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
+                      >
+                        <span className="text-lg leading-none">+</span>
+                      </button>
+                      {showPhotoMenu && (
+                        <div role="menu" aria-label="Add to chat" className="absolute bottom-[calc(100%+8px)] left-0 z-20 w-40 rounded-xl border border-[#EDEDED] bg-white p-1.5 shadow-lg">
+                          <button type="button" role="menuitem" onClick={() => { window.location.assign("/vision?source=upload"); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#1A1A1A] hover:bg-[#F7F7F5]">Upload photo</button>
+                          <button type="button" role="menuitem" onClick={() => { window.location.assign("/vision?camera=1"); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-[#1A1A1A] hover:bg-[#F7F7F5]">Take a photo</button>
+                        </div>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={listen}

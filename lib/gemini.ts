@@ -24,7 +24,7 @@ export const IMAGE_MODEL_FALLBACK_CHAIN = [
 ] as const;
 
 export const KEY_FORMAT_ERROR = "Key looks wrong. Paste a new key from aistudio.google.com";
-export const KEY_INVALID_ERROR = "Key invalid or expired. Create new key in Google AI Studio";
+export const KEY_INVALID_ERROR = "That API key is invalid or expired. Update your key in ANVIK Settings.";
 export const QUOTA_ERROR = "Free quota finished. Wait 1 hour or use another Google account key";
 export const NETWORK_ERROR = "No internet. Try again";
 
@@ -81,14 +81,14 @@ export function classifyGeminiError(status: number, rawBody = ""): ClassifiedErr
   if (status === 404) {
     return {
       status: 404,
-      message: "Requested Gemini model was not found for this key.",
+      message: "The selected ANVIK model is not available for this key.",
       code: "not_found",
     };
   }
 
   return {
     status: status >= 400 ? status : 502,
-    message: "Gemini could not complete this request right now. Please try again.",
+    message: "ANVIK could not complete this request right now. Please try again.",
     code: "upstream",
   };
 }
@@ -262,7 +262,7 @@ export async function openGeminiStreamWithFallback(
           }
           if (!emittedAny) {
             controller.enqueue(
-              encoder.encode("Gemini returned an empty response for that prompt. Please try rephrasing."),
+              encoder.encode("ANVIK returned an empty response for that prompt. Please try rephrasing."),
             );
           }
         } catch (err) {
@@ -290,7 +290,7 @@ export async function openGeminiStreamWithFallback(
     ok: false,
     error: lastError ?? {
       status: 404,
-      message: "No Gemini Flash model responded for this key.",
+      message: "No ANVIK model responded for this key.",
       code: "not_found",
     },
   };
