@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
@@ -32,6 +33,7 @@ import {
   saveApiKey,
 } from "@/lib/client-key";
 import { testGeminiKeyRequest } from "@/lib/client-api";
+import { useSession } from "@/components/anvik/session-provider";
 import {
   DEFAULT_MEMORY,
   EMPTY_LEARNING,
@@ -61,6 +63,8 @@ type QuotaStatus = {
 };
 
 function SettingsScreenInner() {
+  const router = useRouter();
+  const { session, loading: sessionLoading, profile, signOut, bearerToken } = useSession();
   const mode = useChatStore((state) => state.mode);
   const setMode = useChatStore((state) => state.setMode);
   const temperature = useChatStore((state) => state.temperature);
@@ -94,9 +98,10 @@ function SettingsScreenInner() {
     // ledger / free quota), keyed by this device. Never read from the browser.
     (async () => {
       try {
+        const token = bearerToken();
         const response = await fetch("/api/quota", {
           cache: "no-store",
-          headers: { "x-anvik-device": readDeviceId() },
+          headers: { "x-anvik-device": readDeviceId(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         });
         if (!response.ok) throw new Error("quota fetch failed");
         const body = (await response.json()) as QuotaStatus;
@@ -128,6 +133,11 @@ function SettingsScreenInner() {
   }, []);
 
   const stats = learningStats(learning);
+
+  async function handleSignOut() {
+    await signOut();
+    router.replace("/login");
+  }
 
   function remember(next: Partial<Memory>) {
     const merged = writeMemory(next);
@@ -221,6 +231,47 @@ function SettingsScreenInner() {
           Manage your keys, quota, preferences, and local data.
         </p>
       </div>
+
+      {/* Account */}
+      {!sessionLoading && (
+        <div className="surface-card p-5 sm:p-6">
+          {session && profile ? (
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-sm font-semibold text-white">
+                  {profile.avatarUrl ? <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : <>{(profile.name?.trim().charAt(0) ?? "A").toUpperCase()}</>}
+                </span>
+                <div>
+                  <h2 className="text-base font-semibold text-[#1A1A1A]">Welcome, {profile.name}</h2>
+                  <p className="text-xs text-[#666666]">
+                    {profile.email} · {profile.provider === "google" ? "Google" : "Email & password"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href="/account" className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]">
+                  Your account
+                </Link>
+                <button type="button" onClick={() => void handleSignOut()} className="inline-flex items-center gap-1.5 rounded-lg border border-[#F0D9D6] bg-[#FDF6F5] px-3.5 py-2 text-xs font-semibold text-[#9C3B2D] hover:bg-[#FCEAEA]">
+                  Sign out
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-[#1A1A1A]">Account</h2>
+                <p className="text-xs text-[#666666]">
+                  Sign in to keep history, credits and consent with you.
+                </p>
+              </div>
+              <Link href="/login" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1A1A1A] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#333]">
+                Sign in
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ANVIK Free Key */}
       <div className="surface-card p-5 sm:p-6">

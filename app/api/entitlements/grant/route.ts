@@ -59,14 +59,22 @@ export async function POST(request: Request) {
     return json({ error: "Send a valid JSON body.", code: "bad_body" }, 400);
   }
 
-  const { deviceId, plan, activatedAt } = body as {
+  const { deviceId, userId, plan, activatedAt } = body as {
     deviceId?: unknown;
+    userId?: unknown;
     plan?: unknown;
     activatedAt?: unknown;
   };
 
-  if (typeof deviceId !== "string" || deviceId.trim().length < 4 || deviceId.trim().length > 128) {
-    return json({ error: "deviceId must be a string of 4–128 characters.", code: "bad_device" }, 400);
+  // Either a device (legacy pricing flow) or a verified user id (per-user
+  // system). Exactly one is required — the grant is scoped to that identity.
+  const hasDevice = typeof deviceId === "string" && deviceId.trim().length >= 4 && deviceId.trim().length <= 128;
+  const hasUser = typeof userId === "string" && /^[0-9a-f]{36}$/i.test(userId.trim());
+  if (!hasDevice && !hasUser) {
+    return json({ error: "deviceId or a userId is required.", code: "bad_device" }, 400);
+  }
+  if (hasDevice && hasUser) {
+    return json({ error: "Pass either deviceId or userId, not both.", code: "bad_device" }, 400);
   }
   if (typeof plan !== "string" || !NON_FREE_PLANS.has(plan)) {
     return json({ error: "plan must be one of: pack, daily, yearly.", code: "bad_plan" }, 400);
@@ -75,7 +83,91 @@ export async function POST(request: Request) {
   const safeActivatedAt =
     typeof activatedAt === "string" && !Number.isNaN(Date.parse(activatedAt)) ? activatedAt : undefined;
 
-  const row = await entitlements.grant(deviceId.trim(), safePlan, { activatedAt: safeActivatedAt });
+  // --- per-user grant (multi-user system) ---
+  if (hasUser) {
+    const targetUserId = (userId as string).trim();
+    const spec = planById(safePlan);
+    const activated = safeActivatedAt ?? new Date().toISOString();
+    const validityDays = spec.validityDays ?? 30;
+    const expiry = new Date(Date.parse(activated) + validityDays * 86_400_000);
+    const dailyLimit = spec.questionsPerDay ?? 0;
+
+    // 1. Per-user entitlement row (upsert by primary key).
+    const entitlementRow = {
+      user_id: targetUserId,
+      plan_id: safePlan,
+      daily_message_limit: dailyLimit,
+      current_plan_status: "active",
+      entitlement_start: activated,
+      entitlement_expiry: expiry.toISOString(),
+    };
+    const entitlementOk = await sbUpsert("user_entitlements", [entitlementRow]);
+    if (!entitlementOk) {
+      return json({ error: "Could not persist the entitlement — check server configuration.", code: "grant_failed" }, 500);
+    }
+
+    // 2. Pack credits (one-time total questions) go onto the balance; pack
+    //    users get zero daily cap (they spend pack credits only).
+    if (safePlan === "pack") {
+      const packTotal = spec.totalQuestions ?? 50;
+      const current = await sbSelect<Record<string, unknown>>(
+        "credit_balances",
+        `user_id=eq.${encodeURIComponent(targetUserId)}&select=available_pack_credits&limit=1`,
+      ).catch(() => null);
+      const existing = typeof current?.[0]?.available_pack_credits === "number" ? current[0].available_pack_credits : 0;
+      const newBalance = existing + packTotal;
+      const balanceOk = await sbUpsert("credit_balances", [
+        {
+          user_id: targetUserId,
+          available_pack_credits: newBalance,
+          daily_usage: 0,
+          daily_limit: 0,
+          last_reset_at: activated,
+          pack_credits_expires_at: expiry.toISOString(),
+          updated_at: activated,
+        },
+      ]);
+      if (!balanceOk) {
+        return json({ error: "Could not persist the pack credits — check server configuration.", code: "grant_failed" }, 500);
+      }
+      // Audit trail: one ledger entry per grant.
+      await sbUpsert("credit_ledger", [
+        {
+          user_id: targetUserId,
+          transaction_type: "pack_grant",
+          credit_amount: packTotal,
+          description: `${spec.name} pack granted`,
+          reference_id: `grant:${targetUserId}:${safePlan}`,
+        },
+      ]).catch(() => undefined);
+    }
+
+    // 3. Daily plans (daily/yearly) reset today's usage so the grant opens a
+    //    fresh window honestly.
+    if (safePlan === "daily" || safePlan === "yearly") {
+      await sbUpsert("credit_balances", [
+        {
+          user_id: targetUserId,
+          available_pack_credits: 0,
+          daily_usage: 0,
+          daily_limit: dailyLimit,
+          last_reset_at: activated,
+          updated_at: activated,
+        },
+      ]).catch(() => undefined);
+    }
+
+    return json({
+      plan: safePlan,
+      name: spec.name,
+      userId: targetUserId,
+      expiresAt: expiry.toISOString(),
+      packTotal: safePlan === "pack" ? (spec.totalQuestions ?? 50) : null,
+    });
+  }
+
+  // --- legacy device grant (unchanged) ---
+  const row = await entitlements.grant((deviceId as string).trim(), safePlan, { activatedAt: safeActivatedAt });
   if (!row) {
     return json(
       { error: "Could not persist the entitlement — check server configuration.", code: "grant_failed" },

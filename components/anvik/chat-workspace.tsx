@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   AlertCircle,
   ArrowUp,
@@ -50,6 +50,7 @@ import {
   testGeminiKeyRequest,
 } from "@/lib/client-api";
 import { readMemory } from "@/lib/learning";
+import { useSession } from "@/components/anvik/session-provider";
 
 type SpeechInput = {
   lang: string;
@@ -75,6 +76,8 @@ const PLACEHOLDERS = [
 
 function ChatWorkspaceInner() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { profile, credits, session, loading: sessionLoading, bearerToken, signOut, refresh } = useSession();
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
   const mode = useChatStore((state) => state.mode);
@@ -108,6 +111,7 @@ function ChatWorkspaceInner() {
   const [renameValue, setRenameValue] = useState("");
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [placeholderFading, setPlaceholderFading] = useState(false);
+  const [quotaDisplay, setQuotaDisplay] = useState<{ plan: string; remaining: number; limit: number } | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
@@ -193,11 +197,25 @@ function ChatWorkspaceInner() {
     if (!content || pending) return;
 
     const apiKey = readApiKey();
-    let quota: { hasServerKey: boolean; status: string; remaining: number };
+    const token = bearerToken();
+    let quota: { hasServerKey: boolean; status: string; remaining: number; plan?: { id?: string; name?: string } | null; limit?: number };
     try {
-      const quotaResponse = await fetch("/api/quota", { cache: "no-store" });
+      const quotaResponse = await fetch("/api/quota", {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}`, "x-anvik-device": readDeviceId() } : { "x-anvik-device": readDeviceId() },
+      });
+      if (quotaResponse.status === 401) {
+        await signOut();
+        router.replace("/login");
+        return;
+      }
       if (!quotaResponse.ok) throw new Error("Could not check the free chat limit. Please try again.");
       quota = (await quotaResponse.json()) as typeof quota;
+      setQuotaDisplay({
+        plan: quota.plan?.name ?? "Free",
+        remaining: typeof quota.remaining === "number" ? quota.remaining : 0,
+        limit: typeof quota.limit === "number" ? quota.limit : 10,
+      });
     } catch (cause) {
       setError(mapClientFetchError(cause));
       return;
@@ -212,9 +230,15 @@ function ChatWorkspaceInner() {
       return;
     }
     if (!apiKey && (quota.status === "limit_reached" || quota.remaining <= 0)) {
-      setError("Free limit reached. Connect your own key to continue unlimited.");
+      setError(
+        session
+          ? "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing."
+          : "Free limit reached. Connect your own key to continue unlimited.",
+      );
       return;
     }
+
+    const requestId = crypto.randomUUID();
 
     const conversationId = activeId ?? createConversation();
     const current = useChatStore.getState().conversations.find((item) => item.id === conversationId);
@@ -241,7 +265,9 @@ function ChatWorkspaceInner() {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
           "x-anvik-device": readDeviceId(),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(apiKey ? { "x-google-generative-ai-api-key": apiKey } : {}),
+          "x-anvik-request-id": requestId,
         },
         body: JSON.stringify({
           messages: history,
@@ -254,6 +280,11 @@ function ChatWorkspaceInner() {
       });
 
       if (!response.ok || !response.body) {
+        if (response.status === 401) {
+          await signOut();
+          router.replace("/login");
+          return;
+        }
         const issue = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
         throw new Error(mapHttpErrorMessage(response.status, issue?.error ?? issue?.detail, issue?.code));
       }
@@ -364,6 +395,29 @@ function ChatWorkspaceInner() {
       abortRef.current = null;
       setPending(false);
       fieldRef.current?.focus();
+      // Refresh the displayed allowance after each request.
+      void (async () => {
+        const token = bearerToken();
+        try {
+          const quotaResponse = await fetch("/api/quota", {
+            cache: "no-store",
+            headers: token ? { Authorization: `Bearer ${token}`, "x-anvik-device": readDeviceId() } : { "x-anvik-device": readDeviceId() },
+          });
+          if (quotaResponse.ok) {
+            const quotaBody = (await quotaResponse.json()) as { remaining?: number; limit?: number; plan?: { name?: string } | null };
+            if (typeof quotaBody.remaining === "number") {
+              setQuotaDisplay({
+                plan: quotaBody.plan?.name ?? "Free",
+                remaining: quotaBody.remaining,
+                limit: typeof quotaBody.limit === "number" ? quotaBody.limit : 10,
+              });
+            }
+          }
+        } catch {
+          /* the quota display is best-effort */
+        }
+      })();
+      void refresh();
     }
   }
 
@@ -559,7 +613,7 @@ function ChatWorkspaceInner() {
   const showConnectButton = error.includes("Connect your own key");
   const showKeyHelper = showConnectButton || /key invalid|invalid or expired/i.test(error);
 
-  const welcomeText = userName ? `Welcome, ${userName}` : "Welcome";
+  const welcomeText = profile?.name ? `Welcome, ${profile.name}` : userName ? `Welcome, ${userName}` : "Welcome";
 
   return (
     <div className="relative flex h-[100dvh] w-full overflow-hidden bg-white">
@@ -718,14 +772,28 @@ function ChatWorkspaceInner() {
           </div>
 
           <div className="mt-2 border-t border-[#EDEDED] px-3 py-3">
-            <a href="/settings" className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#F0F0EE]">
-              <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
-                {userName.trim().charAt(0).toUpperCase() || "A"}
+            <a
+              href={session ? "/account" : "/login"}
+              className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#F0F0EE]"
+            >
+              <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
+                {profile?.avatarUrl ? (
+                  <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  (profile?.name?.trim().charAt(0).toUpperCase() || userName.trim().charAt(0).toUpperCase() || "A")
+                )}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#1A1A1A]">{userName || "Your account"}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#1A1A1A]">
+                {profile?.name || userName || (session ? "Your account" : "Sign in")}
+              </span>
               <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" aria-hidden="true" />
-              <span className="sr-only">Account settings</span>
+              <span className="sr-only">{session ? "Account settings" : "Sign in to ANVIK AI"}</span>
             </a>
+            {!session && !sessionLoading && (
+              <a href="/login" className="mt-1 block rounded-lg px-2 py-1.5 text-center text-xs font-semibold text-[#666666] hover:bg-[#F0F0EE]">
+                Sign in
+              </a>
+            )}
           </div>
         </aside>
       )}
@@ -765,7 +833,10 @@ function ChatWorkspaceInner() {
               </button>
             )}
             <span className="text-xs text-[#999999]">
-              Free plan · <a href="/pricing" className="text-[#666666] hover:text-[#1A1A1A] underline">Upgrade</a>
+              {quotaDisplay || credits
+                ? `${quotaDisplay?.plan ?? credits?.planName ?? "Free"} · ${quotaDisplay?.remaining ?? credits?.dailyRemaining ?? 0} left`
+                : "Free plan"}{" "}
+              <a href="/pricing" className="text-[#666666] hover:text-[#1A1A1A] underline">Upgrade</a>
             </span>
           </div>
 

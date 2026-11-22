@@ -49,7 +49,9 @@ Open http://localhost:3000. Without a key the product still runs: Chat answers i
 | --- | --- | --- |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | recommended | The **only** Gemini key name. Used by every route. |
 | `NEXT_PUBLIC_SITE_URL` | in production | Canonical origin for sitemap, robots, metadata and share cards. |
-| `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | optional | Mirror questions/answers to Postgres (schema in `lib/supabase.ts`). Also enables the optional `/api/learn` copy of likes and corrections. |
+| `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | for accounts | Public URL + publishable key — safe to ship to the browser. |
+| `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | for accounts (server) | Server-only service role. Used exclusively server-side for consent, credits, entitlements and history. Never in the browser. |
+| `ANVIK_ADMIN_TOKEN` | for paid-plan activation | Operator token for `/api/entitlements/grant`. Never in the browser. |
 | `ANVIK_MODEL` / `ANVIK_IMAGE_MODEL` | optional | Model overrides. |
 
 A user can also paste their own key in Settings; it stays in that browser and is sent only with
@@ -61,6 +63,37 @@ their own requests.
 corpus → a JSON file **only if the filesystem is writable**. On a read-only deployment filesystem
 the file step is skipped silently, so `/j/[slug]`, `/sitemap.xml` and `/api/ask` keep answering from
 memory instead of throwing `EACCES`.
+
+## Accounts, consent and credits (v3)
+
+Supabase Auth + per-user credit system. All privileged operations run server-side
+with the service role; the browser holds only the public publishable key and its own
+session (a bearer access token, validated per request against Supabase).
+
+- **Sign in** — `/login`: Google (PKCE, no client secret) or email + password (signup and
+  signin), password recovery, "Already have an account?" toggle, "Continue without an account"
+  (anonymous free tier). Returning users skip onboarding; new users are routed there.
+- **Onboarding** — `/onboarding`, full-screen, one step at a time: identity (verified Google name
+  or sanitized email fallback), Terms of Service (required), Privacy Policy (required), and the
+  **AI Model Improvement Consent** (optional, never preselected, explicit opt-out path, withdrawal
+  always available). Consent is recorded server-side with versions + timestamps.
+- **Welcome** — `/welcome`, personalized "Hello, {name}." + "Welcome to ANVIK AI." +
+  "Your intelligence companion is ready." with animated gradient lighting and ambient
+  particles (reduced-motion respected).
+- **Account** — `/account`: profile, subscription, credits (daily used/remaining with IST-day
+  reset), usage history, transaction ledger, AI-improvement consent toggle, sign-out.
+- **Credits** — `user_entitlements` (one per user: plan, daily limit, status, expiry),
+  `credit_balances` (daily usage + pack credits), `credit_ledger` (append-only audit),
+  `usage_events` (per-request outcomes). Atomic enforcement lives in the `reserve_credit`
+  Postgres function (row lock, IST-day reset, daily-first then pack fallback, idempotent by
+  request reference). Refunds use `refund_credit`; successful usage is recorded with
+  `record_usage`. Paid plans are granted only by an operator (the authorised admin grant
+  endpoint) — never by the browser or by WhatsApp enquiry.
+- **Enforcement** — `/api/chat` and `/api/quota` resolve the bearer token first. Verified users
+  are governed by the per-user system; anonymous users keep the original device/IP-based path.
+
+Migration: `supabase/migrations/20261123000000_multi_user_credits.sql` (paste into the
+`anvik-ai-v2` Supabase SQL editor — the Supabase connector only reaches other projects).
 
 ## Backend v2 — schema, quota, chat
 

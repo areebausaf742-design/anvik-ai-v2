@@ -53,6 +53,15 @@ import type { PlanId } from "@/lib/plans";
 import { sbSelect, sbUpsert } from "@/lib/supabase";
 import { recordChatExchange } from "@/lib/chat-record";
 import { clientIp, allowPerIp } from "@/lib/rate-limit";
+import { getVerifiedUser, type VerifiedUser } from "@/lib/session";
+import {
+  ensureEntitlement,
+  effectivePlan,
+  reserveCredit,
+  refundCredit,
+  recordUsage,
+} from "@/lib/credits";
+import { planById } from "@/lib/plans";
 
 export const maxDuration = 60;
 
@@ -94,15 +103,21 @@ function sseFrame(payload: Record<string, unknown>): string {
 
 type Reservation =
   | { kind: "free"; key: string }
-  | { kind: "entitlement"; deviceId: string };
+  | { kind: "entitlement"; deviceId: string }
+  | { kind: "user"; userId: string; source: "daily" | "pack"; reference: string };
 
 function cancelReservation(reservation: Reservation | undefined): void {
   if (!reservation) return;
   if (reservation.kind === "free") quota.cancel(reservation.key);
-  else entitlements.cancel(reservation.deviceId);
+  else if (reservation.kind === "entitlement") entitlements.cancel(reservation.deviceId);
+  else void refundCredit(reservation.userId, reservation.source, reservation.reference).catch(() => undefined);
 }
 
-async function confirmReservation(reservation: Reservation | undefined): Promise<void> {
+async function confirmReservation(
+  reservation: Reservation | undefined,
+  model: string,
+  feature: string,
+): Promise<void> {
   if (!reservation) return;
   if (reservation.kind === "free") {
     try {
@@ -112,8 +127,25 @@ async function confirmReservation(reservation: Reservation | undefined): Promise
     }
     return;
   }
+  if (reservation.kind === "entitlement") {
+    try {
+      await entitlements.confirm(reservation.deviceId);
+    } catch {
+      // keep going even if persistence fails
+    }
+    return;
+  }
   try {
-    await entitlements.confirm(reservation.deviceId);
+    await recordUsage(
+      reservation.userId,
+      reservation.source,
+      reservation.reference,
+      model,
+      feature,
+      null,
+      null,
+      "success",
+    );
   } catch {
     // keep going even if persistence fails
   }
@@ -206,43 +238,81 @@ export async function POST(request: Request) {
   }
 
   // 6. Plan entitlement — server key only. Own keys are unlimited by design.
-  // Paid plans (pack/daily/yearly) are enforced against the server-side
-  // entitlements ledger, keyed by device. Anything without a valid, unexpired
-  // paid entitlement falls back to the free per-IP quota (10/day).
+  // Authenticated users are governed by the per-user credit system (atomic RPC,
+  // IST-day reset, pack fallback, idempotency by request reference).
+  // Anonymous users fall back to the device-keyed entitlements + per-IP free
+  // quota (10/day) — exactly as before.
   const rawDeviceId = (request.headers.get("x-anvik-device") ?? "").trim().slice(0, 128);
   const deviceId = rawDeviceId || "anonymous";
   let reservation: Reservation | undefined;
   let paidPlan: PlanId | null = null;
+  let verifiedUser: VerifiedUser | null = null;
 
   if (!validClientKey) {
-    const outcome = rawDeviceId ? await entitlements.reserve(rawDeviceId) : ({ kind: "free" } as const);
-    if (outcome.kind === "reserved") {
-      reservation = { kind: "entitlement", deviceId: rawDeviceId };
-      paidPlan = outcome.plan;
-    } else {
-      // No usable entitlement — none, expired, or exhausted. Fall back to
-      // the free per-IP quota so a paid user never ends below Free's
-      // allowance: the paid plan is the top-up, Free is the floor.
-      const ipHash = hashIp(ip);
-      const check = await quota.checkAndReserve(ipHash);
-      if (!check.ok) {
-        const exhaustedPaid = outcome.kind === "blocked";
+    verifiedUser = await getVerifiedUser(request).catch(() => null);
+    if (verifiedUser) {
+      // --- per-user credit path (the multi-user system) ---
+      const reference = (request.headers.get("x-anvik-request-id") ?? "").trim().slice(0, 160) || crypto.randomUUID();
+      const entitlement = await ensureEntitlement(verifiedUser.id).catch(() => null);
+      const effective = effectivePlan(entitlement);
+      const dailyLimit = effective.limit;
+      const result = await reserveCredit(verifiedUser.id, dailyLimit, reference);
+      if (!result.ok) {
+        const isDuplicate = result.reason === "duplicate_request";
         return Response.json(
           {
-            error: exhaustedPaid
-              ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
-              : "Free limit reached. Connect your own key to continue unlimited.",
-            detail: exhaustedPaid
-              ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
-              : "Free limit reached. Connect your own key to continue unlimited.",
-            code: exhaustedPaid ? "plan_limit_reached" : "free_limit_reached",
-            ...(outcome.kind === "blocked" ? { plan: outcome.plan } : {}),
+            error: isDuplicate
+              ? "This request was already answered. Ask again to continue."
+              : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
+            detail: isDuplicate
+              ? "This request was already answered."
+              : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
+            code: isDuplicate ? "duplicate_request" : (effective.plan === "free" ? "free_limit_reached" : "plan_limit_reached"),
+            plan: effective.plan,
             remaining: 0,
           },
           { status: 429 },
         );
       }
-      reservation = { kind: "free", key: check.reservationKey };
+      reservation = {
+        kind: "user",
+        userId: verifiedUser.id,
+        source: result.source === "pack" ? "pack" : "daily",
+        reference,
+      };
+      const spec = planById(effective.plan);
+      paidPlan = effective.active && spec.priceInr > 0 ? spec.id : null;
+    } else {
+      // --- anonymous path (unchanged) ---
+      const outcome = rawDeviceId ? await entitlements.reserve(rawDeviceId) : ({ kind: "free" } as const);
+      if (outcome.kind === "reserved") {
+        reservation = { kind: "entitlement", deviceId: rawDeviceId };
+        paidPlan = outcome.plan;
+      } else {
+        // No usable entitlement — none, expired, or exhausted. Fall back to
+        // the free per-IP quota so a paid user never ends below Free's
+        // allowance: the paid plan is the top-up, Free is the floor.
+        const ipHash = hashIp(ip);
+        const check = await quota.checkAndReserve(ipHash);
+        if (!check.ok) {
+          const exhaustedPaid = outcome.kind === "blocked";
+          return Response.json(
+            {
+              error: exhaustedPaid
+                ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
+                : "Free limit reached. Connect your own key to continue unlimited.",
+              detail: exhaustedPaid
+                ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
+                : "Free limit reached. Connect your own key to continue unlimited.",
+              code: exhaustedPaid ? "plan_limit_reached" : "free_limit_reached",
+              ...(outcome.kind === "blocked" ? { plan: outcome.plan } : {}),
+              remaining: 0,
+            },
+            { status: 429 },
+          );
+        }
+        reservation = { kind: "free", key: check.reservationKey };
+      }
     }
   }
 
@@ -419,7 +489,7 @@ export async function POST(request: Request) {
           completed = true;
 
           // 8. Count quota only after a full, successful stream.
-          await confirmReservation(reservation);
+          await confirmReservation(reservation, model, "chat");
 
           // Persist every exchange (user message + answer + model). Best-effort:
           // a Supabase outage must never break the answer, so failures are
@@ -429,7 +499,7 @@ export async function POST(request: Request) {
           if (completed && answer.trim() && finalUser) {
             try {
               await recordChatExchange({
-                userId: deviceId,
+                userId: verifiedUser ? verifiedUser.id : deviceId,
                 userMessage: finalUser.content,
                 answer,
                 model,

@@ -96,3 +96,24 @@ export async function sbUpsert(table: string, rows: Record<string, unknown>[]): 
     return false;
   }
 }
+
+/**
+ * Call a PostgREST RPC (stored function). Returns the parsed JSON result or
+ * null on any failure. All server-side, service-role — never exposed to the
+ * browser.
+ */
+export async function sbRpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T | null> {
+  if (!supabaseEnabled()) return null;
+  try {
+    const response = await fetch(`${base()}/rest/v1/rpc/${fn}`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}

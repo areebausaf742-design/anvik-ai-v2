@@ -25,6 +25,8 @@ import { planById, type PlanId } from "@/lib/plans";
 import { sbSelect, sbUpsert } from "@/lib/supabase";
 import { hashIp } from "@/lib/security";
 import { clientIp } from "@/lib/rate-limit";
+import { getVerifiedUser } from "@/lib/session";
+import { readCredits } from "@/lib/credits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,10 +70,49 @@ function paidPlanMeta(row: { plan: "pack" | "daily" | "yearly"; expires_at: stri
 }
 
 export async function GET(request: Request) {
-  const ipHash = hashIp(clientIp(request));
   const rawDeviceId = (request.headers.get("x-anvik-device") ?? "").trim().slice(0, 128);
+  const ipHash = hashIp(clientIp(request));
   const configuredKey = serverKey();
   const hasServerKey = Boolean(configuredKey);
+
+  // Authenticated callers get the per-user credit view — the multi-user system.
+  // Anonymous callers get the original device/IP-based free quota.
+  const verified = await getVerifiedUser(request).catch(() => null);
+  if (verified) {
+    const validation = configuredKey
+      ? await validateGeminiServerKey(configuredKey)
+      : { googleStatus: null, invalid: false };
+    const credits = await readCredits(verified.id).catch(() => null);
+    const isPack = credits?.plan === "pack";
+    const limit = isPack ? (credits?.pack_remaining ?? 0) : (credits?.daily_limit ?? FREE_LIMIT);
+    const remaining = isPack ? (credits?.pack_remaining ?? 0) : (credits?.daily_remaining ?? 0);
+    const status = !hasServerKey
+      ? "not_configured"
+      : validation.invalid
+        ? "invalid_server_key"
+        : remaining <= 0
+          ? "limit_reached"
+          : "ok";
+    const planMeta: QuotaPlanMeta = {
+      id: (credits?.plan ?? "free") as PlanId,
+      name: credits?.planName ?? "Free",
+      priceInr: planById((credits?.plan ?? "free") as PlanId).priceInr,
+      validityDays: planById((credits?.plan ?? "free") as PlanId).validityDays,
+      expiresAt: credits?.entitlement_expiry ?? null,
+      packTotal: null,
+      packUsed: null,
+    };
+    return Response.json({
+      hasServerKey,
+      status,
+      remaining: Math.max(0, remaining),
+      googleStatus: validation.googleStatus,
+      modelUsed: MODEL_FALLBACK_CHAIN[0],
+      limit,
+      plan: planMeta,
+      userId: verified.id,
+    });
+  }
 
   // Only ever "invalid" when Google explicitly says the key is not valid.
   const validation = configuredKey
