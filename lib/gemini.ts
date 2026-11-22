@@ -63,7 +63,7 @@ export function getGeminiBaseUrl(): string {
 export function isValidGeminiKeyFormat(key: string | undefined | null): boolean {
   if (!key) return false;
   const trimmed = key.trim();
-  return trimmed.startsWith("AIza") && trimmed.length >= 35;
+  return trimmed.length <= 512 && (trimmed.startsWith("AIza") || trimmed.startsWith("AQ"));
 }
 
 export function classifyGeminiError(status: number, rawBody = ""): ClassifiedError {

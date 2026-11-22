@@ -93,13 +93,6 @@ export async function POST(request: Request) {
       { status: 401 },
     );
   }
-  if (!isValidGeminiKeyFormat(key)) {
-    return Response.json(
-      { error: "The configured key format is not supported.", code: "bad_format" },
-      { status: 400 },
-    );
-  }
-
   if (!allow(clientIdentity(request, request.headers.get("x-anvik-device")), 16, 150)) {
     return Response.json({ error: LIMIT_MESSAGE, code: "rate_limit" }, { status: 429 });
   }
