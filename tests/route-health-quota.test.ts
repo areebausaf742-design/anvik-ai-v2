@@ -49,10 +49,10 @@ test("quota returns the full locked shape with a valid server key", async () => 
       {
         hasServerKey: true,
         status: "ok",
-        remaining: 20, // fresh process, no stored rows
+        remaining: 10, // fresh process, no stored rows
         googleStatus: 200,
         modelUsed: "gemini-2.5-flash",
-        limit: 20,
+        limit: 10,
       },
     );
   } finally {
@@ -100,5 +100,5 @@ test("quota reports not_configured with no key at all", async () => {
   const body = await response.json();
   assert.equal(body.hasServerKey, false);
   assert.equal(body.status, "not_configured");
-  assert.equal(body.limit, 20);
+  assert.equal(body.limit, 10);
 });

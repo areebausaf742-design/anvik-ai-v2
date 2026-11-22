@@ -71,7 +71,7 @@ type DB = {
   idempotency: Record<string, string>; // key -> answerId
 };
 
-export const FREE_DAILY = 3;
+export const FREE_DAILY = 10;
 export const RATE_PER_MIN = 6;
 export const RATE_PER_HOUR = 20;
 /** Plan §7.4 control 1: global daily model-spend ceiling, in paise (₹500). */

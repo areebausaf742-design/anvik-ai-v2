@@ -19,11 +19,11 @@ import { PricingPlans } from "./plans";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Simple pricing, in rupees and GST-included. Free forever: 3 questions a day. Pack ₹19 one-time · Daily ₹49/mo · Yearly ₹399/yr — best value. Paid plans are coming soon.",
+    "Simple pricing, in rupees and GST-included. Free forever: 10 questions a day. Pack ₹49 one-time · Daily ₹149/mo · Yearly ₹1,299/yr — best value. Paid plans activate via WhatsApp.",
   openGraph: {
     title: "Pricing — ANVIK AI",
     description:
-      "Simple pricing, in rupees and GST-included. Free forever, then Pack ₹19 · Daily ₹49/mo · Yearly ₹399/yr — best value.",
+      "Simple pricing, in rupees and GST-included. Free forever, then Pack ₹49 · Daily ₹149/mo · Yearly ₹1,299/yr — best value. Paid plans activate via WhatsApp.",
   },
 };
 
@@ -48,7 +48,7 @@ const TRUST_ITEMS = [
   {
     icon: InfinityIcon,
     title: "Free forever",
-    body: "The free plan is free permanently: 3 questions every day, history on this device, public answer pages.",
+    body: "The free plan is free permanently: 10 questions every day, history on this device, public answer pages.",
   },
   {
     icon: ShieldCheck,
@@ -58,12 +58,12 @@ const TRUST_ITEMS = [
   {
     icon: CalendarCheck,
     title: "One-time Pack",
-    body: "A single ₹19 payment, valid 30 days. No recurring billing, no auto-renewal, no second prompt.",
+    body: "A single ₹49 payment, valid 30 days. No recurring billing, no auto-renewal, no second prompt.",
   },
   {
     icon: Receipt,
     title: "Clear subscription billing",
-    body: "Daily bills ₹49/month and Yearly bills ₹399/year, in rupees, GST included, with a GST invoice for every billing.",
+    body: "Daily bills ₹149/month and Yearly bills ₹1,299/year, in rupees, GST included, with a GST invoice for every billing.",
   },
 ] as const;
 
@@ -71,6 +71,7 @@ const HERO_TRUST = [
   "Prices in ₹ · GST included",
   "No credit card for the free tier",
   "Free forever — no trial timer",
+  "Paid plans activate via WhatsApp",
 ] as const;
 
 export default function PricingPage() {
@@ -167,8 +168,8 @@ export default function PricingPage() {
             ANVIK AI
           </span>
           <p className="ppFooterNote">
-            Payments are not live yet — nothing will be charged today. Prices are in rupees and
-            inclusive of GST. The free tier is the whole product.
+            Payments are not processed online — paid plans are activated after a WhatsApp enquiry
+            from your device. Prices are in rupees, inclusive of GST.
           </p>
           <nav className="ppFooterLinks" aria-label="Footer">
             <Link href="/about">About</Link>

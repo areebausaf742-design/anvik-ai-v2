@@ -12,8 +12,10 @@
  *   3. strip secrets from the history (keys, phones, Aadhaar, card numbers)
  *   4. resolve the key: valid user key wins, else the server key
  *   5. per-IP rate limit (1 request / 2s, 60 / minute)
- *   6. free-tier quota (server key only): 20/day per IP, counted in Supabase
- *      only after a successful stream — never on a failed request
+ *   6. entitlements (server key only): paid plans (pack/daily/yearly)
+ *      enforced against the server-side ledger, keyed by device. Free
+ *      falls back to 10/day per IP (counted in Supabase only after a
+ *      successful stream — never on a failed request). Own keys bypass.
  *   7. stream tokens immediately; fallback across gemini-2.5-flash →
  *      2.0-flash → 2.0-flash-lite on 404/429/500 (retried 1s/2s first)
  *   8. persist every exchange (chat + user message + answer with model_used)
@@ -28,7 +30,7 @@
 
 import { modes, type ModeId } from "@/lib/prompts";
 import { serverKey } from "@/lib/provider";
-import { CHAT_MAX_TOKENS, CODE_MAX_TOKENS, MAX_TEMPERATURE } from "@/lib/credit";
+import { CHAT_MAX_TOKENS, CODE_MAX_TOKENS, MAX_TEMPERATURE, PAID_MAX_TOKENS } from "@/lib/credit";
 import { memoryInstruction, type Memory } from "@/lib/learning";
 import {
   isValidGeminiKeyFormat,
@@ -46,6 +48,8 @@ import {
 import { sanitizeTurns, buildGeminiContents } from "@/lib/history";
 import { hashIp, safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
 import { QuotaStore, supabaseQuotaHooks } from "@/lib/quota";
+import { EntitlementsStore, supabaseEntitlementHooks } from "@/lib/entitlements";
+import type { PlanId } from "@/lib/plans";
 import { sbSelect, sbUpsert } from "@/lib/supabase";
 import { recordChatExchange } from "@/lib/chat-record";
 import { clientIp, allowPerIp } from "@/lib/rate-limit";
@@ -57,6 +61,7 @@ const MIN_SPACING_MS = 2_000;
 const PER_MINUTE = 60;
 
 const quota = new QuotaStore(supabaseQuotaHooks(sbSelect, sbUpsert));
+const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows)));
 
 const modeInstructions: Record<ModeId, string> = {
   fast: "Keep answers concise and prioritize the quickest useful response.",
@@ -85,6 +90,33 @@ function readMemory(input: unknown): Memory | null {
 
 function sseFrame(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+type Reservation =
+  | { kind: "free"; key: string }
+  | { kind: "entitlement"; deviceId: string };
+
+function cancelReservation(reservation: Reservation | undefined): void {
+  if (!reservation) return;
+  if (reservation.kind === "free") quota.cancel(reservation.key);
+  else entitlements.cancel(reservation.deviceId);
+}
+
+async function confirmReservation(reservation: Reservation | undefined): Promise<void> {
+  if (!reservation) return;
+  if (reservation.kind === "free") {
+    try {
+      await quota.confirm(reservation.key);
+    } catch {
+      // keep going even if persistence fails
+    }
+    return;
+  }
+  try {
+    await entitlements.confirm(reservation.deviceId);
+  } catch {
+    // keep going even if persistence fails
+  }
 }
 
 export async function POST(request: Request) {
@@ -173,23 +205,45 @@ export async function POST(request: Request) {
     );
   }
 
-  // 6. Free-tier quota — server key only. Own keys are unlimited by design.
-  let reservationKey: string | undefined;
+  // 6. Plan entitlement — server key only. Own keys are unlimited by design.
+  // Paid plans (pack/daily/yearly) are enforced against the server-side
+  // entitlements ledger, keyed by device. Anything without a valid, unexpired
+  // paid entitlement falls back to the free per-IP quota (10/day).
+  const rawDeviceId = (request.headers.get("x-anvik-device") ?? "").trim().slice(0, 128);
+  const deviceId = rawDeviceId || "anonymous";
+  let reservation: Reservation | undefined;
+  let paidPlan: PlanId | null = null;
+
   if (!validClientKey) {
-    const ipHash = hashIp(ip);
-    const check = await quota.checkAndReserve(ipHash);
-    if (!check.ok) {
-      return Response.json(
-        {
-          error: "Free limit reached. Connect your own key to continue unlimited.",
-          detail: "Free limit reached. Connect your own key to continue unlimited.",
-          code: "free_limit_reached",
-          remaining: 0,
-        },
-        { status: 429 },
-      );
+    const outcome = rawDeviceId ? await entitlements.reserve(rawDeviceId) : ({ kind: "free" } as const);
+    if (outcome.kind === "reserved") {
+      reservation = { kind: "entitlement", deviceId: rawDeviceId };
+      paidPlan = outcome.plan;
+    } else {
+      // No usable entitlement — none, expired, or exhausted. Fall back to
+      // the free per-IP quota so a paid user never ends below Free's
+      // allowance: the paid plan is the top-up, Free is the floor.
+      const ipHash = hashIp(ip);
+      const check = await quota.checkAndReserve(ipHash);
+      if (!check.ok) {
+        const exhaustedPaid = outcome.kind === "blocked";
+        return Response.json(
+          {
+            error: exhaustedPaid
+              ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
+              : "Free limit reached. Connect your own key to continue unlimited.",
+            detail: exhaustedPaid
+              ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
+              : "Free limit reached. Connect your own key to continue unlimited.",
+            code: exhaustedPaid ? "plan_limit_reached" : "free_limit_reached",
+            ...(outcome.kind === "blocked" ? { plan: outcome.plan } : {}),
+            remaining: 0,
+          },
+          { status: 429 },
+        );
+      }
+      reservation = { kind: "free", key: check.reservationKey };
     }
-    reservationKey = check.reservationKey;
   }
 
   const selectedMode = (validModes.has(String(mode)) ? mode : "smart") as ModeId;
@@ -202,7 +256,9 @@ export async function POST(request: Request) {
     .filter(Boolean)
     .join(" ");
 
-  const tokenCap = selectedMode === "coder" ? CODE_MAX_TOKENS : CHAT_MAX_TOKENS;
+  // Paid plans get longer AI responses (both code and general answers); the
+  // free tier stays at the default cap.
+  const tokenCap = paidPlan ? PAID_MAX_TOKENS : selectedMode === "coder" ? CODE_MAX_TOKENS : CHAT_MAX_TOKENS;
   const requested = typeof temperature === "number" ? temperature : 0.65;
   const safeTemperature = Math.max(0, Math.min(MAX_TEMPERATURE, requested));
 
@@ -215,7 +271,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const deviceId = request.headers.get("x-anvik-device")?.trim().slice(0, 128) || "anonymous";
   const wantSSE = (request.headers.get("accept") ?? "").includes("text/event-stream");
 
   // Web Search: honour the requested mode, with the Auto classifier deciding
@@ -260,7 +315,7 @@ export async function POST(request: Request) {
         grounded.error.status === 401 ||
         grounded.error.status === 403;
       if (terminal) {
-        if (reservationKey) quota.cancel(reservationKey);
+        cancelReservation(reservation);
         return Response.json(
           { error: grounded.error.message, detail: grounded.error.message, code: grounded.error.code },
           { status: grounded.error.status },
@@ -290,7 +345,7 @@ export async function POST(request: Request) {
 
   try {
     if (!result.ok) {
-      if (reservationKey) quota.cancel(reservationKey);
+      cancelReservation(reservation);
       return Response.json(
         { error: result.error.message, detail: result.error.message, code: result.error.code },
         { status: result.error.status },
@@ -364,13 +419,7 @@ export async function POST(request: Request) {
           completed = true;
 
           // 8. Count quota only after a full, successful stream.
-          if (reservationKey) {
-            try {
-              await quota.confirm(reservationKey);
-            } catch {
-              // Keep the completed answer available even if persistence fails.
-            }
-          }
+          await confirmReservation(reservation);
 
           // Persist every exchange (user message + answer + model). Best-effort:
           // a Supabase outage must never break the answer, so failures are
@@ -391,7 +440,7 @@ export async function POST(request: Request) {
           }
           controller.close();
         } catch (error) {
-          if (reservationKey) quota.cancel(reservationKey);
+          cancelReservation(reservation);
           controller.error(error);
         } finally {
           upstreamReader.releaseLock();
@@ -399,7 +448,7 @@ export async function POST(request: Request) {
       },
       cancel(reason) {
         void upstreamReader.cancel(reason);
-        if (reservationKey) quota.cancel(reservationKey);
+        cancelReservation(reservation);
       },
     });
 
@@ -416,7 +465,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    if (reservationKey) quota.cancel(reservationKey);
+    cancelReservation(reservation);
     if (err instanceof Error && err.name === "AbortError") {
       return new Response(null, { status: 499 });
     }

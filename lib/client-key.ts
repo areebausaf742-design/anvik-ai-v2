@@ -1,15 +1,17 @@
 /**
- * Client-side Gemini key & daily quota storage.
+ * Client-side Gemini key & daily device identity storage.
  *
  * Key rules:
- *  - Must start with "AIza" and be at least 35 characters.
+ *  - Must start with "AIza" or "AQ" and be at least 35 characters.
  *  - Stored in localStorage under a single key ("anvik-gemini-api-key").
+ *
+ * Daily quota is NOT tracked client-side — the server is authoritative
+ * (lib/quota.ts for Free, lib/entitlements.ts for paid plans). This module
+ * never records, reports or reserves quota.
  */
 
 export const API_KEY_STORAGE = "anvik-gemini-api-key";
 export const DEVICE_STORAGE = "anvik-device-id";
-export const QUOTA_STORAGE = "anvik-daily-quota";
-export const DAILY_QUOTA_LIMIT = 100;
 
 export const KEY_FORMAT_MESSAGE = "That key doesn't look right. Check its format or replace it in Settings.";
 
@@ -69,56 +71,4 @@ export function readDeviceId(): string {
   } catch {
     return "anon";
   }
-}
-
-function todayKeyIst(): string {
-  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-  return ist.toISOString().slice(0, 10);
-}
-
-export type DailyQuota = {
-  date: string;
-  used: number;
-  limit: number;
-  remaining: number;
-  lastModel?: string;
-};
-
-export function readDailyQuota(): DailyQuota {
-  const today = todayKeyIst();
-  try {
-    const raw = localStorage.getItem(QUOTA_STORAGE);
-    if (!raw) return { date: today, used: 0, limit: DAILY_QUOTA_LIMIT, remaining: DAILY_QUOTA_LIMIT };
-    const parsed = JSON.parse(raw) as Partial<DailyQuota>;
-    if (parsed.date !== today || typeof parsed.used !== "number") {
-      return { date: today, used: 0, limit: DAILY_QUOTA_LIMIT, remaining: DAILY_QUOTA_LIMIT };
-    }
-    const used = Math.max(0, Math.min(DAILY_QUOTA_LIMIT, parsed.used));
-    return {
-      date: today,
-      used,
-      limit: DAILY_QUOTA_LIMIT,
-      remaining: Math.max(0, DAILY_QUOTA_LIMIT - used),
-      lastModel: typeof parsed.lastModel === "string" ? parsed.lastModel : undefined,
-    };
-  } catch {
-    return { date: today, used: 0, limit: DAILY_QUOTA_LIMIT, remaining: DAILY_QUOTA_LIMIT };
-  }
-}
-
-export function recordDailyUsage(model?: string): DailyQuota {
-  const current = readDailyQuota();
-  const next: DailyQuota = {
-    date: current.date,
-    used: Math.min(DAILY_QUOTA_LIMIT, current.used + 1),
-    limit: DAILY_QUOTA_LIMIT,
-    remaining: Math.max(0, DAILY_QUOTA_LIMIT - (current.used + 1)),
-    lastModel: model || current.lastModel,
-  };
-  try {
-    localStorage.setItem(QUOTA_STORAGE, JSON.stringify(next));
-  } catch {
-    /* ignore storage error */
-  }
-  return next;
 }

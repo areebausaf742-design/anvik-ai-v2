@@ -20,7 +20,7 @@ function memQuota(now = "2026-11-22T10:00:00Z") {
   return { hooks, stored };
 }
 
-test("free tier allows exactly 20 answers per IP per day, then stops", async () => {
+test("free tier allows exactly 10 answers per IP per day, then stops", async () => {
   const { hooks } = memQuota();
   const store = new QuotaStore(hooks);
   const ipHash = "hash-a";

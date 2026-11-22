@@ -28,7 +28,6 @@ import ErrorBoundary from "@/components/anvik/error-boundary";
 import {
   KEY_FORMAT_MESSAGE,
   readDeviceId,
-  recordDailyUsage,
 } from "@/lib/client-key";
 import {
   mapClientFetchError,
@@ -240,10 +239,11 @@ function ImageStudio() {
         provider?: string;
         model?: string;
         error?: string;
+        code?: string;
       } | null;
 
       if (!response.ok || typeof result?.image !== "string") {
-        throw new Error(mapHttpErrorMessage(response.status, result?.error));
+        throw new Error(mapHttpErrorMessage(response.status, result?.error, result?.code));
       }
 
       const compactImage = await compressImageForStorage(result.image);
@@ -257,7 +257,6 @@ function ImageStudio() {
         },
         ...gallery,
       ]);
-      recordDailyUsage(result.model ?? "gemini-2.0-flash");
     } catch (issue) {
       setError(mapClientFetchError(issue));
     } finally {
@@ -577,8 +576,8 @@ function CodeLab() {
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
-        const result = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null;
-        throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail));
+        const result = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
+        throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail, result?.code));
       }
       const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
       setModelUsed("ANVIK 1.0");
@@ -593,7 +592,6 @@ function CodeLab() {
         setCode(generated);
       }
       if (!generated.trim()) throw new Error("ANVIK returned no code. Please try again.");
-      recordDailyUsage(model);
     } catch (issue) {
       if (!controller.signal.aborted) {
         setError(mapClientFetchError(issue));
@@ -901,8 +899,8 @@ function VoiceStudio() {
         body: JSON.stringify({ transcript: text }),
       });
       if (!response.ok || !response.body) {
-        const result = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null;
-        throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail));
+        const result = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
+        throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail, result?.code));
       }
       const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
       setModelUsed("ANVIK 1.0");
@@ -916,7 +914,6 @@ function VoiceStudio() {
         spoken += decoder.decode(value, { stream: true });
         setAnswer(spoken);
       }
-      recordDailyUsage(model);
     } catch (issue) {
       setError(mapClientFetchError(issue));
     } finally {

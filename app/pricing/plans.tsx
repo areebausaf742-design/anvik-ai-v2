@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import Link from "next/link";
 import {
   BadgeCheck,
@@ -11,7 +11,7 @@ import {
   Globe,
   Infinity as InfinityIcon,
   Layers,
-  LockKeyhole,
+  MessagesSquare,
   MonitorSmartphone,
   Receipt,
   ShieldCheck,
@@ -21,18 +21,23 @@ import {
   Wallet,
   Zap,
   ArrowRight,
-  TriangleAlert,
+  Smartphone as PhoneIcon,
   type LucideIcon,
 } from "lucide-react";
+import { readDeviceId } from "@/lib/client-key";
+import {
+  whatsappEnquiryUrl,
+  type PlanId,
+} from "@/lib/plans";
 
 /* ---------------------------------------------------------------------------
-   Plan data — verbatim copy from the ANVIK AI product spec.
-   Paid plans are NOT live: nothing in this file charges, confirms or books
-   a payment. The CTAs explain the honest state when pressed.
+   Plan data — verbatim copy from the ANVIK AI pricing spec (2026-11-22).
+   Paid plans activate through WhatsApp enquiry — no online payment is
+   processed. The free CTA is a working link to the chat.
    --------------------------------------------------------------------------- */
 
 export type Plan = {
-  id: "free" | "pack" | "daily" | "yearly";
+  id: PlanId;
   kicker: string;
   name: string;
   tagline: string;
@@ -55,10 +60,10 @@ export const PLANS: Plan[] = [
     symbol: "₹",
     amount: "0",
     period: "/ forever",
-    priceSub: "No card required. No trial timer.",
+    priceSub: "10 questions every day · free forever",
     paid: false,
     features: [
-      { icon: Sparkles, text: "3 questions every day" },
+      { icon: Sparkles, text: "10 questions every day" },
       { icon: InfinityIcon, text: "Free forever, not a temporary trial" },
       { icon: Smartphone, text: "Conversation history on this device" },
       { icon: Globe, text: "Public answer pages" },
@@ -73,14 +78,14 @@ export const PLANS: Plan[] = [
     name: "Pack",
     tagline: "More intelligence, when you need it.",
     symbol: "₹",
-    amount: "19",
+    amount: "49",
     period: "/ one-time",
-    priceSub: "Valid 30 days · no recurring billing",
+    priceSub: "50 questions · valid 30 days",
     paid: true,
     features: [
-      { icon: Zap, text: "25 questions" },
+      { icon: Zap, text: "50 questions" },
       { icon: Wallet, text: "One-time purchase" },
-      { icon: CalendarCheck, text: "Valid for 30 days" },
+      { icon: CalendarCheck, text: "Valid 30 days" },
       { icon: BadgeCheck, text: "No recurring subscription" },
     ],
     ctaLabel: "Get Pack",
@@ -91,9 +96,9 @@ export const PLANS: Plan[] = [
     name: "Daily",
     tagline: "Your everyday intelligence companion.",
     symbol: "₹",
-    amount: "49",
+    amount: "149",
     period: "/ month",
-    priceSub: "Billed monthly · GST invoice",
+    priceSub: "50 questions every day · billed monthly",
     paid: true,
     features: [
       { icon: Gauge, text: "50 questions every day" },
@@ -109,9 +114,9 @@ export const PLANS: Plan[] = [
     name: "Yearly",
     tagline: "The complete ANVIK experience.",
     symbol: "₹",
-    amount: "399",
+    amount: "1,299",
     period: "/ year",
-    priceSub: "≈ ₹33/month · Save 32% vs monthly",
+    priceSub: "≈ ₹108/month · Save ~27% vs 12 monthly payments",
     paid: true,
     features: [
       { icon: Layers, text: "Everything included in Daily" },
@@ -120,8 +125,8 @@ export const PLANS: Plan[] = [
       { icon: FileText, text: "Longer responses" },
       { icon: Receipt, text: "GST invoice" },
       { icon: CalendarCheck, text: "Full-year access" },
-      { icon: BadgeCheck, text: "Approximately ₹33/month" },
-      { icon: TrendingDown, text: "Save 32% vs 12 monthly payments" },
+      { icon: BadgeCheck, text: "Approximately ₹108/month" },
+      { icon: TrendingDown, text: "Save ~27% vs 12 monthly payments" },
     ],
     ctaLabel: "Get Yearly",
   },
@@ -129,9 +134,33 @@ export const PLANS: Plan[] = [
 
 const FEATURED_ID = "yearly";
 
-export function PricingPlans() {
-  const [honestNote, setHonestNote] = useState<string | null>(null);
+/**
+ * Horizontal WhatsApp CTA. The href is the static enquiry URL (SSR-safe);
+ * the click handler attaches this device's id so the operator can activate
+ * the right plan without a second round-trip.
+ */
+function WhatsAppCta({ plan, ctaLabel, featured }: { plan: Plan; ctaLabel: string; featured: boolean }) {
+  const [href, setHref] = React.useState(() => whatsappEnquiryUrl(plan.id));
+  return (
+    <a
+      className={`ppCta ${featured ? "ppCta--featured" : "ppCta--ghost"}`}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${ctaLabel} — ${plan.name} plan, opens WhatsApp`}
+      onClick={(event) => {
+        const withDevice = whatsappEnquiryUrl(plan.id, readDeviceId());
+        setHref(withDevice);
+        event.currentTarget.href = withDevice;
+      }}
+    >
+      {ctaLabel}
+      <PhoneIcon aria-hidden="true" size={17} />
+    </a>
+  );
+}
 
+export function PricingPlans() {
   return (
     <div>
       <div className="ppGridPlans" role="list" aria-label="Pricing plans">
@@ -155,14 +184,17 @@ export function PricingPlans() {
                 <span className="ppKicker">{plan.kicker}</span>
                 {plan.paid && (
                   <span className="ppInCardNote">
-                    <LockKeyhole aria-hidden="true" size={13} />
-                    Coming soon
+                    <MessagesSquare aria-hidden="true" size={13} />
+                    Activates via WhatsApp
                   </span>
                 )}
               </div>
               <h3 className="ppPlanName">{plan.name}</h3>
               <p className="ppTagline">{plan.tagline}</p>
-              <div className="ppPrice" aria-label={`Price: ${plan.symbol}${plan.amount} per ${plan.id === "free" ? "forever" : plan.id === "pack" ? "one-time" : plan.id === "daily" ? "month" : "year"}`}>
+              <div
+                className="ppPrice"
+                aria-label={`Price: ${plan.symbol}${plan.amount} per ${plan.id === "free" ? "forever" : plan.id === "pack" ? "one-time" : plan.id === "daily" ? "month" : "year"}`}
+              >
                 <span className="ppPriceSymbol">{plan.symbol}</span>
                 <span className="ppPriceAmount">{plan.amount}</span>
                 <span className="ppPricePeriod">{plan.period}</span>
@@ -183,45 +215,27 @@ export function PricingPlans() {
                 })}
               </ul>
               {plan.href ? (
-                <Link href={plan.href} className="ppCta ppCta--solid" aria-label={`${plan.ctaLabel} — ${plan.name} plan`}>
+                <Link
+                  href={plan.href}
+                  className="ppCta ppCta--solid"
+                  aria-label={`${plan.ctaLabel} — ${plan.name} plan`}
+                >
                   {plan.ctaLabel}
                   <ArrowRight aria-hidden="true" size={17} />
                 </Link>
               ) : (
-                <button
-                  type="button"
-                  className={`ppCta ${featured ? "ppCta--featured" : "ppCta--ghost"}`}
-                  onClick={() => setHonestNote(plan.name)}
-                  aria-label={`${plan.ctaLabel} — ${plan.name} plan, not live yet`}
-                >
-                  {plan.ctaLabel}
-                </button>
+                <WhatsAppCta plan={plan} ctaLabel={plan.ctaLabel} featured={featured} />
               )}
             </article>
           );
         })}
       </div>
 
-      <div role="status" aria-live="polite">
-        {honestNote && (
-          <div className="ppHonest">
-            <TriangleAlert aria-hidden="true" size={22} />
-            <p>
-              <strong>{honestNote} is not live yet.</strong> Nothing will be charged — paid packs open
-              soon. Your interest is noted for when they do; the free tier is the whole product today.
-            </p>
-            <button type="button" className="ppHonestDismiss" onClick={() => setHonestNote(null)}>
-              Dismiss
-            </button>
-          </div>
-        )}
-      </div>
-
       <p className="ppFootNote">
         <CircleCheck aria-hidden="true" size={14} style={{ verticalAlign: "-2px", marginRight: 8 }} />
         <span>
-          <strong>Prices are in rupees, inclusive of GST.</strong> No hidden charges — the price you see
-          is the price you pay.
+          <strong>Prices are in rupees, inclusive of GST.</strong> No online payment is processed —
+          paid plans activate after a WhatsApp enquiry from you to ANVIK.
         </span>
       </p>
     </div>

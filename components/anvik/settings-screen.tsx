@@ -27,10 +27,9 @@ import {
   clearApiKey,
   isValidGeminiKey,
   maskKey,
-  readDailyQuota,
+  readDeviceId,
   readRawApiKey,
   saveApiKey,
-  type DailyQuota,
 } from "@/lib/client-key";
 import { testGeminiKeyRequest } from "@/lib/client-api";
 import {
@@ -47,6 +46,20 @@ import {
   type Style,
 } from "@/lib/learning";
 
+type QuotaStatus = {
+  hasServerKey: boolean;
+  status: string;
+  remaining: number;
+  limit: number;
+  plan: {
+    id: string;
+    name: string;
+    expiresAt: string | null;
+    packTotal: number | null;
+    packUsed: number | null;
+  } | null;
+};
+
 function SettingsScreenInner() {
   const mode = useChatStore((state) => state.mode);
   const setMode = useChatStore((state) => state.setMode);
@@ -61,7 +74,8 @@ function SettingsScreenInner() {
   const [keyError, setKeyError] = useState("");
   const [testingKey, setTestingKey] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
-  const [quota, setQuota] = useState<DailyQuota | null>(null);
+  const [quota, setQuota] = useState<QuotaStatus | null>(null);
+  const [quotaError, setQuotaError] = useState("");
 
   const [memory, setMemory] = useState<Memory>(DEFAULT_MEMORY);
   const [learning, setLearning] = useState<Learning>(EMPTY_LEARNING);
@@ -71,10 +85,46 @@ function SettingsScreenInner() {
   const [confirmClearLearning, setConfirmClearLearning] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    let errorTimer: number | undefined;
     setSavedKey(readRawApiKey());
     setMemory(readMemory());
     setLearning(readLearning());
-    setQuota(readDailyQuota());
+    // Plan-aware quota — computed server-side from Supabase (entitlements
+    // ledger / free quota), keyed by this device. Never read from the browser.
+    (async () => {
+      try {
+        const response = await fetch("/api/quota", {
+          cache: "no-store",
+          headers: { "x-anvik-device": readDeviceId() },
+        });
+        if (!response.ok) throw new Error("quota fetch failed");
+        const body = (await response.json()) as QuotaStatus;
+        if (cancelled) return;
+        setQuota({
+          hasServerKey: Boolean(body.hasServerKey),
+          status: typeof body.status === "string" ? body.status : "ok",
+          remaining: typeof body.remaining === "number" ? body.remaining : 0,
+          limit: typeof body.limit === "number" && body.limit > 0 ? body.limit : 10,
+          plan: body.plan ?? null,
+        });
+      } catch {
+        if (cancelled) return;
+        setQuota({
+          hasServerKey: false,
+          status: "ok",
+          remaining: 10,
+          limit: 10,
+          plan: { id: "free", name: "Free", expiresAt: null, packTotal: null, packUsed: null },
+        });
+        setQuotaError("Could not reach the quota service — showing the free-tier limit.");
+        errorTimer = window.setTimeout(() => setQuotaError(""), 6000);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(errorTimer);
+    };
   }, []);
 
   const stats = learningStats(learning);
@@ -148,7 +198,8 @@ function SettingsScreenInner() {
     window.setTimeout(() => setHistoryCleared(false), 3000);
   }
 
-  const quotaPercent = quota ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
+  const quotaUsed = quota ? Math.max(0, quota.limit - quota.remaining) : 0;
+  const quotaPercent = quota ? Math.min(100, Math.round((quotaUsed / quota.limit) * 100)) : 0;
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-10 sm:px-6">
@@ -331,24 +382,70 @@ function SettingsScreenInner() {
             <Gauge className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Quota Status</h2>
-            <p className="text-xs text-[#666666]">Daily request tracker (resets midnight IST).</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-[#1A1A1A]">Quota Status</h2>
+              {quota?.plan?.id !== "free" && quota?.plan?.id && (
+                <span className="rounded-full border border-[#EDEDED] bg-[#F7F7F5] px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-[#666666]">
+                  {quota.plan.name} plan
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-[#666666]">
+              {quota?.plan?.id === "pack"
+                ? `Pack: 50 questions total, valid ${"30"} days from activation.`
+                : "Questions per day (resets midnight IST)."}
+            </p>
           </div>
         </div>
-        <div className="mt-4 space-y-2">
-          <div className="flex items-baseline justify-between text-xs">
-            <span className="text-[#666666]">
-              <b className="text-base font-bold text-[#1A1A1A]">{quota?.used ?? 0}</b> / {quota?.limit ?? 100} used today
-            </span>
-            <span className="font-mono text-[#1A1A1A]">{quota?.remaining ?? 100} left</span>
+        {quota && (
+          <div className="mt-4 space-y-2">
+            {(quota.plan?.id === "pack") ? (
+              <>
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className="text-[#666666]">
+                    <b className="text-base font-bold text-[#1A1A1A]">{quota.limit - quota.remaining}</b> / {quota.limit} questions used
+                  </span>
+                  <span className="font-mono text-[#1A1A1A]">{quota.remaining} left</span>
+                </div>
+                {quota.plan?.expiresAt && (
+                  <p className="text-[0.7rem] text-[#999999]">
+                    Pack expires {new Date(quota.plan.expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })} (IST).
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className="text-[#666666]">
+                    <b className="text-base font-bold text-[#1A1A1A]">{quotaUsed}</b> / {quota.limit} used today
+                  </span>
+                  <span className="font-mono text-[#1A1A1A]">{quota.remaining} left</span>
+                </div>
+                {quota.plan?.id !== "free" && quota.plan?.expiresAt && (
+                  <p className="text-[0.7rem] text-[#999999]">
+                    {quota.plan?.name} plan active until{" "}
+                    {new Date(quota.plan.expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })} (IST).
+                  </p>
+                )}
+              </>
+            )}
+            <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0F0EE]">
+              <div
+                className="h-full rounded-full bg-[#1A1A1A] transition-all"
+                style={{ width: `${quotaPercent}%` }}
+              />
+            </div>
+            {quotaError && (
+              <p role="status" className="text-[0.7rem] text-[#666666]">{quotaError}</p>
+            )}
+            {quota.status === "limit_reached" && (
+              <p className="text-[0.7rem] text-[#666666]">Daily limit reached — it resets at midnight IST.</p>
+            )}
+            <Link href="/pricing" className="text-[0.7rem] font-semibold text-[#D97757] hover:underline">
+              Upgrade at /pricing
+            </Link>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0F0EE]">
-            <div
-              className="h-full rounded-full bg-[#1A1A1A] transition-all"
-              style={{ width: `${quotaPercent}%` }}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Mode & Temperature */}
