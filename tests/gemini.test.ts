@@ -29,12 +29,33 @@ function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
   });
 }
 
-test("isValidGeminiKeyFormat validates AIza prefix and >=35 length", () => {
+test("isValidGeminiKeyFormat accepts legacy AIza and newer AQ key prefixes", () => {
   assert.equal(isValidGeminiKeyFormat(VALID_TEST_KEY), true);
   assert.equal(isValidGeminiKeyFormat(`  ${VALID_TEST_KEY}  `), true);
+  assert.equal(isValidGeminiKeyFormat("AQ.test-key"), true);
   assert.equal(isValidGeminiKeyFormat(""), false);
-  assert.equal(isValidGeminiKeyFormat("AIzaTooShort"), false);
   assert.equal(isValidGeminiKeyFormat("sk-123456789012345678901234567890123456"), false);
+});
+
+test("AQ-prefixed Gemini keys are sent to Google without local format rejection", async () => {
+  let called = false;
+  const result = await openGeminiStreamWithFallback({
+    apiKey: "AQ.test-key",
+    systemInstruction: "Answer directly.",
+    contents: [{ role: "user", parts: [{ text: "what is gpu?" }] }],
+    fetchImpl: async (_input, init) => {
+      called = true;
+      assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "AQ.test-key");
+      return new Response(sseStream(["A GPU is a graphics processing unit."]), { status: 200 });
+    },
+  });
+
+  assert.equal(called, true);
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.model, "gemini-2.5-flash");
+    assert.equal(await new Response(result.stream).text(), "A GPU is a graphics processing unit.");
+  }
 });
 
 test("server key validation flags only Google's explicit invalid-key response", async () => {
