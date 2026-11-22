@@ -241,6 +241,31 @@ export async function recordConsent(
   };
   const insert = await sbInsertDetailed("consent_records", [row]);
   if (!insert.ok) {
+    // A concurrent identical submission can both pass the dedupe check above;
+    // the partial unique index on active rows then fails the loser with a
+    // unique violation. The honest resolution: re-read the active row and, if
+    // an identical winner exists, report a successful dedupe — a retried
+    // double-submit must not surface a fake failure.
+    if (insert.error.category === "unique_violation") {
+      const { active: winner, failed: latestFailed } = await readActiveRow(userId, "record_unique_retry");
+      if (
+        !latestFailed &&
+        winner &&
+        winner.agreement_version === TERMS_VERSION &&
+        winner.privacy_version === PRIVACY_VERSION &&
+        winner.ai_improvement_consent === opts.aiImprovementConsent
+      ) {
+        consentLog("record", { outcome: "deduplicated", ai_improvement: opts.aiImprovementConsent ? "true" : "false" });
+        await mirrorProfile(userId, {
+          terms_accepted_at: winner.terms_accepted_at,
+          privacy_accepted_at: winner.privacy_accepted_at,
+          ai_improvement_consent: opts.aiImprovementConsent,
+          ai_improvement_consent_at: winner.ai_improvement_consent_at,
+          consent_withdrawal_at: null,
+        }, "record");
+        return { ok: true, deduplicated: true };
+      }
+    }
     consentLog("record", { outcome: "insert_failed", category: writeCategory(insert.error) });
     return { ok: false, code: "consent_insert_failed", detail: writeCategory(insert.error) };
   }

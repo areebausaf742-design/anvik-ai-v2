@@ -57,6 +57,23 @@ function providerFromMetadata(metadata: Record<string, unknown> | undefined): "g
   return "email";
 }
 
+/**
+ * The auth provider lives in app_metadata (the canonical, immutable place) —
+ * user_metadata carries the provider-specific claims (name, picture, email)
+ * but NOT the provider itself. Key off app_metadata, then fall back to
+ * user_metadata for legacy shapes.
+ */
+function providerOf(obj: Record<string, unknown>): "google" | "email" | "unknown" {
+  const app = (obj.app_metadata ?? {}) as Record<string, unknown>;
+  const appProvider = typeof app.provider === "string" ? app.provider : "";
+  if (/google/i.test(appProvider)) return "google";
+  if (typeof appProvider === "string" && appProvider.trim()) return "email";
+  const providers = Array.isArray(app.providers) ? (app.providers as unknown[]) : [];
+  if (providers.some((p) => typeof p === "string" && /google/i.test(p))) return "google";
+  const user = (obj.user_metadata ?? {}) as Record<string, unknown>;
+  return providerFromMetadata(user);
+}
+
 function safeAvatar(metadata: Record<string, unknown> | undefined): string | null {
   if (!metadata) return null;
   const raw = metadata.picture ?? metadata.avatar_url;
@@ -87,14 +104,15 @@ export async function getVerifiedUser(request: Request): Promise<VerifiedUser | 
     const id = typeof obj.id === "string" ? obj.id : "";
     if (!id) return null;
     const email = typeof obj.email === "string" ? obj.email.trim().toLowerCase() : "";
-    const metadata = (obj.user_metadata ?? obj.app_metadata) as Record<string, unknown> | undefined;
-    const name = displayNameFromMetadata(metadata);
+    const userMetadata = (obj.user_metadata ?? {}) as Record<string, unknown>;
+    const appMetadata = (obj.app_metadata ?? {}) as Record<string, unknown>;
+    const name = displayNameFromMetadata(userMetadata) || displayNameFromMetadata(appMetadata);
     return {
       id,
       email: email.slice(0, 256),
       name,
-      provider: providerFromMetadata(metadata),
-      avatarUrl: safeAvatar(metadata),
+      provider: providerOf(obj),
+      avatarUrl: safeAvatar(userMetadata) || safeAvatar(appMetadata),
     };
   } catch {
     return null;

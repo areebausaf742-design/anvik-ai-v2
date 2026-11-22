@@ -46,6 +46,9 @@ export default function OnboardingFlow() {
   const [redirecting, setRedirecting] = useState(false);
   const nameTouched = useRef(false);
   const redirected = useRef(false);
+  // Ref guard so a fast double-click cannot submit consent twice before the
+  // busy state re-disables the button.
+  const submitting = useRef(false);
 
   // Signed out → login. Returning users (consent complete) → chat.
   useEffect(() => {
@@ -83,11 +86,13 @@ export default function OnboardingFlow() {
 
   const submit = useCallback(
     async (aiImprovementConsent: boolean) => {
+      if (submitting.current) return;
       const token = bearerToken();
       if (!token) {
         setError("You must be signed in to continue.");
         return;
       }
+      submitting.current = true;
       setBusy(true);
       setError("");
       try {
@@ -115,6 +120,7 @@ export default function OnboardingFlow() {
         if (!consentRes.ok) {
           setError(consentBody?.error ?? "Could not save your consent. Please try again.");
           setBusy(false);
+          submitting.current = false;
           return;
         }
 
@@ -125,6 +131,7 @@ export default function OnboardingFlow() {
       } catch {
         setError("Could not save your consent. Please try again.");
         setBusy(false);
+        submitting.current = false;
       }
     },
     [bearerToken, name, setDisplayName, refresh, router],

@@ -44,7 +44,9 @@ const nextConfig = {
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
       { key: "X-Frame-Options", value: "SAMEORIGIN" },
-      { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+      // The vision studio reads the user's camera for frame capture; it is the
+      // only camera-using feature, so scope the permission to this same origin.
+      { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=()" },
       {
         // The app renders model output as React nodes, never as HTML, so
         // script-src needs no unsafe-inline for markdown. These origins are
@@ -54,7 +56,8 @@ const nextConfig = {
           "default-src 'self'",
           "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
           "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' data: blob: https://image.pollinations.ai",
+          // Google avatar images render in the account + chat headers.
+          "img-src 'self' data: blob: https://image.pollinations.ai https://lh3.googleusercontent.com",
           "font-src 'self' data:",
           `connect-src ${connectSrc()}`,
           "frame-src 'self' data: blob:",
