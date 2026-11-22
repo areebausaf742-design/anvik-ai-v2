@@ -171,19 +171,18 @@ export async function startGoogleOAuth(redirectTo: string): Promise<OAuthStartRe
     const verifier = base64UrlEncode(verifierBytes.buffer as ArrayBuffer);
     const challenge = await sha256Base64Url(verifier);
     const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(24)).buffer as ArrayBuffer);
-    const extra: Record<string, unknown> = { code_verifier: verifier };
     if (typeof window !== "undefined") {
       sessionStorage.setItem(OAUTH_STATE_KEY, JSON.stringify({ code_verifier: verifier, state }));
-      extra.state = state;
     }
     const url = new URL(authUrl("/authorize"));
     url.searchParams.set("provider", "google");
     url.searchParams.set("redirect_to", redirectTo);
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "s256");
-    // Surface the state so the callback can verify it was ours. State is only
-    // protected by PKCE itself; it is passed along for future CSRF checks.
-    if (typeof window !== "undefined") url.searchParams.set("state", state);
+    // State is echoed back by the provider and must be verified on return —
+    // together with the PKCE verifier this is the CSRF/login-confused-deputy
+    // protection.
+    url.searchParams.set("state", state);
     return { ok: true, authorizeUrl: url.toString() };
   } catch {
     return { ok: false, error: "Could not start Google sign-in." };
@@ -212,10 +211,14 @@ export function clearOAuthState(): void {
 /* PKCE callback exchange                                               */
 /* ------------------------------------------------------------------ */
 
-export async function completeGoogleOAuth(code: string): Promise<AuthResult> {
+export async function completeGoogleOAuth(code: string, returnedState?: string | null): Promise<AuthResult> {
   if (!authEnabled()) return { ok: false, error: "Supabase is not configured." };
   const stored = readOAuthState();
   if (!stored || !code) return { ok: false, error: "Google sign-in was not started from this browser." };
+  // CSRF check: the provider echoes the state we generated — refuse anything else.
+  if (!stored.state || !returnedState || stored.state !== returnedState) {
+    return { ok: false, error: "Google sign-in could not be verified. Please try again.", code: "state_mismatch" };
+  }
   try {
     const response = await fetch(authUrl("/token?grant_type=pkce"), {
       method: "POST",

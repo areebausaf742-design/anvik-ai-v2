@@ -69,7 +69,9 @@ export async function POST(request: Request) {
   // Either a device (legacy pricing flow) or a verified user id (per-user
   // system). Exactly one is required — the grant is scoped to that identity.
   const hasDevice = typeof deviceId === "string" && deviceId.trim().length >= 4 && deviceId.trim().length <= 128;
-  const hasUser = typeof userId === "string" && /^[0-9a-f]{36}$/i.test(userId.trim());
+  // RFC 4122 UUID: 8-4-4-4-12 hex groups (v1-v5). The previous pattern
+  // (36 contiguous hex chars) never matched any real UUID.
+  const hasUser = typeof userId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId.trim());
   if (!hasDevice && !hasUser) {
     return json({ error: "deviceId or a userId is required.", code: "bad_device" }, 400);
   }
