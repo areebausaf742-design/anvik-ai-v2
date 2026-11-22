@@ -3,6 +3,8 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./pricing/pricing.css";
+import "./auth/auth.css";
+import { SessionProvider } from "@/components/anvik/session-provider";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://anvik.ai";
 
@@ -46,7 +48,9 @@ export default function RootLayout({
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
-        <div id="main-content">{children}</div>
+        <SessionProvider>
+          <div id="main-content">{children}</div>
+        </SessionProvider>
       </body>
     </html>
   );
