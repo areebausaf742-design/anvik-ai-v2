@@ -238,7 +238,7 @@ test("server-key chat keeps verified auth when the service-role credit backend i
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = VALID_AIza_KEY;
   mockGeminiFetch("server key flow works");
-  const ip = "203.0.113.147";
+  const ip = "198.51.100.247";
   const response = await POST(
     makeRequest({ messages: [{ role: "user", content: "hello" }] }, { "x-vercel-forwarded-for": ip }),
   );
