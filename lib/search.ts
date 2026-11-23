@@ -68,7 +68,7 @@ export function shouldAutoSearch(query: string): boolean {
     /\b(?:search|research|find out|find|look up|look it up|get the latest|get the news|get the current|pull up|fetch|look at the web|search the web)\b/i,
   ];
 
-  const researchIntent = /\b(?:official documentation|documentation|docs|citations?|cite|references?|verify|fact[ -]?check|cross[ -]?check|deep dive|compare|comparison|academic|papers?|stud(?:y|ies)|reports?|whitepapers?)\b/i;
+  const researchIntent = /\b(?:official documentation|documentation|docs|citations?|cite|references?|verify|fact[ -]?check|cross[ -]?check|deep dive|compare|comparison|academic(?:\s+papers?)?|research\s+papers?|papers?\s+(?:about|on|for)|reports?|whitepapers?)\b/i;
   const sourceIntent = /\b(?:provide|include|show|give me)\s+(?:reliable\s+)?sources?\b/i;
   return patterns.some((pattern) => pattern.test(text)) || researchIntent.test(text) || sourceIntent.test(text);
 }
