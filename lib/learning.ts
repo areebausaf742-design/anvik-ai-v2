@@ -22,9 +22,24 @@
  */
 
 import { detectLanguage, type Lang } from "./detect";
+import { accountStorageKey } from "./account-storage";
 
 export const MEMORY_KEY = "anvik-memory";
 export const LEARNING_KEY = "anvik-learning";
+
+// Keep memory and learning data under the currently verified account namespace.
+// Legacy unscoped values are deliberately not migrated because their owner
+// cannot be established safely.
+let learningOwner = "guest";
+export function setLearningOwner(ownerId: string | null | undefined): void {
+  const safe = typeof ownerId === "string"
+    ? ownerId.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 96)
+    : "";
+  learningOwner = safe || "guest";
+}
+function scopedStorageKey(base: string): string {
+  return accountStorageKey(base, learningOwner);
+}
 
 /* ------------------------------------------------------------------ */
 /* types                                                               */
@@ -180,7 +195,7 @@ function writeJson(key: string, value: unknown): boolean {
 }
 
 export function readMemory(): Memory {
-  const raw = readJson<Partial<Memory>>(MEMORY_KEY, {});
+  const raw = readJson<Partial<Memory>>(scopedStorageKey(MEMORY_KEY), {});
   return {
     name: typeof raw.name === "string" ? raw.name.slice(0, 40) : "",
     lang: raw.lang === "hi" || raw.lang === "hi-Latn" || raw.lang === "en" ? raw.lang : "en",
@@ -191,21 +206,21 @@ export function readMemory(): Memory {
 
 export function writeMemory(next: Partial<Memory>): Memory {
   const merged: Memory = { ...readMemory(), ...next, updatedAt: Date.now() };
-  writeJson(MEMORY_KEY, merged);
+  writeJson(scopedStorageKey(MEMORY_KEY), merged);
   return merged;
 }
 
 export function clearMemory(): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(MEMORY_KEY);
+    window.localStorage.removeItem(scopedStorageKey(MEMORY_KEY));
   } catch {
     /* ignore */
   }
 }
 
 export function readLearning(): Learning {
-  const raw = readJson<Partial<Learning>>(LEARNING_KEY, {});
+  const raw = readJson<Partial<Learning>>(scopedStorageKey(LEARNING_KEY), {});
   return {
     feedback: Array.isArray(raw.feedback) ? raw.feedback.filter(isFeedback) : [],
     corrections: Array.isArray(raw.corrections) ? raw.corrections.filter(isCorrection) : [],
@@ -230,17 +245,14 @@ function writeLearning(next: Learning): Learning {
     corrections: next.corrections.slice(-100),
     updatedAt: Date.now(),
   };
-  writeJson(LEARNING_KEY, capped);
+  writeJson(scopedStorageKey(LEARNING_KEY), capped);
   return capped;
 }
 
 export function clearLearning(): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(LEARNING_KEY);
-    // Older builds kept an answer cache here; remove it so nothing stale can
-    // ever be mistaken for an answer again.
-    window.localStorage.removeItem("anvik-cache");
+    window.localStorage.removeItem(scopedStorageKey(LEARNING_KEY));
   } catch {
     /* ignore */
   }
