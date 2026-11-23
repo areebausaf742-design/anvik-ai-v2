@@ -15,7 +15,7 @@ import {
   Eye,
   FileText,
   Focus,
-  Image as ImageIcon,
+ Image as ImageIcon,
   KeyRound,
   Menu,
   MessageSquarePlus,
