@@ -45,6 +45,7 @@ import {
   shouldAutoSearch,
   type SearchStatus,
 } from "@/lib/search";
+import { buildExternalSearchContext, searchExternalWeb, type ExternalSearchResult } from "@/lib/search-providers";
 import { sanitizeTurns, buildGeminiContents } from "@/lib/history";
 import { hashIp, safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
 import { QuotaStore, supabaseQuotaHooks } from "@/lib/quota";
@@ -361,74 +362,62 @@ export async function POST(request: Request) {
 
   const wantSSE = (request.headers.get("accept") ?? "").includes("text/event-stream");
 
-  // Web Search: honour the requested mode, with the Auto classifier deciding
-  // for "auto". The decision is based on the last user turn only — the answer
-  // always comes live from Gemini; grounding only lets the model consult the
-  // web first.
+  // Exa and Tavily are optional server-side providers. Their content is
+  // untrusted evidence only; Google Search grounding remains the fallback.
   const searchMode = normalizeSearchMode(rawSearch);
   const lastUser = [...redactedMessages].reverse().find((turn) => turn.role === "user");
-  const searchNeeded =
-    searchMode === "on" ||
-    (searchMode === "auto" && shouldAutoSearch(lastUser?.content ?? ""));
-  const searchMetaCapture: SearchMetaCapture | undefined = searchNeeded
-    ? { queries: [], sources: [], sawGrounding: false }
-    : undefined;
-
-  // Web Search: attempt the grounded stream first. When search is needed
-  // and every model fails grounded, fall back to the ungrounded stream so the
-  // user still gets a live, honest answer — the done frame and the
-  // X-ANVIK-SEARCH-STATUS header tell what actually happened.
-  let searchStatus: SearchStatus = "off";
-  let result;
-
+  const searchQuery = lastUser?.content ?? "";
+  const searchNeeded = searchMode === "on" || (searchMode === "auto" && shouldAutoSearch(searchQuery));
+  let externalSearchResult: ExternalSearchResult | null = null;
   if (searchNeeded) {
-    const grounded = await openGeminiStreamWithFallback({
-      apiKey: key,
-      systemInstruction,
-      contents,
-      temperature: safeTemperature,
-      maxOutputTokens: tokenCap,
-      signal: request.signal,
-      googleSearch: true,
-      searchMetaCapture,
-    });
-    if (grounded.ok) {
-      result = grounded;
-      searchStatus = "on";
-    } else {
-      const terminal =
-        grounded.error.code === "invalid_key" ||
-        grounded.error.code === "bad_format" ||
-        grounded.error.status === 400 ||
-        grounded.error.status === 401 ||
-        grounded.error.status === 403;
-      if (terminal) {
-        cancelReservation(reservation);
-        return Response.json(
-          { error: grounded.error.message, detail: grounded.error.message, code: grounded.error.code },
-          { status: grounded.error.status },
-        );
+    try { externalSearchResult = await searchExternalWeb(searchQuery, request.signal); }
+    catch { externalSearchResult = {query:searchQuery,sources:[],configuredProviders:[],usedProviders:[]}; }
+  }
+  const hasExternalSources = (externalSearchResult?.sources.length ?? 0) > 0;
+  let searchMetaCapture: SearchMetaCapture | undefined;
+  let searchStatus: SearchStatus = "off";
+  let externalSearchUsed = false;
+  let result;
+  const isTerminalProviderError = (candidate: {error:{code:string;status:number}}) =>
+    candidate.error.code === "invalid_key" || candidate.error.code === "bad_format" ||
+    candidate.error.status === 400 || candidate.error.status === 401 || candidate.error.status === 403;
+  const returnTerminalError = (candidate: {error:{message:string;code:string;status:number}}) => {
+    cancelReservation(reservation);
+    return Response.json({error:candidate.error.message,detail:candidate.error.message,code:candidate.error.code},{status:candidate.error.status});
+  };
+  if (searchNeeded && hasExternalSources && externalSearchResult) {
+    const evidenceInstruction = [systemInstruction,buildExternalSearchContext(externalSearchResult.sources)].join("\n\n");
+    result = await openGeminiStreamWithFallback({apiKey:key,systemInstruction:evidenceInstruction,contents,
+      temperature:safeTemperature,maxOutputTokens:tokenCap,signal:request.signal});
+    if (result.ok) { searchStatus="on"; externalSearchUsed=true; }
+    else {
+      if (isTerminalProviderError(result)) return returnTerminalError(result);
+      searchMetaCapture={queries:[],sources:[],sawGrounding:false};
+      const grounded=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
+        maxOutputTokens:tokenCap,signal:request.signal,googleSearch:true,searchMetaCapture});
+      if (grounded.ok) { result=grounded; searchStatus="on"; }
+      else {
+        if (isTerminalProviderError(grounded)) return returnTerminalError(grounded);
+        result=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
+          maxOutputTokens:tokenCap,signal:request.signal});
+        searchStatus="unavailable";
       }
-      result = await openGeminiStreamWithFallback({
-        apiKey: key,
-        systemInstruction,
-        contents,
-        temperature: safeTemperature,
-        maxOutputTokens: tokenCap,
-        signal: request.signal,
-      });
-      searchStatus = "unavailable";
+    }
+  } else if (searchNeeded) {
+    searchMetaCapture={queries:[],sources:[],sawGrounding:false};
+    const grounded=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
+      maxOutputTokens:tokenCap,signal:request.signal,googleSearch:true,searchMetaCapture});
+    if (grounded.ok) { result=grounded; searchStatus="on"; }
+    else {
+      if (isTerminalProviderError(grounded)) return returnTerminalError(grounded);
+      result=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
+        maxOutputTokens:tokenCap,signal:request.signal});
+      searchStatus="unavailable";
     }
   } else {
-    result = await openGeminiStreamWithFallback({
-      apiKey: key,
-      systemInstruction,
-      contents,
-      temperature: safeTemperature,
-      maxOutputTokens: tokenCap,
-      signal: request.signal,
-    });
-    searchStatus = "off";
+    result=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
+      maxOutputTokens:tokenCap,signal:request.signal});
+    searchStatus="off";
   }
 
   try {
@@ -496,14 +485,14 @@ export async function POST(request: Request) {
             // groundingMetadata at all means the model did not use the web —
             // report it as unavailable rather than pretend the answer was
             // verified through search.
-            const groundedMetaSeen = searchMetaCapture ? searchMetaCapture.sawGrounding : false;
-            const finalSearchStatus = !searchMetaCapture
-              ? "off"
-              : !groundedMetaSeen
-                ? "unavailable"
-                : searchStatus;
-            const sources = searchMetaCapture && groundedMetaSeen ? normalizeSources(searchMetaCapture.sources) : [];
-            const queries = searchMetaCapture && groundedMetaSeen ? normalizeQueries(searchMetaCapture.queries) : [];
+            const groundedMetaSeen = searchMetaCapture?.sawGrounding ?? false;
+            const externalSearchSucceeded = externalSearchUsed && !!externalSearchResult;
+            const finalSearchStatus: SearchStatus = !searchNeeded ? "off"
+              : externalSearchSucceeded || (searchStatus === "on" && groundedMetaSeen) ? "on" : "unavailable";
+            const sources = externalSearchSucceeded ? (externalSearchResult?.sources ?? [])
+              : searchMetaCapture && groundedMetaSeen ? normalizeSources(searchMetaCapture.sources) : [];
+            const queries = externalSearchSucceeded ? normalizeQueries([externalSearchResult?.query ?? searchQuery])
+              : searchMetaCapture && groundedMetaSeen ? normalizeQueries(searchMetaCapture.queries) : [];
             controller.enqueue(
               encoder.encode(
                 sseFrame({ t: "done", model, search: finalSearchStatus, sources, queries }),
