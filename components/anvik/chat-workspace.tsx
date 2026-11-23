@@ -182,7 +182,7 @@ function ChatWorkspaceInner() {
       useChatStore.setState({ conversations: [], activeId: null });
       if (identitySwitchRef.current === switchId) setIdentityReady(true);
     }
-  }, [sessionLoading, session?.access_token, profile?.id]);
+  }, [sessionLoading, session, profile]);
 
   useEffect(() => {
     if (!hydrated || !identityReady) return;

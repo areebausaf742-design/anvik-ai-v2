@@ -19,13 +19,13 @@ test("sanitizeDisplayName strips tags, control chars and trims", () => {
 });
 
 test("emailFallbackName derives a safe first-name from the local part", () => {
-  assert.equal(emailFallbackName("rahul.kumar@example.com"), "rahul");
-  assert.equal(emailFallbackName("priya_charan@example.com"), "priya");
-  assert.equal(emailFallbackName("anjali-sharma@example.com"), "anjali");
-  assert.equal(emailFallbackName("rahul.kumar@example.com\n"), "rahul");
-  assert.equal(emailFallbackName(""), "friend");
-  assert.equal(emailFallbackName("@example.com"), "friend");
-  assert.equal(emailFallbackName("123@example.com"), "123");
+  assert.equal(emailFallbackName("rahul.kumar@example.com"), "Rahul");
+  assert.equal(emailFallbackName("priya_charan@example.com"), "Priya");
+  assert.equal(emailFallbackName("anjali-sharma@example.com"), "Anjali");
+  assert.equal(emailFallbackName("rahul.kumar@example.com\n"), "Rahul");
+  assert.equal(emailFallbackName(""), "Friend");
+  assert.equal(emailFallbackName("@example.com"), "Friend");
+  assert.equal(emailFallbackName("123@example.com"), "Friend");
 });
 
 test("isSessionUsable requires a little headroom on expiry", () => {

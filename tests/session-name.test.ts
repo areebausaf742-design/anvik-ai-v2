@@ -60,7 +60,7 @@ test("browser memory remains separated by account and ignores legacy unscoped va
 
     setLearningOwner("account-b");
     assert.equal(readMemory().name, "");
-    writeMemory({ name: "Bob });
+    writeMemory({ name: "Bob" });
 
     setLearningOwner("account-a");
     assert.equal(readMemory().name, "Alice");
