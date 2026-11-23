@@ -548,6 +548,30 @@ function ChatWorkspaceInner() {
     <form onSubmit={submit} className={options.className}>
       <div className="chatbar" data-typing={isEmptyInput ? "false" : "true"}>
         <div className="chatbar-inner">
+          <div className="chatbar-prompt-row">
+            <div className="chatbar-input-wrap">
+              <textarea
+                ref={fieldRef}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={keySubmit}
+                placeholder="Ask ANVIK a question..."
+                aria-label="Ask ANVIK a question..."
+                rows={1}
+                disabled={pending || !identityReady || sessionLoading || Boolean(session && !profile)}
+                className="chatbar-input"
+              />
+            </div>
+            <button
+              type="submit"
+              aria-label="Send message"
+              disabled={!input.trim() || pending || !identityReady || sessionLoading || Boolean(session && !profile)}
+              className="send-btn shrink-0"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="chatbar-toolbar">
           <div ref={photoMenuRef} className="relative shrink-0">
             <button
               type="button"
@@ -574,20 +598,6 @@ function ChatWorkspaceInner() {
 
           <DeepSearchToggle value={searchMode} onChange={setSearchMode} />
 
-          <div className="chatbar-input-wrap">
-            <textarea
-              ref={fieldRef}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={keySubmit}
-              placeholder="Ask ANVIK a question..."
-              aria-label="Ask ANVIK a question..."
-              rows={1}
-              disabled={pending || !identityReady || sessionLoading || Boolean(session && !profile)}
-              className="chatbar-input"
-            />
-          </div>
-
           <span className="hidden sm:inline shrink-0 text-xs font-medium text-[#999999]" aria-hidden="true">ANVIK 1.0</span>
 
           <ModelSelector value={mode} onChange={setMode} />
@@ -613,14 +623,7 @@ function ChatWorkspaceInner() {
             </button>
           )}
 
-          <button
-            type="submit"
-            aria-label="Send message"
-            disabled={!input.trim() || pending || !identityReady || sessionLoading || Boolean(session && !profile)}
-            className="send-btn shrink-0"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </button>
+          </div>
         </div>
       </div>
     </form>

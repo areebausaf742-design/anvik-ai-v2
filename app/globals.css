@@ -1748,13 +1748,36 @@ html[data-theme="dark"] [class*="text-[#D97757]"] {
 
 
 /* ANVIK composer v2 — separate the prompt from secondary tools. */
-.anvik-dark .chatbar-inner{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px;border-radius:22px}
-.anvik-dark .chatbar-prompt-row{display:flex;align-items:center;gap:12px;width:100%;min-width:0}
-.anvik-dark .chatbar-prompt-row .chatbar-input-wrap{flex:1 1 auto;min-width:0}
-.anvik-dark .chatbar-prompt-row .chatbar-input{display:block;min-height:54px;max-height:180px;padding:13px 4px}
-.anvik-dark .chatbar-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%;min-width:0;padding-top:10px;border-top:1px solid rgba(210,220,234,.11)}
-.anvik-dark .chatbar-toolbar .model-selector-trigger{max-width:min(100%,220px)}
-.anvik-dark .chatbar-prompt-row .send-btn{width:42px;height:42px;flex:0 0 42px}
-@media(max-width:640px){.anvik-dark .chatbar-inner{gap:8px;padding:10px;border-radius:18px}.anvik-dark .chatbar-prompt-row{gap:8px}.anvik-dark .chatbar-prompt-row .chatbar-input{min-height:48px;font-size:14px}.anvik-dark .chatbar-toolbar{gap:7px;padding-top:8px}.anvik-dark .chatbar-toolbar .deep-search-control,.anvik-dark .chatbar-toolbar .model-selector-trigger{max-width:100%}}
-@media(max-width:360px){.anvik-dark .chatbar-toolbar{gap:6px}.anvik-dark .chatbar-toolbar .deep-search-option{padding-inline:6px}.anvik-dark .chatbar-toolbar .model-selector-trigger{font-size:11px}}
-@media(prefers-reduced-motion:reduce){.anvik-dark .chatbar::before,.anvik-dark .chatbar::after{animation:none!important}}
+.anvik-dark .chatbar-inner {
+  display:flex; flex-direction:column; align-items:stretch; gap:10px;
+  padding:14px 16px; border-radius:22px;
+}
+.anvik-dark .chatbar-prompt-row {
+  display:flex; align-items:center; gap:12px; width:100%; min-width:0;
+}
+.anvik-dark .chatbar-prompt-row .chatbar-input-wrap { flex:1 1 auto; min-width:0; }
+.anvik-dark .chatbar-prompt-row .chatbar-input {
+  display:block; min-height:54px; max-height:180px; padding:13px 4px;
+}
+.anvik-dark .chatbar-toolbar {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px; width:100%; min-width:0;
+  padding-top:10px; border-top:1px solid rgba(210,220,234,.11);
+}
+.anvik-dark .chatbar-toolbar .model-selector-trigger { max-width:min(100%,220px); }
+.anvik-dark .chatbar-prompt-row .send-btn { width:42px; height:42px; flex:0 0 42px; }
+@media(max-width:640px) {
+  .anvik-dark .chatbar-inner { gap:8px; padding:10px; border-radius:18px; }
+  .anvik-dark .chatbar-prompt-row { gap:8px; }
+  .anvik-dark .chatbar-prompt-row .chatbar-input { min-height:48px; font-size:14px; }
+  .anvik-dark .chatbar-toolbar { gap:7px; padding-top:8px; }
+  .anvik-dark .chatbar-toolbar .deep-search-control,
+  .anvik-dark .chatbar-toolbar .model-selector-trigger { max-width:100%; }
+}
+@media(max-width:360px) {
+  .anvik-dark .chatbar-toolbar { gap:6px; }
+  .anvik-dark .chatbar-toolbar .deep-search-option { padding-inline:6px; }
+  .anvik-dark .chatbar-toolbar .model-selector-trigger { font-size:11px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .anvik-dark .chatbar::before,.anvik-dark .chatbar::after { animation:none!important; }
+}
