@@ -171,8 +171,8 @@ export default function ProjectsPage() {
   const todayCount = conversations.filter((conversation) => groupOf(conversation.updatedAt) === "Today").length;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <main className="premium-library-page premium-projects-page mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div className="library-page-header mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#D97757]">
             <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" /> Projects
@@ -192,20 +192,20 @@ export default function ProjectsPage() {
         </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           { label: "Projects", value: String(conversations.length) },
           { label: "Messages across projects", value: String(totalMessages) },
           { label: "Updated today", value: String(todayCount) },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-2xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3">
+          <div key={stat.label} className="library-stat rounded-2xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-[#666666]">{stat.label}</p>
             <p className="mt-1 text-xl font-semibold text-[#1A1A1A]">{stat.value}</p>
           </div>
         ))}
       </div>
 
-      <label className="mb-5 flex items-center gap-2 rounded-xl border border-[#EDEDED] bg-white px-3.5 py-2.5 focus-within:border-[#1A1A1A]">
+      <label className="library-search mb-6 flex items-center gap-2 rounded-xl border border-[#EDEDED] bg-white px-4 py-3 focus-within:border-[#1A1A1A]">
         <Search className="h-4 w-4 shrink-0 text-[#999999]" aria-hidden="true" />
         <span className="sr-only">Search projects</span>
         <input

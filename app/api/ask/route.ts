@@ -1,6 +1,6 @@
 import { detectLanguage, langLabel } from "@/lib/detect";
 import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
-import { getVerifiedUserIfPresent } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { serverKey } from "@/lib/provider";
 import {
   KEY_FORMAT_ERROR,
@@ -18,6 +18,8 @@ const json = (body: unknown, status = 200) =>
   });
 
 export async function POST(req: Request) {
+  const auth = await requireUser(req);
+  if ("response" in auth) return auth.response;
   let body: { question?: unknown };
   try {
     body = await req.json();
@@ -40,7 +42,7 @@ export async function POST(req: Request) {
     return json({ message: KEY_FORMAT_ERROR, code: "bad_format" }, 401);
   }
 
-  const verified = await getVerifiedUserIfPresent(req);
+  const verified = auth.user;
   const rate = await allowDistributed(req, "ask", 12, 100, { verifiedUserId: verified?.id ?? null });
   if (!rate.allowed) {
     const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));

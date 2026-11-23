@@ -54,7 +54,7 @@ import type { PlanId } from "@/lib/plans";
 import { sbSelect, sbUpsert } from "@/lib/supabase";
 import { recordChatExchange } from "@/lib/chat-record";
 import { clientIp, allowDistributed } from "@/lib/rate-limit";
-import { getVerifiedUserIfPresent, type VerifiedUser } from "@/lib/session";
+import { requireUser, type VerifiedUser } from "@/lib/session";
 import {
   ensureEntitlement,
   effectivePlan,
@@ -166,12 +166,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "A conversation is required." }, { status: 400 });
   }
 
-  const { messages, mode, temperature, memory, search: rawSearch } = body as {
+  const { messages, mode, temperature, memory, search: rawSearch, deepSearch } = body as {
     messages: unknown;
     mode?: unknown;
     temperature?: unknown;
     memory?: unknown;
     search?: unknown;
+    deepSearch?: unknown;
   };
 
   // 1. Strict validation + history normalization.
@@ -226,11 +227,14 @@ export async function POST(request: Request) {
     console.warn(`chat using ${safeKeyLog(key)}`);
   }
 
-  // 5. Distributed rate limit — max 1 request per 2 seconds, 60 per minute,
-  // keyed by the VERIFIED user id when signed in, else by effective IP.
+  // 5. Verify the Supabase user before rate limits, credit reservations, or model calls.
+  const auth = await requireUser(request);
+  if ("response" in auth) return auth.response;
+
+  // 6. Distributed rate limit — keyed only by this verified user id.
   // Never trusts client-supplied identity headers (audit: H-1/H-8).
   const ip = clientIp(request);
-  const verifiedUserForLimit = await getVerifiedUserIfPresent(request).catch(() => null);
+  const verifiedUserForLimit = auth.user;
   const pace = await allowDistributed(request, "chat", PER_MINUTE, 0, {
     verifiedUserId: verifiedUserForLimit?.id ?? null,
     spacingMs: MIN_SPACING_MS,
@@ -254,11 +258,10 @@ export async function POST(request: Request) {
     );
   }
 
-  // 6. Plan entitlement — server key only. Own keys are unlimited by design.
-  // Authenticated users are governed by the per-user credit system (atomic RPC,
-  // IST-day reset, pack fallback, idempotency by request reference).
-  // Anonymous users fall back to the device-keyed entitlements + per-IP free
-  // quota (10/day) — exactly as before.
+  // 7. Plan entitlement — server key only. Own keys are unlimited by design.
+  // Verified accounts using the server key are governed by the existing
+  // per-user credit system (atomic RPC, IST-day reset, pack fallback, and
+  // idempotency by request reference).
   const rawDeviceId = (request.headers.get("x-anvik-device") ?? "").trim().slice(0, 128);
   const deviceId = rawDeviceId || "anonymous";
   let reservation: Reservation | undefined;
@@ -364,7 +367,9 @@ export async function POST(request: Request) {
 
   // Exa and Tavily are optional server-side providers. Their content is
   // untrusted evidence only; Google Search grounding remains the fallback.
-  const searchMode = normalizeSearchMode(rawSearch);
+  const searchMode = typeof deepSearch === "boolean"
+    ? (deepSearch ? "on" : "off")
+    : normalizeSearchMode(rawSearch);
   const lastUser = [...redactedMessages].reverse().find((turn) => turn.role === "user");
   const searchQuery = lastUser?.content ?? "";
   const searchNeeded = searchMode === "on" || (searchMode === "auto" && shouldAutoSearch(searchQuery));

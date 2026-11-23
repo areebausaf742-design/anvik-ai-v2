@@ -34,11 +34,10 @@ import {
 } from "lucide-react";
 import { useChatStore, selectActiveConversation, type ChatMessage } from "@/store/use-chat-store";
 import { ensureFreshChat } from "@/lib/fresh-chat";
-import WebSearchMenu from "@/components/anvik/web-search-menu";
+import DeepSearchToggle from "@/components/anvik/deep-search-toggle";
+import ModelSelector from "@/components/anvik/model-selector";
 import SourcesPanel from "@/components/anvik/sources-panel";
-import type { SearchMode, SearchSource } from "@/lib/search";
-import { ShaderBackground } from "@/components/ui/main-shader-for-ai";
-import { modes } from "@/lib/prompts";
+import type { SearchSource } from "@/lib/search";
 import AnvikStar from "@/components/anvik/anvik-star";
 import { Brand } from "@/components/anvik/navigation";
 import Markdown from "@/components/anvik/markdown";
@@ -54,6 +53,7 @@ import {
 } from "@/lib/client-api";
 import { readMemory } from "@/lib/learning";
 import { useSession } from "@/components/anvik/session-provider";
+import { useAppearance } from "@/components/anvik/appearance-provider";
 
 type SpeechInput = {
   lang: string;
@@ -68,19 +68,11 @@ function makeId() {
   return crypto.randomUUID();
 }
 
-const PLACEHOLDERS = [
-  "Ask ANVIK anything...",
-  "Write code for Java topic...",
-  "Explain Java OOP with example...",
-  "Write Python code for calculator...",
-  "Make a study plan for Class 12...",
-  "Solve Physics numerical step by step...",
-];
-
 function ChatWorkspaceInner() {
   const pathname = usePathname();
   const router = useRouter();
   const { profile, credits, session, loading: sessionLoading, bearerToken, signOut, refresh } = useSession();
+  const { resolvedTheme } = useAppearance();
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
   const mode = useChatStore((state) => state.mode);
@@ -109,12 +101,10 @@ function ChatWorkspaceInner() {
   const [userName, setUserName] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
-  const [searchMode, setSearchMode] = useState<SearchMode>("auto");
+  const [deepSearch, setDeepSearch] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
-  const [placeholderFading, setPlaceholderFading] = useState(false);
   const [quotaDisplay, setQuotaDisplay] = useState<{ plan: string; remaining: number; limit: number } | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
@@ -122,6 +112,7 @@ function ChatWorkspaceInner() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechInput | null>(null);
+  const photoMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setHydrated(true);
@@ -172,6 +163,17 @@ function ChatWorkspaceInner() {
   useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
+    if (!showPhotoMenu) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (photoMenuRef.current && !photoMenuRef.current.contains(event.target as Node)) {
+        setShowPhotoMenu(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [showPhotoMenu]);
+
+  useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
@@ -186,27 +188,6 @@ function ChatWorkspaceInner() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  // Rotate the empty-input placeholder every 3 s with a smooth fade.
-  // Rotation stops (and the placeholder hides) while the field is non-empty.
-  const placeholderSwapRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (input.trim()) {
-      setPlaceholderFading(false);
-      return;
-    }
-    const interval = window.setInterval(() => {
-      setPlaceholderFading(true);
-      placeholderSwapRef.current = window.setTimeout(() => {
-        setPlaceholderIndex((index) => (index + 1) % PLACEHOLDERS.length);
-        setPlaceholderFading(false);
-      }, 420);
-    }, 3000);
-    return () => {
-      window.clearInterval(interval);
-      if (placeholderSwapRef.current) window.clearTimeout(placeholderSwapRef.current);
-    };
-  }, [input]);
 
   async function runInlineKeyTest() {
     setTestingKey(true);
@@ -223,43 +204,9 @@ function ChatWorkspaceInner() {
 
     const apiKey = readApiKey();
     const token = bearerToken();
-    let quota: { hasServerKey: boolean; status: string; remaining: number; plan?: { id?: string; name?: string } | null; limit?: number };
-    try {
-      const quotaResponse = await fetch("/api/quota", {
-        cache: "no-store",
-        headers: token ? { Authorization: `Bearer ${token}`, "x-anvik-device": readDeviceId() } : { "x-anvik-device": readDeviceId() },
-      });
-      if (quotaResponse.status === 401) {
-        await signOut();
-        router.replace("/login");
-        return;
-      }
-      if (!quotaResponse.ok) throw new Error("Could not check the free chat limit. Please try again.");
-      quota = (await quotaResponse.json()) as typeof quota;
-      setQuotaDisplay({
-        plan: quota.plan?.name ?? "Free",
-        remaining: typeof quota.remaining === "number" ? quota.remaining : 0,
-        limit: typeof quota.limit === "number" ? quota.limit : 10,
-      });
-    } catch (cause) {
-      setError(mapClientFetchError(cause));
-      return;
-    }
-
-    if (!apiKey && (!quota.hasServerKey || quota.status === "not_configured")) {
-      setError("ANVIK free key not set. Connect your own key.");
-      return;
-    }
-    if (!apiKey && quota.status === "invalid_server_key") {
-      setError("ANVIK server key is invalid. Connect your own key to continue.");
-      return;
-    }
-    if (!apiKey && (quota.status === "limit_reached" || quota.remaining <= 0)) {
-      setError(
-        session
-          ? "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing."
-          : "Free limit reached. Connect your own key to continue unlimited.",
-      );
+    if (!token) {
+      if (sessionLoading) return;
+      router.replace("/login");
       return;
     }
 
@@ -315,7 +262,8 @@ function ChatWorkspaceInner() {
           mode,
           temperature,
           memory: readMemory(),
-          search: searchMode,
+          search: deepSearch ? "on" : "off",
+          deepSearch,
         }),
         signal: controller.signal,
       });
@@ -563,7 +511,7 @@ function ChatWorkspaceInner() {
     <form onSubmit={submit} className={options.className}>
       <div className="chatbar" data-typing={isEmptyInput ? "false" : "true"}>
         <div className="chatbar-inner">
-          <div className="relative shrink-0">
+          <div ref={photoMenuRef} className="relative shrink-0">
             <button
               type="button"
               aria-label="Add attachment"
@@ -587,24 +535,16 @@ function ChatWorkspaceInner() {
             )}
           </div>
 
-          <WebSearchMenu mode={searchMode} onChange={setSearchMode} />
+          <DeepSearchToggle enabled={deepSearch} onChange={setDeepSearch} />
 
           <div className="chatbar-input-wrap">
-            <span
-              aria-hidden="true"
-              className="chatbar-placeholder"
-              data-show={isEmptyInput ? "true" : "false"}
-              data-fade={placeholderFading ? "true" : "false"}
-            >
-              {PLACEHOLDERS[placeholderIndex]}
-            </span>
             <textarea
               ref={fieldRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={keySubmit}
-              placeholder=""
-              aria-label="Message ANVIK"
+              placeholder="Ask ANVIK a question..."
+              aria-label="Ask ANVIK a question..."
               rows={1}
               disabled={pending}
               className="chatbar-input"
@@ -613,18 +553,7 @@ function ChatWorkspaceInner() {
 
           <span className="hidden sm:inline shrink-0 text-xs font-medium text-[#999999]" aria-hidden="true">ANVIK 1.0</span>
 
-          <select
-            aria-label="Response mode"
-            value={mode}
-            onChange={(event) => setMode(event.target.value as typeof mode)}
-            className="hidden sm:inline-flex shrink-0 items-center rounded-lg border border-[#EDEDED] bg-white px-2 py-1.5 text-xs font-medium text-[#666666] transition-colors hover:border-[#1A1A1A] focus:outline-none"
-          >
-            {modes.map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <ModelSelector value={mode} onChange={setMode} />
 
           {pending ? (
             <button
@@ -671,7 +600,7 @@ function ChatWorkspaceInner() {
   const welcomeText = profile?.name ? "Hello, " + profile.name : userName ? "Hello, " + userName : "Hello";
 
   return (
-    <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
+    <div className={`${resolvedTheme === "dark" ? "anvik-dark" : "anvik-light"} relative flex h-[100dvh] w-full overflow-hidden bg-white`}>
       {/* ==================== Sidebar ==================== */}
       {!focusMode && (
         <aside
@@ -739,7 +668,7 @@ function ChatWorkspaceInner() {
             </button>
           </div>
 
-          <label className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1.5 focus-within:border-[#1A1A1A]">
+          <label className="chat-search mx-3 mb-3 flex items-center gap-2 rounded-xl border border-[#EDEDED] bg-white px-3 py-2 focus-within:border-[#1A1A1A]">
             <Search className="h-3.5 w-3.5 shrink-0 text-[#999999]" />
             <span className="sr-only">Search conversations</span>
             <input
@@ -963,18 +892,17 @@ function ChatWorkspaceInner() {
         <div className="flex-1 overflow-y-auto thin-scroll">
           {activeMessages.length === 0 ? (
             <div className="welcome-stage relative isolate flex min-h-[calc(100dvh-58px)] w-full flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">
-              <ShaderBackground />
               <div className="welcome-stage-overlay" aria-hidden="true" />
               <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[760px] flex-col items-center">
               <AnvikStar size="lg" className="mb-5" />
               <h1
-                className="welcome-fade-in font-serif text-[clamp(2.5rem,7vw,5.25rem)] font-normal leading-[1.04] tracking-[-0.055em] text-white"
+                className={"welcome-fade-in font-serif text-[clamp(2.5rem,7vw,5.25rem)] font-normal leading-[1.04] tracking-[-0.055em] " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}
                 style={{ letterSpacing: "-0.055em" }}
               >
                 {welcomeText}
               </h1>
 
-              <p className="mt-4 max-w-lg text-sm leading-7 text-white/70 sm:text-base">
+              <p className={"mt-4 max-w-lg text-sm leading-7 sm:text-base " + (resolvedTheme === "dark" ? "text-white/70" : "text-[#666666]")}>
                 One mind. Infinite possibilities. What are we creating today?
               </p>
 

@@ -9,6 +9,8 @@ let POST: RouteModule["POST"];
 let _resetRateLimits: () => void;
 
 test.before(async () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://supabase.test";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
   const route: RouteModule = await import("../app/api/chat/route");
   POST = route.POST;
   _resetRateLimits = (await import("../lib/rate-limit"))._resetRateLimits;
@@ -48,6 +50,7 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: "Bearer test-session-token",
       // Unique IP per call so the per-IP limiter does not cross-contaminate.
       "x-vercel-forwarded-for": `203.0.113.${Math.floor(Math.random() * 200) + 10}`,
       ...headers,
@@ -59,6 +62,14 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
 function mockGeminiFetch(answer: string, model = "gemini-2.5-flash") {
   return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith("/auth/v1/user")) {
+      return Response.json({
+        id: "test-verified-user",
+        email: "tester@example.test",
+        app_metadata: { provider: "email" },
+        user_metadata: { name: "Test User" },
+      });
+    }
     const contentType = new Headers(init?.headers).get("x-goog-api-key") ?? "";
     assert.ok(url.includes(`/models/${model}:streamGenerateContent`), `unexpected model url ${url}`);
     assert.ok(contentType.length > 10, "key header must be forwarded");
@@ -167,6 +178,29 @@ test("Accept: text/event-stream frames the same tokens as SSE", async () => {
   assert.match(body, /data: \{"t":"meta"/);
   assert.match(body, /data: \{"t":"tok","s":"SSE is nice\."\}/);
   assert.match(body, /data: \{"t":"done"/);
+});
+
+test("a guest is rejected by the server before any model request", async () => {
+  let modelCalled = false;
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/auth/v1/user")) {
+      modelCalled = true;
+    } else {
+      modelCalled = true;
+    }
+    return new Response(JSON.stringify({ id: "unexpected" }), { status: 200 });
+  });
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "hello from a guest" }] },
+      { Authorization: "", "x-google-generative-ai-api-key": VALID_AQ_KEY },
+    ),
+  );
+  assert.equal(response.status, 401);
+  const body = await response.json();
+  assert.equal(body.code, "unauthenticated");
+  assert.equal(modelCalled, false, "unauthenticated traffic must not call Supabase or a model provider");
 });
 
 test("the per-IP spacing limit returns 429 with a Retry-After header", async () => {

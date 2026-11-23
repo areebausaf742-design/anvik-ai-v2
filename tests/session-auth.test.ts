@@ -4,6 +4,7 @@ import {
   sanitizeDisplayName,
   emailFallbackName,
   authConfigured,
+  requireUser,
 } from "../lib/session";
 import { isSessionUsable } from "../lib/auth";
 
@@ -38,4 +39,14 @@ test("isSessionUsable requires a little headroom on expiry", () => {
 test("authConfigured is false when env is absent (never half-configured)", () => {
   // Sandbox env never has the variables set — must be false.
   assert.equal(authConfigured(), false);
+});
+
+test("requireUser rejects requests without a verified bearer session", async () => {
+  const result = await requireUser(new Request("http://localhost/api/chat", { method: "POST" }));
+  assert.ok("response" in result);
+  if ("response" in result) {
+    assert.equal(result.response.status, 401);
+    const body = await result.response.json();
+    assert.equal(body.code, "unauthenticated");
+  }
 });
