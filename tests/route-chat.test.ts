@@ -157,8 +157,8 @@ test("AQ-prefixed keys stream live from Gemini and carry the ANVIK label", async
   assert.equal(response.headers.get("x-anvik-model"), "gemini-2.5-flash");
   assert.equal(response.headers.get("x-anvik-source"), "gemini");
   assert.equal(await response.text(), "A GPU is a graphics processing unit.");
-  const modelCalls = fetchMock.mock.calls.filter(([input]) =>
-    String(input).includes("generativelanguage.googleapis.com"),
+  const modelCalls = fetchMock.mock.calls.filter((call) =>
+    String(call.arguments[0]).includes("generativelanguage.googleapis.com"),
   );
   assert.equal(modelCalls.length, 1, "exactly one model request should be made after session verification");
   // the AQ key is sent through, never rejected or logged
