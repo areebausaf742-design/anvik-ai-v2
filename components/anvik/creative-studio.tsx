@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { extractCodeBlock } from "@/lib/code-lab";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -253,7 +254,7 @@ function ImageStudio() {
       <TiltCard className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm rounded-2xl p-5 sm:p-6">
         <form onSubmit={generate} className="space-y-4">
           <div>
-            <label htmlFor="image-prompt" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
+            <label htmlFor="image-prompt" className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
               Visual prompt
             </label>
             <textarea
@@ -438,18 +439,9 @@ function ImageStudio() {
   );
 }
 
-/** Extract the first fenced code block from markdown output for live preview. */
-function extractFirstCodeBlock(markdown: string): { lang: string; code: string } {
-  const match = markdown.match(/```(\S*)\n([\s\S]*?)```/);
-  if (match) {
-    return { lang: (match[1] || "").toLowerCase(), code: match[2].trim() };
-  }
-  return { lang: "", code: markdown.trim() };
-}
-
 function buildPreviewHtml(rawCode: string, language: string): string {
   const lower = language.toLowerCase();
-  if (lower.includes("html") || /<!doctype html|<html|<body|<div|<button/i.test(rawCode)) {
+  if (lower.includes("html")) {
     const hasBodyBg = /body\s*\{[^}]*background/i.test(rawCode);
     if (hasBodyBg) return rawCode;
     const baseStyle = `<style>html,body{background:#090910;color:#f8fafc;margin:0;padding:16px;font-family:system-ui,-apple-system,sans-serif;}</style>`;
@@ -512,6 +504,8 @@ function CodeLab() {
     setLoading(true);
     setError("");
     setCode("");
+    setShowPreview(false);
+    setCopied(false);
     setModelUsed("");
     const controller = new AbortController();
     abortRef.current = controller;
@@ -532,18 +526,25 @@ function CodeLab() {
         throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail, result?.code));
       }
       const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
-      setModelUsed("ANVIK 1.0");
+      setModelUsed(model);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let generated = "";
+      let lastUiUpdate = 0;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         generated += decoder.decode(value, { stream: true });
-        setCode(generated);
+        const now = Date.now();
+        if (now - lastUiUpdate >= 50) {
+          setCode(generated);
+          lastUiUpdate = now;
+        }
       }
+      generated += decoder.decode();
       if (!generated.trim()) throw new Error("ANVIK returned no code. Please try again.");
+      setCode(generated);
     } catch (issue) {
       if (!controller.signal.aborted) {
         setError(mapClientFetchError(issue));
@@ -565,13 +566,24 @@ function CodeLab() {
             ? "sql"
             : language === "JavaScript"
               ? "js"
-              : "tsx";
+              : language === "Java"
+                ? "java"
+                : "tsx";
 
-  const extracted = extractFirstCodeBlock(code);
+  const extracted = extractCodeBlock(code, language);
+  const displayCode = extracted.matchesExpected
+    ? "```" + extracted.lang + String.fromCharCode(10) + extracted.code + String.fromCharCode(10) + "```"
+    : loading
+      ? "ANVIK is preparing a " + language + " code block…"
+      : code.trim()
+        ? "ANVIK returned " + (extracted.lang || "unlabelled") +
+          " output, but you selected " + language +
+          ". The mismatched code is hidden so the wrong language is never presented as your result."
+        : "";
 
   async function copyCode() {
     try {
-      await navigator.clipboard.writeText(extracted.code || code);
+      await navigator.clipboard.writeText(extracted.code);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch {
@@ -580,15 +592,15 @@ function CodeLab() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+    <main className="anvik-dark min-h-screen mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#D97757]">
             <Code2 className="h-3.5 w-3.5" /> Code Lab
           </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#1A1A1A] sm:text-4xl">
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-100 sm:text-4xl">
             Describe it.{" "}
-            <span className="text-[#1A1A1A]">Ship runnable code.</span>
+            <span className="text-slate-100">Ship runnable code.</span>
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-[#666666]">
             Pick a language, generate clean syntax-highlighted code with ANVIK, copy blocks, or preview HTML/CSS/JS live.
@@ -599,11 +611,11 @@ function CodeLab() {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <TiltCard className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm rounded-2xl p-5 lg:col-span-5">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(280px,0.42fr)_minmax(0,0.58fr)]">
+        <TiltCard className="h-fit min-w-0 rounded-2xl border border-[#252c3b] bg-[#0d111b] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)]">
           <form onSubmit={create} className="space-y-4">
             <div>
-              <label htmlFor="code-prompt" className="block text-xs font-semibold uppercase tracking-wider text-[#666666]">
+              <label htmlFor="code-prompt" className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
                 What are we building?
               </label>
               <textarea
@@ -613,7 +625,7 @@ function CodeLab() {
                 maxLength={6000}
                 rows={6}
                 placeholder="Write a Python calculator or a responsive pricing card in HTML/CSS"
-                className="mt-2 w-full rounded-xl border border-[#E5E5E5] bg-white px-4 py-3 text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#D97757] focus:outline-none"
+                className="mt-2 w-full resize-y rounded-xl border border-[#30394d] bg-[#090b12] px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-[#9b8cff] focus:outline-none focus:ring-2 focus:ring-[#9b8cff]/20"
               />
             </div>
 
@@ -624,11 +636,19 @@ function CodeLab() {
               <select
                 id="code-language"
                 value={language}
-                onChange={(event) => setLanguage(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-[#E5E5E5] bg-white px-3.5 py-2.5 text-sm text-[#1A1A1A] focus:border-[#D97757] focus:outline-none"
+                onChange={(event) => {
+                  setLanguage(event.target.value);
+                  setCode("");
+                  setShowPreview(false);
+                  setError("");
+                  setModelUsed("");
+                  setCopied(false);
+                }}
+                className="mt-2 w-full rounded-xl border border-[#30394d] bg-[#090b12] px-3.5 py-2.5 text-sm text-slate-100 focus:border-[#9b8cff] focus:outline-none focus:ring-2 focus:ring-[#9b8cff]/20"
               >
                 <option value="Python">Python</option>
                 <option value="TypeScript">TypeScript</option>
+                <option value="Java">Java</option>
                 <option value="JavaScript">JavaScript</option>
                 <option value="HTML/CSS">HTML/CSS</option>
                 <option value="CSS">CSS</option>
@@ -639,7 +659,7 @@ function CodeLab() {
             <button
               type="submit"
               disabled={!prompt.trim() || loading}
-              className="bg-[#1A1A1A] hover:bg-[#333333] flex w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-[#1A1A1A]"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#9b8cff] px-5 py-2.5 text-sm font-semibold text-[#090b12] transition-colors hover:bg-[#b1a4ff] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
                 <>
@@ -660,27 +680,27 @@ function CodeLab() {
           </form>
         </TiltCard>
 
-        <section className="rounded-2xl border border-[#EDEDED] bg-white shadow-sm flex min-h-[380px] flex-col overflow-hidden rounded-2xl lg:col-span-7" aria-label="Generated code">
-          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EDEDED] bg-white px-4 py-3">
+        <section className="flex min-h-[480px] min-w-0 flex-col overflow-hidden rounded-2xl border border-[#252c3b] bg-[#0d111b] shadow-[0_18px_60px_rgba(0,0,0,0.18)] lg:min-h-[620px]" aria-label="Generated code">
+          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#252c3b] bg-[#0d111b] px-4 py-3">
             <div className="flex items-center gap-3">
               <div className="flex gap-1.5" aria-hidden="true">
                 <span className="h-2.5 w-2.5 rounded-full bg-rose-500/70" />
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
               </div>
-              <span className="font-mono text-xs text-[#666666]">draft.{extension}</span>
+              <span className="font-mono text-xs text-slate-400">draft.{extension}</span>
             </div>
 
             <div className="flex items-center gap-2">
-              {code && (
+              {code && extracted.matchesExpected && !loading && (
                 <>
                   <button
                     type="button"
                     onClick={() => setShowPreview((v) => !v)}
                     className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
                       showPreview
-                        ? "border-[#22D3EE] bg-[#22D3EE]/20 text-[#1A1A1A]"
-                        : "border-[#E5E5E5] bg-white text-[#1A1A1A] hover:bg-[#F7F7F5]"
+                        ? "border-[#9b8cff] bg-[#9b8cff]/15 text-slate-100"
+                        : "border-[#30394d] bg-[#090b12] text-slate-200 hover:bg-[#171d2a]"
                     }`}
                   >
                     <Play className="h-3.5 w-3.5 text-[#D97757]" />
@@ -690,7 +710,7 @@ function CodeLab() {
                     type="button"
                     onClick={() => void copyCode()}
                     aria-label="Copy code"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F5]"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#30394d] bg-[#090b12] px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-[#171d2a]"
                   >
                     {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                     {copied ? "Copied" : "Copy code"}
@@ -708,13 +728,13 @@ function CodeLab() {
               <iframe
                 title="Code Lab Live Preview"
                 sandbox="allow-scripts"
-                srcDoc={buildPreviewHtml(extracted.code, extracted.lang || language)}
+                srcDoc={buildPreviewHtml(extracted.code, language)}
                 className="min-h-[340px] w-full flex-1 bg-[#F9F9F9]"
               />
             </div>
           ) : code ? (
             <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-              <Markdown text={code} className="md" />
+              <Markdown text={displayCode} className="md" />
             </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
