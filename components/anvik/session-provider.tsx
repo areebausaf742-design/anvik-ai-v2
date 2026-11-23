@@ -109,6 +109,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const generation = ++refreshGeneration.current;
     const isCurrent = () => refreshGeneration.current === generation;
     setLoading(true);
+    setLearningOwner("guest");
     setSession(null);
     setUser(null);
     setProfile(null);
