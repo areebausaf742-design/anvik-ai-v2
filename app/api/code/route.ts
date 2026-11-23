@@ -2,6 +2,7 @@ import { serverKey } from "@/lib/provider";
 import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { getVerifiedUserIfPresent } from "@/lib/session";
 import { CODE_MAX_TOKENS } from "@/lib/credit";
+import { CODE_LAB_LANGUAGES, getCodeFenceLanguage } from "@/lib/code-lab";
 import {
   KEY_FORMAT_ERROR,
   isValidGeminiKeyFormat,
@@ -10,7 +11,7 @@ import {
 
 export const maxDuration = 60;
 
-const LANGUAGES = new Set(["TypeScript", "JavaScript", "Python", "HTML/CSS", "CSS", "SQL"]);
+const LANGUAGES: ReadonlySet<string> = new Set(CODE_LAB_LANGUAGES);
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -60,7 +61,15 @@ export async function POST(request: Request) {
   try {
     const result = await openGeminiStreamWithFallback({
       apiKey: key,
-      systemInstruction: `You are ANVIK Code Lab. The user wants ${language}. Return complete, clean, runnable ${language} code first inside a single fenced code block (with language tag), followed by a brief explanation of the key decisions. If HTML/CSS is chosen, provide a self-contained HTML document with <style> and optional <script> so it renders cleanly in a live preview.`,
+      systemInstruction: `You are ANVIK Code Lab, a language-strict code generator.
+The selected language is exactly: ${language}.
+Return one complete, runnable implementation in the FIRST fenced code block.
+Use this exact code-fence language tag: ${getCodeFenceLanguage(language)}.
+Do not include examples, snippets, or fenced blocks in any other language.
+Do not switch to HTML, JSX, or JavaScript unless that is the selected language.
+For Java, return valid Java source code with required imports and a complete class; never return HTML or JavaScript.
+For HTML/CSS, return a self-contained HTML document with <style> and optional <script> so it renders cleanly in a live preview.
+Keep the code block complete and preserve indentation. After the single code block, add a short explanation in plain text.`,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       temperature: 0.35,
       maxOutputTokens: CODE_MAX_TOKENS,

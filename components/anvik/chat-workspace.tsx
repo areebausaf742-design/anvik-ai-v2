@@ -102,6 +102,7 @@ function ChatWorkspaceInner() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [search, setSearch] = useState("");
+  const [showNotifications, setShowNotifications] = useState(false);
   const [listening, setListening] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [userName, setUserName] = useState("");
@@ -117,6 +118,7 @@ function ChatWorkspaceInner() {
 
   const endRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechInput | null>(null);
 
@@ -214,7 +216,7 @@ function ChatWorkspaceInner() {
     if (res.ok) setError("");
   }
 
-  async function sendMessage(value = input) {
+  async function sendMessage(value = input, regeneration?: { assistantId: string; history: ChatMessage[] }) {
     const content = value.trim();
     if (!content || pending) return;
 
@@ -264,11 +266,26 @@ function ChatWorkspaceInner() {
 
     const conversationId = activeId ?? createConversation();
     const current = useChatStore.getState().conversations.find((item) => item.id === conversationId);
-    const userMessage: ChatMessage = { id: makeId(), role: "user", content, createdAt: Date.now() };
-    const assistantId = makeId();
-    addMessage(conversationId, userMessage);
-    addMessage(conversationId, { id: assistantId, role: "assistant", content: "", createdAt: Date.now() });
-    setInput("");
+    const userMessage: ChatMessage | null = regeneration
+      ? null
+      : { id: makeId(), role: "user", content, createdAt: Date.now() };
+    const assistantId = regeneration?.assistantId ?? makeId();
+    if (regeneration) {
+      updateMessage(conversationId, assistantId, "");
+      setMessageMeta(conversationId, assistantId, {
+        source: "gemini",
+        model: "",
+        verdict: undefined,
+        isError: false,
+        searchStatus: "off",
+        sources: [],
+        queries: [],
+      });
+    } else if (userMessage) {
+      addMessage(conversationId, userMessage);
+      addMessage(conversationId, { id: assistantId, role: "assistant", content: "", createdAt: Date.now() });
+      setInput("");
+    }
     setPending(true);
     setError("");
     setKeyTestStatus(null);
@@ -277,7 +294,8 @@ function ChatWorkspaceInner() {
     abortRef.current = controller;
 
     try {
-      const history = [...(current?.messages ?? []), userMessage]
+      const historyMessages = regeneration?.history ?? [...(current?.messages ?? []), userMessage!];
+      const history = historyMessages
         .slice(-40)
         .map(({ role, content: text }) => ({ role, content: text }));
 
@@ -501,6 +519,18 @@ function ChatWorkspaceInner() {
     }
   }
 
+  async function shareMessage(message: ChatMessage) {
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "ANVIK response", text: message.content });
+        return;
+      } catch (cause) {
+        if (cause instanceof Error && cause.name === "AbortError") return;
+      }
+    }
+    await copyMessage(message);
+  }
+
   function startRename(chatId: string, currentTitle: string) {
     setRenamingId(chatId);
     setRenameValue(currentTitle);
@@ -698,7 +728,8 @@ function ChatWorkspaceInner() {
             <span className="text-xs font-medium text-[#999999]">Chats</span>
             <button
               type="button"
-              aria-label="Filter chats"
+              aria-label="Focus chat filter"
+              onClick={() => searchInputRef.current?.focus()}
               className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
             >
               <Search className="h-3.5 w-3.5" />
@@ -709,6 +740,7 @@ function ChatWorkspaceInner() {
             <Search className="h-3.5 w-3.5 shrink-0 text-[#999999]" />
             <span className="sr-only">Search conversations</span>
             <input
+              ref={searchInputRef}
               aria-label="Search conversations"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -887,6 +919,9 @@ function ChatWorkspaceInner() {
               <button
                 type="button"
                 aria-label="Notifications"
+                aria-expanded={showNotifications}
+                aria-controls="anvik-notifications-panel"
+                onClick={() => setShowNotifications((open) => !open)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5]"
               >
                 <Bell className="h-4 w-4" />
@@ -894,6 +929,32 @@ function ChatWorkspaceInner() {
             )}
           </div>
         </div>
+
+        {showNotifications && (
+          <div
+            id="anvik-notifications-panel"
+            role="status"
+            className="mx-4 mb-3 flex items-start justify-between gap-3 rounded-xl border border-[#30394d] bg-[#0d111b] px-3 py-3 text-sm text-slate-200 shadow-lg"
+          >
+            <div className="flex items-start gap-2.5">
+              <Bell className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+              <div>
+                <p className="font-medium text-slate-100">Notifications are not connected yet</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                  ANVIK will show product updates here once a notification service is configured.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Close notifications panel"
+              onClick={() => setShowNotifications(false)}
+              className="rounded-md p-1 text-slate-400 hover:bg-[#20283a] hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         {/* Message area */}
         <div className="flex-1 overflow-y-auto thin-scroll">
@@ -932,6 +993,9 @@ function ChatWorkspaceInner() {
                 const isLastAssistant = !isUser && index === activeMessages.length - 1;
                 const isThinking = !isUser && !message.content && pending && isLastAssistant;
                 const isStreaming = !isUser && pending && isLastAssistant && !!message.content;
+                const previousUserMessage = !isUser
+                  ? [...activeMessages.slice(0, index)].reverse().find((item) => item.role === "user")
+                  : undefined;
 
                 if (isUser) {
                   return (
@@ -1024,15 +1088,25 @@ function ChatWorkspaceInner() {
                           </button>
                           <button
                             type="button"
-                            aria-label="Regenerate"
-                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#999999] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
+                            aria-label="Regenerate last answer"
+                            title="Regenerate last answer"
+                            disabled={pending || !isLastAssistant || !previousUserMessage}
+                            onClick={() => {
+                              if (!previousUserMessage || !isLastAssistant) return;
+                              void sendMessage(previousUserMessage.content, {
+                                assistantId: message.id,
+                                history: activeMessages.slice(0, index),
+                              });
+                            }}
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#999999] hover:bg-[#F7F7F5] hover:text-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                             <span>Regenerate</span>
                           </button>
                           <button
                             type="button"
-                            aria-label="Share"
+                            aria-label="Share response"
+                            onClick={() => void shareMessage(message)}
                             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#999999] hover:bg-[#F7F7F5] hover:text-[#1A1A1A]"
                           >
                             <Share2 className="h-3.5 w-3.5" />
