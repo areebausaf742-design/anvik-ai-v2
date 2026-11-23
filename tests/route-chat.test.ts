@@ -157,9 +157,12 @@ test("AQ-prefixed keys stream live from Gemini and carry the ANVIK label", async
   assert.equal(response.headers.get("x-anvik-model"), "gemini-2.5-flash");
   assert.equal(response.headers.get("x-anvik-source"), "gemini");
   assert.equal(await response.text(), "A GPU is a graphics processing unit.");
-  assert.equal(fetchMock.mock.calls.length, 1);
+  const modelCalls = fetchMock.mock.calls.filter(([input]) =>
+    String(input).includes("generativelanguage.googleapis.com"),
+  );
+  assert.equal(modelCalls.length, 1, "exactly one model request should be made after session verification");
   // the AQ key is sent through, never rejected or logged
-  const [, init] = fetchMock.mock.calls[0].arguments as [unknown, RequestInit];
+  const [, init] = modelCalls[0].arguments as [unknown, RequestInit];
   assert.equal(new Headers(init.headers).get("x-goog-api-key"), VALID_AQ_KEY);
 });
 
@@ -218,9 +221,11 @@ test("the per-IP spacing limit returns 429 with a Retry-After header", async () 
   assert.ok(second.headers.get("retry-after"));
 });
 
-test("server-key path degrades gracefully with no Supabase configured", async () => {
-  delete process.env.SUPABASE_URL;
-  delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+test("server-key chat keeps verified auth when the service-role credit backend is unavailable", async () => {
+  // Supabase Auth remains configured so the bearer can be verified. Removing
+  // the service-role key exercises the existing fail-safe in-memory credit
+  // fallback without turning a signed-out caller into an eligible guest.
+  const previousServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = VALID_AIza_KEY;
   mockGeminiFetch("server key flow works");
@@ -228,8 +233,10 @@ test("server-key path degrades gracefully with no Supabase configured", async ()
   const response = await POST(
     makeRequest({ messages: [{ role: "user", content: "hello" }] }, { "x-vercel-forwarded-for": ip }),
   );
-  assert.equal(response.status, 200, "quota must degrade, never 500");
+  assert.equal(response.status, 200, "the verified request should degrade to the in-memory credit fallback, not fail");
   assert.equal(response.headers.get("x-anvik-model"), "gemini-2.5-flash");
+  if (previousServiceRole) process.env.SUPABASE_SERVICE_ROLE_KEY = previousServiceRole;
+  else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 });
 

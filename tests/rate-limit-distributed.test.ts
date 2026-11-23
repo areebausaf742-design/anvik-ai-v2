@@ -324,6 +324,14 @@ test("route integration: /api/ask keeps the cap in the memory fallback and retur
   };
   mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({
+        id: "ask-route-test-user",
+        email: "ask-route-test@example.test",
+        app_metadata: { provider: "google" },
+        user_metadata: { name: "Ask Route Test" },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
     if (url.includes("/rest/v1/rpc/consume_rate_limit")) throw new Error("outage");
     if (url.includes("generativelanguage.googleapis.com")) {
       return new Response(makeSse(), { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -334,6 +342,7 @@ test("route integration: /api/ask keeps the cap in the memory fallback and retur
   const headers = {
     "x-vercel-forwarded-for": "203.0.113.88",
     "x-google-generative-ai-api-key": "AIzaSyTestKey1234567890123456789012345678",
+    Authorization: "Bearer ask-route-valid-session-token",
   };
   let allowed = 0;
   let denied = 0;
