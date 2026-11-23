@@ -1,6 +1,6 @@
 import { serverKey } from "@/lib/provider";
 import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
-import { getVerifiedUserIfPresent } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { CHAT_MAX_TOKENS } from "@/lib/credit";
 import {
   KEY_FORMAT_ERROR,
@@ -11,6 +11,8 @@ import {
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const auth = await requireUser(request);
+  if ("response" in auth) return auth.response;
   let body: unknown;
   try {
     body = await request.json();
@@ -39,7 +41,7 @@ export async function POST(request: Request) {
     return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 401 });
   }
 
-  const verified = await getVerifiedUserIfPresent(request);
+  const verified = auth.user;
   const rate = await allowDistributed(request, "voice", 12, 100, { verifiedUserId: verified?.id ?? null });
   if (!rate.allowed) {
     const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));

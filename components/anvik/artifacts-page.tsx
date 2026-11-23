@@ -146,8 +146,8 @@ export default function ArtifactsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <main className="premium-library-page premium-artifacts-page mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div className="library-page-header mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#D97757]">
             <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" /> Artifacts
@@ -167,7 +167,7 @@ export default function ArtifactsPage() {
         </Link>
       </div>
 
-      <div className="mb-5 flex items-center justify-between gap-4">
+      <div className="library-section-header mb-5 flex items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-[#1A1A1A]">
             {gallery.length ? "Gallery" : "Nothing rendered yet"}

@@ -5,6 +5,8 @@ import "./globals.css";
 import "./pricing/pricing.css";
 import "./auth/auth.css";
 import { SessionProvider } from "@/components/anvik/session-provider";
+import { AppearanceProvider } from "@/components/anvik/appearance-provider";
+import { ShaderBackground } from "@/components/ui/main-shader-for-ai";
 // Vercel Web Analytics + Speed Insights — privacy-conscious, no cookies:
 // no identifiers, no content, no raw IPs; just geo/page/performance.
 import { Analytics } from "@vercel/analytics/next";
@@ -39,22 +41,25 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#FFFFFF",
-  colorScheme: "light",
+  themeColor: "#07080c",
+  colorScheme: "dark light",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" style={{ backgroundColor: "#FFFFFF", color: "#1A1A1A" }}>
-      <body className="min-h-dvh bg-white text-[#1A1A1A] antialiased">
+    <html lang="en" data-appearance="dark" data-theme="dark">
+      <body className="theme-shell min-h-dvh antialiased">
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
-        <SessionProvider>
-          <div id="main-content">{children}</div>
-        </SessionProvider>
+        <AppearanceProvider>
+          <ShaderBackground className="ambient-ring-host" />
+          <div id="main-content">
+            <SessionProvider>{children}</SessionProvider>
+          </div>
+        </AppearanceProvider>
         <Analytics />
         <SpeedInsights />
       </body>

@@ -1,128 +1,177 @@
- "use client";
-import { useEffect, useRef } from "react";
+"use client";
 
-const VERTEX_SHADER = [
-  "attribute vec2 a_position;",
-  "void main() { gl_Position = vec4(a_position, 0.0, 1.0); }",
-].join("\n");
+import { Canvas, useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import * as THREE from "three";
 
-const FRAGMENT_SHADER = [
-"#ifdef GL_FRAGMENT_PRECISION_HIGH",
-"precision highp float;",
-"#else",
-"precision mediump float;",
-"#endif",
-"uniform vec2 u_resolution;",
-"uniform float u_time;",
-"float hash21(vec2 p) { p = fract(p * vec2(234.34,435.345)); p += dot(p,p+34.23); return fract(p.x*p.y); }",
-"float noise(vec2 p) { vec2 i=floor(p), f=fract(p), u=f*f*(3.0-2.0*f); return mix(mix(hash21(i),hash21(i+vec2(1.0,0.0)),u.x),mix(hash21(i+vec2(0.0,1.0)),hash21(i+vec2(1.0,1.0)),u.x),u.y); }",
-"float fbm(vec2 p) { float v=0.0,a=0.5; for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.03+vec2(17.0,9.2);a*=0.5;} return v; }",
-"vec3 palette(float x) { vec3 f=vec3(0.020,0.055,0.035),l=vec3(0.075,0.245,0.105),g=vec3(0.610,0.820,0.245),c=vec3(0.985,0.970,0.855); if(x<0.36)return mix(f,l,smoothstep(0.0,0.36,x)); if(x<0.76)return mix(l,g,smoothstep(0.36,0.76,x)); return mix(g,c,smoothstep(0.76,1.0,x)); }",
-"void main(){",
-"vec2 uv=gl_FragCoord.xy/u_resolution.xy;",
-"vec2 p=(gl_FragCoord.xy-0.5*u_resolution.xy)/min(u_resolution.x,u_resolution.y);",
-"float t=u_time*0.19;",
-"float organic=fbm(p*1.25+vec2(t*0.11,-t*0.075));",
-"float field=p.x*0.84+p.y*0.43+(organic-0.5)*1.25;",
-"float bands=0.5+0.5*sin(field*7.4+t*0.42);",
-"float fineBands=0.5+0.5*sin(field*14.8-t*0.24+organic*2.0);",
-"float glow=1.0-smoothstep(0.08,0.92,length((uv-vec2(0.48,0.58))*vec2(1.0,0.82)));",
-"float tone=clamp(bands*0.72+fineBands*0.16+organic*0.12,0.0,1.0);",
-"vec3 color=palette(tone); color=mix(color,palette(min(1.0,tone+0.12)),glow*0.17); color*=0.64+0.34*glow;",
-"float vignette=1.0-smoothstep(0.18,1.05,length((uv-0.5)*vec2(1.0,0.86))); color*=0.56+0.44*vignette;",
-"gl_FragColor=vec4(clamp(color,0.0,1.0),1.0);",
-"}",
-].join("\n");
+const vertexShader = `
+  varying vec3 vWorldPosition;
+  varying vec3 vNormal;
+  void main() {
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    vNormal = normalize(normalMatrix * normal);
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+  }
+`;
 
-function compileShader(gl: WebGLRenderingContext, type: number, source: string) {
-  const shader = gl.createShader(type);
-  if (!shader) return null;
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { gl.deleteShader(shader); return null; }
-  return shader;
+const fragmentShader = `
+  precision highp float;
+  uniform float uTime;
+  uniform float uStrength;
+  varying vec3 vWorldPosition;
+  varying vec3 vNormal;
+
+  vec3 ringPalette(float phase) {
+    vec3 ice = vec3(0.91, 0.97, 1.0);
+    vec3 blue = vec3(0.20, 0.51, 0.98);
+    vec3 periwinkle = vec3(0.42, 0.49, 1.0);
+    vec3 violet = vec3(0.63, 0.27, 0.98);
+    if (phase < 0.25) return mix(ice, blue, smoothstep(0.0, 0.25, phase));
+    if (phase < 0.52) return mix(blue, periwinkle, smoothstep(0.25, 0.52, phase));
+    if (phase < 0.79) return mix(periwinkle, violet, smoothstep(0.52, 0.79, phase));
+    return mix(violet, ice, smoothstep(0.79, 1.0, phase));
+  }
+
+  void main() {
+    float angle = atan(vWorldPosition.y, vWorldPosition.x);
+    float phase = mod(angle + 1.57079632679 + uTime * 0.014, 6.28318530718) / 6.28318530718;
+    vec3 color = ringPalette(phase);
+    float lowerArc = smoothstep(0.02, 0.92, -sin(angle));
+    color = mix(color, vec3(0.96, 0.985, 1.0), lowerArc * 0.68);
+    float facing = 0.72 + 0.28 * max(0.0, dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)));
+    float breathe = 0.95 + 0.05 * sin(uTime * 1.1);
+    gl_FragColor = vec4(color * facing * breathe * uStrength, 1.0);
+  }
+`;
+
+function RingMesh({ pointer }: { pointer: MutableRefObject<{ x: number; y: number }> }) {
+  const group = useRef<THREE.Group>(null);
+  const coreMaterial = useRef<THREE.ShaderMaterial>(null);
+  const glowMaterial = useRef<THREE.ShaderMaterial>(null);
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uStrength: { value: 1 },
+  }), []);
+
+  useFrame((state, delta) => {
+    const elapsed = state.clock.elapsedTime;
+    if (coreMaterial.current) coreMaterial.current.uniforms.uTime.value = elapsed;
+    if (glowMaterial.current) glowMaterial.current.uniforms.uTime.value = elapsed;
+    if (group.current) {
+      const dt = Math.min(delta, 0.05);
+      group.current.rotation.z += dt * 0.035;
+      group.current.rotation.x = THREE.MathUtils.damp(group.current.rotation.x, 0.055 + pointer.current.y * 0.12, 4, dt);
+      group.current.rotation.y = THREE.MathUtils.damp(group.current.rotation.y, pointer.current.x * 0.16, 4, dt);
+      const pulse = 1 + Math.sin(elapsed * 0.8) * 0.009;
+      group.current.scale.setScalar(pulse);
+    }
+  });
+
+  const sharedShader = {
+    vertexShader,
+    fragmentShader,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+    uniforms,
+    blending: THREE.AdditiveBlending,
+  };
+
+  return (
+    <group ref={group} rotation={[0.055, 0, -0.06]}>
+      <mesh>
+        <torusGeometry args={[1.02, 0.10, 24, 256]} />
+        <shaderMaterial ref={glowMaterial} {...sharedShader} uniforms={{ ...uniforms, uStrength: { value: 0.12 } }} />
+      </mesh>
+      <mesh>
+        <torusGeometry args={[1.02, 0.038, 20, 256]} />
+        <shaderMaterial ref={coreMaterial} {...sharedShader} uniforms={{ ...uniforms, uStrength: { value: 0.29 } }} />
+      </mesh>
+      <mesh>
+        <torusGeometry args={[1.02, 0.012, 16, 256]} />
+        <meshBasicMaterial color="#dbeaff" transparent opacity={0.52} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+      </mesh>
+    </group>
+  );
 }
 
 export function ShaderBackground({ className = "" }: { className?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const pointer = useRef({ x: 0, y: 0 });
+  const [animate, setAnimate] = useState(false);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const canvas = document.createElement("canvas");
-    canvas.className = "main-shader-canvas";
-    canvas.setAttribute("aria-hidden","true");
-    host.appendChild(canvas);
-    const gl = canvas.getContext("webgl", {
-      alpha:false,antialias:false,depth:false,stencil:false,
-      powerPreference:"low-power",preserveDrawingBuffer:false,
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let pageVisible = document.visibilityState === "visible";
+    let inView = true;
+    let darkTheme = document.documentElement.dataset.theme !== "light";
+
+    const updateMode = () => {
+      const active = pageVisible && inView && darkTheme && !reduced.matches;
+      setAnimate(active);
+    };
+    const onVisibility = () => {
+      pageVisible = document.visibilityState === "visible";
+      updateMode();
+    };
+    const onMotion = () => updateMode();
+    const onPointer = (event: PointerEvent) => {
+      const bounds = host.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const inside = event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+      pointer.current.x = inside ? ((event.clientX - bounds.left) / bounds.width) * 2 - 1 : 0;
+      pointer.current.y = inside ? -(((event.clientY - bounds.top) / bounds.height) * 2 - 1) : 0;
+    };
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry?.isIntersecting ?? true;
+      updateMode();
+    }, { threshold: 0 });
+    const themeObserver = new MutationObserver(() => {
+      darkTheme = document.documentElement.dataset.theme !== "light";
+      updateMode();
     });
-    if (!gl) { canvas.remove(); return () => canvas.remove(); }
-    const vertex = compileShader(gl,gl.VERTEX_SHADER,VERTEX_SHADER);
-    const fragment = compileShader(gl,gl.FRAGMENT_SHADER,FRAGMENT_SHADER);
-    const program = gl.createProgram();
-    if (!vertex || !fragment || !program) {
-      if(vertex)gl.deleteShader(vertex); if(fragment)gl.deleteShader(fragment);
-      if(program)gl.deleteProgram(program); canvas.remove();
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
-      return () => canvas.remove();
-    }
-    gl.attachShader(program,vertex); gl.attachShader(program,fragment); gl.linkProgram(program);
-    if(!gl.getProgramParameter(program,gl.LINK_STATUS)) {
-      gl.deleteShader(vertex);gl.deleteShader(fragment);gl.deleteProgram(program);canvas.remove();
-      gl.getExtension("WEBGL_lose_context")?.loseContext(); return () => canvas.remove();
-    }
-    gl.useProgram(program);
-    const buffer=gl.createBuffer(), position=gl.getAttribLocation(program,"a_position");
-    if(!buffer || position<0) {
-      if(buffer)gl.deleteBuffer(buffer);gl.deleteShader(vertex);gl.deleteShader(fragment);
-      gl.deleteProgram(program);canvas.remove();gl.getExtension("WEBGL_lose_context")?.loseContext();
-      return () => canvas.remove();
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(position);gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
-    const resolution=gl.getUniformLocation(program,"u_resolution");
-    const time=gl.getUniformLocation(program,"u_time");
-    const reduced=window.matchMedia("(prefers-reduced-motion: reduce)");
-    let raf=0,timer=0,disposed=false,contextLost=false;
-    let visible=document.visibilityState==="visible",inView=true;
-    const started=performance.now();let lastFrame=0;
-    const stop=()=>{if(raf)cancelAnimationFrame(raf);if(timer)window.clearTimeout(timer);raf=0;timer=0;};
-    const resize=()=>{
-      if(disposed||contextLost)return;
-      const rect=host.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,1.25);
-      const rw=Math.max(1,Math.round(rect.width*dpr)),rh=Math.max(1,Math.round(rect.height*dpr));
-      const scale=Math.min(1,Math.sqrt(1200000/Math.max(1,rw*rh)));
-      const w=Math.max(1,Math.round(rw*scale)),h=Math.max(1,Math.round(rh*scale));
-      if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}
+
+    observer.observe(host);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    document.addEventListener("visibilitychange", onVisibility);
+    reduced.addEventListener("change", onMotion);
+    window.addEventListener("pointermove", onPointer, { passive: true });
+    updateMode();
+
+    return () => {
+      observer.disconnect();
+      themeObserver.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      reduced.removeEventListener("change", onMotion);
+      window.removeEventListener("pointermove", onPointer);
     };
-    const draw=(now:number)=>{
-      if(disposed||contextLost)return;
-      gl.uniform2f(resolution,canvas.width,canvas.height);
-      gl.uniform1f(time,reduced.matches?0:Math.max(0,(now-started)/1000));
-      gl.drawArrays(gl.TRIANGLES,0,3);lastFrame=now;
-    };
-    const schedule=()=>{
-      if(disposed||contextLost||!visible||!inView||reduced.matches||timer||raf)return;
-      timer=window.setTimeout(()=>{timer=0;raf=requestAnimationFrame((now)=>{raf=0;resize();draw(now);schedule();});},
-        Math.max(0,34-(performance.now()-lastFrame)));
-    };
-    const update=()=>{stop();if(disposed||contextLost||!visible||!inView)return;resize();draw(performance.now());schedule();};
-    const visibility=()=>{visible=document.visibilityState==="visible";update();};
-    const motion=()=>update();
-    const lost=(event:Event)=>{event.preventDefault();contextLost=true;stop();canvas.style.display="none";};
-    const ro=new ResizeObserver(update),io=new IntersectionObserver(([entry])=>{inView=entry?.isIntersecting??true;update();});
-    ro.observe(host);io.observe(host);document.addEventListener("visibilitychange",visibility);
-    reduced.addEventListener("change",motion);window.addEventListener("resize",update,{passive:true});
-    canvas.addEventListener("webglcontextlost",lost,{passive:false});update();
-    return ()=>{
-      disposed=true;stop();ro.disconnect();io.disconnect();
-      document.removeEventListener("visibilitychange",visibility);reduced.removeEventListener("change",motion);
-      window.removeEventListener("resize",update);canvas.removeEventListener("webglcontextlost",lost);
-      gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vertex);gl.deleteShader(fragment);
-      gl.getExtension("WEBGL_lose_context")?.loseContext();canvas.remove();
-    };
-  },[]);
-  return <div ref={hostRef} aria-hidden="true" className={"main-shader-background "+className} />;
+  }, []);
+
+  return (
+    <div ref={hostRef} aria-hidden="true" className={"main-shader-background " + className}>
+      <Canvas
+        frameloop={animate ? "always" : "demand"}
+        dpr={[1, 1.25]}
+        camera={{ position: [0, 0, 4.6], fov: 38, near: 0.1, far: 30 }}
+        gl={{ alpha: true, antialias: false, depth: true, stencil: false, powerPreference: "low-power", preserveDrawingBuffer: false }}
+        onCreated={({ gl }) => {
+          gl.domElement.setAttribute("aria-hidden", "true");
+          if (hostRef.current) hostRef.current.dataset.webgl = "ready";
+          gl.domElement.addEventListener("webglcontextlost", () => {
+            if (hostRef.current) hostRef.current.dataset.webgl = "lost";
+          }, { once: true });
+        }}
+      >
+        <RingMesh pointer={pointer} />
+      </Canvas>
+    </div>
+  );
 }
+
 export default ShaderBackground;

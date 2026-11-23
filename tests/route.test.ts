@@ -65,3 +65,24 @@ test("no credit or unlimited wording survives in the interface", () => {
   assert.ok(workspace.includes("ANVIK 1.0"), "the interface must use ANVIK model branding");
   assert.ok(!workspace.includes("From Gemini"), "the interface must not expose provider branding");
 });
+
+test("chat sends optimistic UI updates before the network request", () => {
+  const start = workspace.indexOf("async function sendMessage");
+  const end = workspace.indexOf("function submit(", start);
+  assert.ok(start >= 0 && end > start, "sendMessage implementation must be present");
+  const send = workspace.slice(start, end);
+  const optimistic = send.indexOf("addMessage(conversationId, userMessage)");
+  const request = send.indexOf('fetch("/api/chat"');
+  const quotaPreflight = send.indexOf('fetch("/api/quota"');
+  assert.ok(optimistic >= 0 && request > optimistic, "the user message must render before the chat network request");
+  assert.ok(quotaPreflight < 0 || quotaPreflight > request, "quota refresh must not delay optimistic rendering");
+});
+
+test("chat composer uses the new placeholder and premium accessible controls", () => {
+  assert.ok(workspace.includes('placeholder="Ask ANVIK a question..."'));
+  assert.ok(workspace.includes("<ModelSelector value={mode} onChange={setMode} />"));
+  assert.ok(workspace.includes("<DeepSearchToggle enabled={deepSearch} onChange={setDeepSearch} />"));
+  assert.ok(workspace.includes("deepSearch,"));
+  assert.ok(workspace.includes('document.addEventListener("pointerdown", closeOnOutsidePointer)'));
+  assert.ok(!workspace.includes("WebSearchMenu"));
+});

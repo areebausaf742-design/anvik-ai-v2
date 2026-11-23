@@ -17,6 +17,8 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
 }
 
 test("a complete streamed response delivers every token before the done frame", async () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://supabase.test";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
   const { POST } = await import("../app/api/chat/route");
 
   // A long, table-like answer streamed as many tiny token frames.
@@ -24,7 +26,15 @@ test("a complete streamed response delivers every token before the done frame", 
     "Intro ", "| Name | Score |\n", "| --- | --- |\n",
     "| Alpha | 10 |\n", "| Beta | 9 |\n", "| Gamma | 8 |\n", "\nTrailing note.",
   ];
-  mock.method(globalThis, "fetch", async () => {
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("/auth/v1/user")) {
+      return Response.json({
+        id: "stream-test-user",
+        email: "stream-test@example.test",
+        app_metadata: { provider: "email" },
+        user_metadata: { name: "Stream Test" },
+      });
+    }
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -42,7 +52,11 @@ test("a complete streamed response delivers every token before the done frame", 
   const response = await POST(
     makeRequest(
       { messages: [{ role: "user", content: "compare alpha beta gamma" }] },
-      { "x-google-generative-ai-api-key": VALID_AQ_KEY, accept: "text/event-stream" },
+      {
+        "x-google-generative-ai-api-key": VALID_AQ_KEY,
+        Authorization: "Bearer stream-test-session-token",
+        accept: "text/event-stream",
+      },
     ),
   );
   assert.equal(response.status, 200);

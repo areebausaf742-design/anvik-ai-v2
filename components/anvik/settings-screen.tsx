@@ -35,6 +35,7 @@ import {
 } from "@/lib/client-key";
 import { testGeminiKeyRequest } from "@/lib/client-api";
 import { useSession } from "@/components/anvik/session-provider";
+import { useAppearance, type AppearanceMode } from "@/components/anvik/appearance-provider";
 import {
   DEFAULT_MEMORY,
   EMPTY_LEARNING,
@@ -65,6 +66,7 @@ type QuotaStatus = {
 
 function SettingsScreenInner() {
   const router = useRouter();
+  const { appearance, setAppearance } = useAppearance();
   const { session, loading: sessionLoading, profile, signOut, bearerToken } = useSession();
   const mode = useChatStore((state) => state.mode);
   const setMode = useChatStore((state) => state.setMode);
@@ -232,6 +234,35 @@ function SettingsScreenInner() {
           Manage your keys, quota, preferences, and local data.
         </p>
       </div>
+
+      {/* Appearance */}
+      <section className="surface-card p-5 sm:p-6" aria-labelledby="appearance-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="appearance-heading" className="text-lg font-semibold text-[#1A1A1A]">Appearance</h2>
+            <p className="mt-1 text-sm text-[#666666]">Choose how ANVIK looks on this device.</p>
+          </div>
+          <span className="text-xs text-[#999999]">Saved automatically</span>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2" role="group" aria-label="Appearance preference">
+          {([
+            ["light", "Light", "Bright and clear"],
+            ["dark", "Dark", "Deep and focused"],
+            ["system", "System", "Follow your device"],
+          ] as const).map(([value, label, hint]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={appearance === value}
+              onClick={() => setAppearance(value as AppearanceMode)}
+              className={"appearance-option rounded-xl border px-3 py-3 text-left transition-colors " + (appearance === value ? "is-selected" : "")}
+            >
+              <span className="block text-sm font-semibold">{label}</span>
+              <span className="mt-1 block text-[11px] leading-snug opacity-70">{hint}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* Account */}
       {!sessionLoading && (
