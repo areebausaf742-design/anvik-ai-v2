@@ -15,7 +15,7 @@ import {
   Eye,
   FileText,
   Focus,
- Image as ImageIcon,
+  Image as ImageIcon,
   KeyRound,
   Menu,
   MessageSquarePlus,
@@ -638,7 +638,7 @@ function ChatWorkspaceInner() {
   const welcomeText = profile?.name ? `Welcome, ${profile.name}` : userName ? `Welcome, ${userName}` : "Welcome";
 
   return (
-    <div className="relative flex h-[100dvh] w-full overflow-hidden bg-white">
+    <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
       {/* ==================== Sidebar ==================== */}
       {!focusMode && (
         <aside
