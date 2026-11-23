@@ -73,7 +73,7 @@ function makeId() {
 function ChatWorkspaceInner() {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile, credits, session, loading: sessionLoading, bearerToken, signOut, refresh } = useSession();
+  const { profile, credits, session, loading: sessionLoading, bearerToken, signOut } = useSession();
   const { resolvedTheme } = useAppearance();
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
@@ -446,7 +446,6 @@ function ChatWorkspaceInner() {
           /* the quota display is best-effort */
         }
       })();
-      void refresh();
     }
   }
 
