@@ -1710,3 +1710,10 @@ html[data-theme="dark"] [class*="text-[#D97757]"] {
   .ambient-ring-host::before,
   .ambient-ring-host::after { animation: none !important; }
 }
+
+
+/* The ambient canvas is decoration only; never let the R3F wrapper intercept UI input. */
+.ambient-ring-host,
+.ambient-ring-host * {
+  pointer-events: none !important;
+}
