@@ -36,7 +36,8 @@ import { useChatStore, selectActiveConversation, type ChatMessage } from "@/stor
 import { ensureFreshChat } from "@/lib/fresh-chat";
 import WebSearchMenu from "@/components/anvik/web-search-menu";
 import SourcesPanel from "@/components/anvik/sources-panel";
-import type { SearchMode } from "@/lib/search";
+import type { SearchMode, SearchSource } from "@/lib/search";
+import { ShaderBackground } from "@/components/ui/main-shader-for-ai";
 import { modes } from "@/lib/prompts";
 import AnvikStar from "@/components/anvik/anvik-star";
 import { Brand } from "@/components/anvik/navigation";
@@ -337,7 +338,7 @@ function ChatWorkspaceInner() {
       // promise set before the stream starts — never used to claim a verified
       // search.
       let finalSearchStatus: "on" | "off" | "unavailable" = "off";
-      let finalSources: Array<{ title: string; uri: string; domain: string }> = [];
+      let finalSources: SearchSource[] = [];
       let finalQueries: string[] = [];
 
       if (isSSE) {
@@ -349,7 +350,7 @@ function ChatWorkspaceInner() {
         const handleFrame = (raw: string) => {
           const frame = raw.trim();
           if (!frame.startsWith("data:")) return;
-          let parsed: { t?: string; s?: string; model?: string; search?: string; sources?: Array<{ title?: string; uri?: string; domain?: string }>; queries?: string[] };
+          let parsed: { t?: string; s?: string; model?: string; search?: string; sources?: Array<{ title?: string; uri?: string; domain?: string; provider?: string; snippet?: string }>; queries?: string[] };
           try {
             parsed = JSON.parse(frame.slice(5).trim());
           } catch {
@@ -375,6 +376,8 @@ function ChatWorkspaceInner() {
                   title: typeof s.title === "string" && s.title.trim() ? s.title.trim() : s.uri as string,
                   uri: s.uri as string,
                   domain: typeof s.domain === "string" && s.domain.trim() ? s.domain.trim() : (s.uri as string),
+                  ...(s.provider === "exa" || s.provider === "tavily" || s.provider === "google" ? {provider:s.provider} : {}),
+                  ...(typeof s.snippet === "string" && s.snippet.trim() ? {snippet:s.snippet.trim().slice(0,1200)} : {}),
                 }));
             }
             if (Array.isArray(parsed.queries)) {
@@ -665,7 +668,7 @@ function ChatWorkspaceInner() {
   const showConnectButton = error.includes("Connect your own key");
   const showKeyHelper = showConnectButton || /key invalid|invalid or expired/i.test(error);
 
-  const welcomeText = profile?.name ? `Welcome, ${profile.name}` : userName ? `Welcome, ${userName}` : "Welcome";
+  const welcomeText = profile?.name ? "Hello, " + profile.name : userName ? "Hello, " + userName : "Hello";
 
   return (
     <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
@@ -959,24 +962,27 @@ function ChatWorkspaceInner() {
         {/* Message area */}
         <div className="flex-1 overflow-y-auto thin-scroll">
           {activeMessages.length === 0 ? (
-            <div className="mx-auto flex max-w-[720px] flex-col items-center px-4 pt-14 pb-10 text-center sm:px-6 sm:pt-20">
-              <AnvikStar size="lg" className="mb-4" />
+            <div className="welcome-stage relative isolate flex min-h-[calc(100dvh-58px)] w-full flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">
+              <ShaderBackground />
+              <div className="welcome-stage-overlay" aria-hidden="true" />
+              <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[760px] flex-col items-center">
+              <AnvikStar size="lg" className="mb-5" />
               <h1
-                className="welcome-fade-in font-serif text-[32px] font-normal leading-tight tracking-[-0.5px] text-[#1A1A1A]"
-                style={{ letterSpacing: "-0.5px" }}
+                className="welcome-fade-in font-serif text-[clamp(2.5rem,7vw,5.25rem)] font-normal leading-[1.04] tracking-[-0.055em] text-white"
+                style={{ letterSpacing: "-0.055em" }}
               >
                 {welcomeText}
               </h1>
 
-              <p className="mt-2 max-w-md text-sm leading-6 text-[#666666]">
-                A calm space to think, create, and get things done.
+              <p className="mt-4 max-w-lg text-sm leading-7 text-white/70 sm:text-base">
+                One mind. Infinite possibilities. What are we creating today?
               </p>
 
               {/* Glowing chatbar — welcome screen */}
               {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
 
               {error && (
-                <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
+                <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/35 px-4 py-3 text-xs text-white/80>
                   <span>{error}</span>
                   {showConnectButton && (
                     <a href="/settings" className="rounded-lg bg-[#1A1A1A] px-2.5 py-1.5 font-medium text-white hover:bg-[#333]">
@@ -985,9 +991,10 @@ function ChatWorkspaceInner() {
                   )}
                 </div>
               )}
+              </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-[720px] px-4 py-6">
+            <div className="mx-auto max-w-[720px] px-4 py-6>
               {activeMessages.map((message, index) => {
                 const isUser = message.role === "user";
                 const isLastAssistant = !isUser && index === activeMessages.length - 1;

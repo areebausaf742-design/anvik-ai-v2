@@ -12,8 +12,8 @@ const OPTIONS: {
   hint: string;
   icon: typeof Sparkles;
 }[] = [
-  { mode: "auto", label: "Auto", hint: "ANVIK decides when the web is needed", icon: Sparkles },
-  { mode: "on", label: "On", hint: "Always search the web for the answer", icon: Globe },
+  { mode: "auto", label: "Auto", hint: "Searches timely facts, research, verification and source requests", icon: Sparkles },
+  { mode: "on", label: "On", hint: "Uses Exa and Tavily when configured, with Google Search fallback", icon: Globe },
   { mode: "off", label: "Off", hint: "Never search — answer from knowledge only", icon: SearchX },
 ];
 

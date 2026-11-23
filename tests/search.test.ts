@@ -8,6 +8,7 @@ import {
   domainOf,
 } from "../lib/search";
 import { openGeminiStreamWithFallback, type SearchMetaCapture } from "../lib/gemini";
+import { normalizeExternalSearchResults } from "../lib/search-providers";
 
 /* ------------------------------------------------------------------ */
 /* Auto mode — the deterministic classifier                            */
@@ -56,6 +57,13 @@ test("normalizeSearchMode honours the three modes and coerces the rest to auto",
   assert.equal(normalizeSearchMode(42), "auto");
 });
 
+
+test("Auto searches explicit documentation, comparison and verification requests", () => {
+  const queries = ["Find official documentation for the Next.js cache API","Compare Exa and Tavily search APIs with citations",
+    "Fact-check this statement using reliable sources","Research academic studies about WebGL performance"];
+  for (const query of queries) assert.equal(shouldAutoSearch(query),true,"'" + query + "' should search");
+});
+
 /* ------------------------------------------------------------------ */
 /* Source normalization                                                */
 /* ------------------------------------------------------------------ */
@@ -76,6 +84,17 @@ test("normalizeSources dedupes, cleans and skips garbage", () => {
   assert.equal(sources[1].domain, "news.example.org");
   // no title → title falls back to the domain, never the raw URI
   assert.equal(sources[1].title, "news.example.org");
+});
+
+
+test("external search results keep provider labels, snippets and safe URLs", () => {
+  const sources=normalizeExternalSearchResults({results:[
+    {title:"Official API docs",url:"https://www.example.com/docs#top",highlights:["Useful excerpt"]},
+    {title:"Unsafe URL",url:"javascript:alert(1)",content:"ignore this"},
+    {title:"Credential URL",url:"https://user:secret@example.org/private",content:"private"},
+  ]},"exa");
+  assert.equal(sources.length,1);assert.equal(sources[0].provider,"exa");
+  assert.equal(sources[0].uri,"https://www.example.com/docs");assert.equal(sources[0].snippet,"Useful excerpt");
 });
 
 test("normalizeQueries dedupes, drops blanks and caps the list", () => {

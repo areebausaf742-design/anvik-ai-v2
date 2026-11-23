@@ -105,6 +105,7 @@ export default function SourcesPanel({
                           {source.title}
                         </a>
                         <span className="sources-domain">{source.domain}</span>
+                        {source.provider && <span className="sources-provider">{source.provider}</span>}
                       </span>
                       <button
                         type="button"
@@ -119,6 +120,7 @@ export default function SourcesPanel({
                     {isOpen && (
                       <div className="sources-preview">
                         <p className="sources-preview-title">{source.title}</p>
+                        {source.snippet && <p className="sources-preview-excerpt">{source.snippet}</p>}
                         <p className="sources-preview-url">
                           <Globe className="mr-1 inline h-3 w-3 align-[-2px] text-[#999999]" aria-hidden="true" />
                           {source.domain}

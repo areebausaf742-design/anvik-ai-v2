@@ -21,6 +21,8 @@ export type SearchSource = {
   title: string;
   uri: string;
   domain: string;
+  provider?: "exa" | "tavily" | "google";
+  snippet?: string;
 };
 
 /** Clean a domain-ish string: lowercase, trimmed, no leading www., no stray dots/slashes. */
@@ -66,7 +68,9 @@ export function shouldAutoSearch(query: string): boolean {
     /\b(?:search|research|find out|find|look up|look it up|get the latest|get the news|get the current|pull up|fetch|look at the web|search the web)\b/i,
   ];
 
-  return patterns.some((pattern) => pattern.test(text));
+  const researchIntent = /\b(?:official documentation|documentation|docs|citations?|cite|references?|verify|fact[ -]?check|cross[ -]?check|deep dive|compare|comparison|academic|papers?|stud(?:y|ies)|reports?|whitepapers?)\b/i;
+  const sourceIntent = /\b(?:provide|include|show|give me)\s+(?:reliable\s+)?sources?\b/i;
+  return patterns.some((pattern) => pattern.test(text)) || researchIntent.test(text) || sourceIntent.test(text);
 }
 
 /** Best-effort hostname from an arbitrary URI, for display and de-duplication. */
@@ -109,7 +113,7 @@ export function normalizeSource(chunk: unknown): SearchSource | null {
   const reportedDomain = cleanDomain(domain);
   const actualDomain = reportedDomain || domainOf(cleanUri);
   const cleanTitle = typeof title === "string" && title.trim() ? title.trim() : actualDomain;
-  return { title: cleanTitle, uri: cleanUri, domain: actualDomain };
+  return { title: cleanTitle, uri: cleanUri, domain: actualDomain, provider: "google" };
 }
 
 /**
