@@ -1717,3 +1717,31 @@ html[data-theme="dark"] [class*="text-[#D97757]"] {
 .ambient-ring-host * {
   pointer-events: none !important;
 }
+
+
+/* ANVIK chat-first quick-start actions (appended without replacing the current ring/theme styles). */
+.anvik-dark .welcome-shortcuts { max-width: 920px; }
+.anvik-dark .welcome-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid rgba(216,211,255,.2);
+  border-radius: 999px;
+  background: rgba(5,5,13,.55);
+  color: rgba(246,244,255,.88);
+  font-size: 13px;
+  font-weight: 550;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.anvik-dark .welcome-shortcut:hover {
+  border-color: rgba(184,171,255,.65);
+  background: rgba(105,83,222,.2);
+  transform: translateY(-1px);
+}
+.anvik-dark .welcome-shortcut:focus-visible {
+  outline: 2px solid #b8abff;
+  outline-offset: 3px;
+}

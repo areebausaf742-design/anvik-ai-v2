@@ -160,12 +160,32 @@ export function sanitizeDisplayName(raw: unknown): string {
   return cleaned;
 }
 
-/** Sanitized email fallback for display — "rahul.k" from "rahul.k@gmail.com". */
+/**
+ * Derive a readable first-name fallback from an email address.
+ * Example: "ravi237@gmail.com" becomes "Ravi". This is display-only;
+ * authentication and authorization always use the verified Supabase user id.
+ */
 export function emailFallbackName(email: string): string {
   const local = email.split("@")[0]?.trim().toLowerCase();
-  if (!local) return "friend";
+  if (!local) return "Friend";
   const part = local.replace(/[^a-z0-9._-]/g, " ").trim();
-  if (!part) return "friend";
-  const first = part.replace(/[._-]+/g, " ").split(" ").filter(Boolean)[0] ?? "friend";
-  return first.slice(0, 24);
+  if (!part) return "Friend";
+  const rawFirst = part.replace(/[._-]+/g, " ").split(" ").filter(Boolean)[0] ?? "";
+  const first = rawFirst.replace(/\d+$/, "").slice(0, 24);
+  if (!first) return "Friend";
+  return first.charAt(0).toLocaleUpperCase("en-US") + first.slice(1);
+}
+
+/**
+ * Convert a verified profile name into the short welcome greeting.
+ * A full display name is intentionally reduced to its first word.
+ */
+export function greetingFirstName(displayName: unknown, email: string): string {
+  const safeDisplayName = sanitizeDisplayName(displayName);
+  const candidate = safeDisplayName && !safeDisplayName.includes("@")
+    ? safeDisplayName
+    : emailFallbackName(email);
+  const first = candidate.trim().split(/\s+/)[0]?.replace(/\d+$/, "").slice(0, 24) ?? "";
+  if (!first) return emailFallbackName(email);
+  return first.charAt(0).toLocaleUpperCase("en-US") + first.slice(1);
 }

@@ -81,8 +81,8 @@ test("chat sends optimistic UI updates before the network request", () => {
 test("chat composer uses the new placeholder and premium accessible controls", () => {
   assert.ok(workspace.includes('placeholder="Ask ANVIK a question..."'));
   assert.ok(workspace.includes("<ModelSelector value={mode} onChange={setMode} />"));
-  assert.ok(workspace.includes("<DeepSearchToggle enabled={deepSearch} onChange={setDeepSearch} />"));
-  assert.ok(workspace.includes("deepSearch,"));
+  assert.ok(workspace.includes("<DeepSearchToggle value={searchMode} onChange={setSearchMode} />"));
+  assert.ok(workspace.includes("search: searchMode,"));
   assert.ok(workspace.includes('document.addEventListener("pointerdown", closeOnOutsidePointer)'));
   assert.ok(!workspace.includes("WebSearchMenu"));
 });

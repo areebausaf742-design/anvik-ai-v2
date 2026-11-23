@@ -12,7 +12,7 @@
  * the settings screen and the auth pages.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   clearStoredSession,
   isSessionUsable,
@@ -24,6 +24,7 @@ import {
   type SupabaseUser,
 } from "@/lib/auth";
 import { emailFallbackName } from "@/lib/session";
+import { setLearningOwner } from "@/lib/learning";
 
 export type AccountProfile = {
   id: string;
@@ -78,13 +79,15 @@ type SessionContextValue = {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-async function fetchJson(url: string, init?: RequestInit): Promise<Record<string, unknown> | null> {
+type JsonFetchResult = { data: Record<string, unknown> | null; status: number };
+
+async function fetchJson(url: string, init?: RequestInit): Promise<JsonFetchResult> {
   try {
     const response = await fetch(url, { cache: "no-store", ...init });
-    if (!response.ok) return null;
-    return (await response.json()) as Record<string, unknown>;
+    if (!response.ok) return { data: null, status: response.status };
+    return { data: (await response.json()) as Record<string, unknown>, status: response.status };
   } catch {
-    return null;
+    return { data: null, status: 0 };
   }
 }
 
@@ -95,14 +98,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [credits, setCredits] = useState<AccountCredits | null>(null);
   const [consent, setConsent] = useState<AccountConsent | null>(null);
+  const refreshGeneration = useRef(0);
 
   const bearerToken = useCallback(() => {
-    return session?.access_token ?? readStoredSession()?.access_token ?? null;
-  }, [session]);
+    // Hide the old account token while identity is being verified.
+    return !loading && session && isSessionUsable(session) ? session.access_token : null;
+  }, [loading, session]);
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
+    const isCurrent = () => refreshGeneration.current === generation;
+    setLoading(true);
+    setLearningOwner("guest");
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setCredits(null);
+    setConsent(null);
     const stored = readStoredSession();
     if (!stored) {
+      setLearningOwner("guest");
       setSession(null);
       setUser(null);
       setProfile(null);
@@ -115,10 +130,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let active = stored;
     if (!isSessionUsable(stored)) {
       const refreshed = await refreshSession();
+      if (!isCurrent()) return;
       if (refreshed && refreshed.ok && refreshed.session) {
         active = refreshed.session;
         setSession(active);
       } else {
+        setLearningOwner("guest");
         clearStoredSession();
         setSession(null);
         setUser(null);
@@ -131,6 +148,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     if (!isSessionUsable(active)) {
       // A usable session is the only one we trust; leftover refresh races.
+      setLearningOwner("guest");
       clearStoredSession();
       setSession(null);
       setUser(null);
@@ -145,13 +163,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const token = active.access_token;
     const headers = { Authorization: `Bearer ${token}` };
 
-    const [me, creditsRes] = await Promise.all([
+    const [meResult, creditsRes] = await Promise.all([
       fetchJson("/api/auth/me", { headers }),
       fetchJson("/api/credits", { headers }),
     ]);
+    if (!isCurrent()) return;
+    const me = meResult.data;
 
-    if (me) {
-      const u = (me.user ?? null) as Record<string, unknown> | null;
+    if (me && me.user && typeof me.user === "object") {
+      const u = me.user as Record<string, unknown>;
+      setLearningOwner(String(u.id ?? "guest"));
       if (u) {
         setUser({ id: String(u.id ?? ""), email: typeof u.email === "string" ? u.email : undefined, user_metadata: null });
         setProfile({
@@ -191,10 +212,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           aiImprovementConsentAt: typeof cons.aiImprovementConsentAt === "string" ? cons.aiImprovementConsentAt : null,
         });
       }
-    } else {
-      // The token was rejected — sign the user out honestly.
+    } else if (meResult.status === 401 || meResult.status === 403 || (me && !me.user)) {
+      // Only an explicit auth rejection clears the local session. Temporary
+      // network and server failures must not destroy a refreshable session.
+      setLearningOwner("guest");
       clearStoredSession();
       setSession(null);
+      setUser(null);
+      setProfile(null);
+      setCredits(null);
+      setConsent(null);
+    } else {
+      // Hide profile data while the server is unavailable, but retain the
+      // refreshable session. The next refresh can recover it safely.
+      setLearningOwner("guest");
       setUser(null);
       setProfile(null);
       setCredits(null);
@@ -204,7 +235,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Belt-and-braces: a separate credits fetch (cheap, already cached by server logic).
     void creditsRes;
 
-    setLoading(false);
+    if (isCurrent()) setLoading(false);
   }, []);
 
   const setDisplayName = useCallback(
@@ -229,12 +260,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    await authSignOut();
+    refreshGeneration.current += 1;
+    setLoading(true);
+    setLearningOwner("guest");
     setSession(null);
     setUser(null);
     setProfile(null);
     setCredits(null);
     setConsent(null);
+    await authSignOut();
+    setLoading(false);
   }, []);
 
   useEffect(() => {
