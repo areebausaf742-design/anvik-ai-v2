@@ -1781,3 +1781,24 @@ html[data-theme="dark"] [class*="text-[#D97757]"] {
 @media(prefers-reduced-motion:reduce) {
   .anvik-dark .chatbar::before,.anvik-dark .chatbar::after { animation:none!important; }
 }
+
+
+/* ANVIK composer v2.1 — align the animated border with the two-row surface. */
+.anvik-dark .chatbar,
+.anvik-dark .chatbar::before,
+.anvik-dark .chatbar::after {
+  border-radius: 26px;
+}
+.anvik-dark .chatbar-inner {
+  border-radius: 22px;
+}
+@media(max-width:640px) {
+  .anvik-dark .chatbar,
+  .anvik-dark .chatbar::before,
+  .anvik-dark .chatbar::after {
+    border-radius: 20px;
+  }
+  .anvik-dark .chatbar-inner {
+    border-radius: 18px;
+  }
+}
