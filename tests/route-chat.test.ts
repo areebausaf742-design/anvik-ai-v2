@@ -29,6 +29,17 @@ test.afterEach(() => {
 
 const VALID_AQ_KEY = "AQ.test-key-aq-prefix-acceptance-1234567890";
 const VALID_AIza_KEY = "AIzaSyTestKey1234567890123456789012345678";
+let sessionSequence = 0;
+
+function verifiedAuthResponse(init?: RequestInit) {
+  const token = new Headers(init?.headers).get("authorization")?.replace(/^Bearer\\s+/i, "") ?? "missing";
+  return Response.json({
+    id: "test-user-" + token.replace(/[^a-zA-Z0-9-]/g, "-"),
+    email: "tester@example.test",
+    app_metadata: { provider: "email" },
+    user_metadata: { name: "Test User" },
+  });
+}
 
 function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -50,7 +61,7 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer test-session-token",
+      Authorization: "Bearer route-test-session-" + (++sessionSequence),
       // Unique IP per call so the per-IP limiter does not cross-contaminate.
       "x-vercel-forwarded-for": `203.0.113.${Math.floor(Math.random() * 200) + 10}`,
       ...headers,
@@ -63,12 +74,7 @@ function mockGeminiFetch(answer: string, model = "gemini-2.5-flash") {
   return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/auth/v1/user")) {
-      return Response.json({
-        id: "test-verified-user",
-        email: "tester@example.test",
-        app_metadata: { provider: "email" },
-        user_metadata: { name: "Test User" },
-      });
+      return verifiedAuthResponse(init);
     }
     const contentType = new Headers(init?.headers).get("x-goog-api-key") ?? "";
     assert.ok(url.includes(`/models/${model}:streamGenerateContent`), `unexpected model url ${url}`);
@@ -208,7 +214,10 @@ test("a guest is rejected by the server before any model request", async () => {
 
 test("the per-IP spacing limit returns 429 with a Retry-After header", async () => {
   mockGeminiFetch("ok");
-  const headers = { "x-google-generative-ai-api-key": VALID_AQ_KEY };
+  const headers = {
+    "x-google-generative-ai-api-key": VALID_AQ_KEY,
+    Authorization: "Bearer shared-rate-limit-session",
+  };
   const ip = "203.0.113.77";
   const first = await POST(
     makeRequest({ messages: [{ role: "user", content: "one" }] }, { ...headers, "x-vercel-forwarded-for": ip }),
@@ -229,7 +238,7 @@ test("server-key chat keeps verified auth when the service-role credit backend i
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = VALID_AIza_KEY;
   mockGeminiFetch("server key flow works");
-  const ip = "203.0.113.88";
+  const ip = "203.0.113.147";
   const response = await POST(
     makeRequest({ messages: [{ role: "user", content: "hello" }] }, { "x-vercel-forwarded-for": ip }),
   );
@@ -247,6 +256,7 @@ test("server-key chat keeps verified auth when the service-role credit backend i
 function mockGroundedFetch(chunks: string[], metadata?: Record<string, unknown>) {
   return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     assert.ok(url.includes("streamGenerateContent"), `unexpected url ${url}`);
     const body = JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown };
     assert.deepEqual(body.tools, [{ googleSearch: {} }], "grounded requests must carry googleSearch");
@@ -302,7 +312,8 @@ test("search on: grounded stream carries sources and queries in the done frame",
 
 test("search off: never passes the tools field and reports status off", async () => {
   let body: Record<string, unknown> | null = null;
-  mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
     return new Response(sseStream(["plain answer"]), { status: 200 });
   });
@@ -322,6 +333,7 @@ test("search off: never passes the tools field and reports status off", async ()
 test("search on + grounded stream failure: falls back honestly with status unavailable", async () => {
   let calls = 0;
   mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     calls += 1;
     // Grounded attempt fails with a 503 every model; ungrounded succeeds.
     if (String(init?.body ?? "").includes("googleSearch")) {
@@ -345,7 +357,8 @@ test("search on + grounded stream failure: falls back honestly with status unava
 
 test("search auto + static question: never sends the tools field", async () => {
   let body: Record<string, unknown> | null = null;
-  mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
     return new Response(sseStream(["static answer"]), { status: 200 });
   });
@@ -361,7 +374,8 @@ test("search auto + static question: never sends the tools field", async () => {
 
 test("search auto + recent question: sends the tools field", async () => {
   let tools: unknown;
-  mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     tools = (JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown }).tools;
     return new Response(sseStream(["grounded"]), { status: 200 });
   });
@@ -379,6 +393,7 @@ test("search auto + recent question: sends the tools field", async () => {
 function mockIncrementalGroundedFetch(frames: Array<{ text?: string; metadata?: Record<string, unknown>; stop?: boolean }>) {
   return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     assert.ok(url.includes("streamGenerateContent"), `unexpected url ${url}`);
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -459,7 +474,8 @@ test("search on: grounded request the model never searches honestly reports unav
   // Grounded stream succeeds (200) but the model skipped the web entirely:
   // no groundingMetadata in any frame. This must not be claimed as a verified search.
   const encoder = new TextEncoder();
-  mock.method(globalThis, "fetch", async () => {
+  mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const frame = JSON.stringify({ candidates: [{ content: { parts: [{ text: "ungrounded answer" }] } }] });
