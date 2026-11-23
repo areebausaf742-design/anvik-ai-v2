@@ -171,7 +171,7 @@ function ChatWorkspaceInner() {
       // Persist middleware may write the empty state on setState; restore the
       // saved account value before rehydrating it into the store.
       if (previousAccountData) window.localStorage.setItem(storageKey, previousAccountData);
-      void useChatStore.persist.rehydrate()
+      void Promise.resolve(useChatStore.persist.rehydrate())
         .then(() => {
           if (identitySwitchRef.current === switchId) setIdentityReady(true);
         })
