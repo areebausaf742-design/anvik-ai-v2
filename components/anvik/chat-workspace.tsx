@@ -51,7 +51,9 @@ import {
   mapHttpErrorMessage,
   testGeminiKeyRequest,
 } from "@/lib/client-api";
-import { readMemory } from "@/lib/learning";
+import { readMemory, setLearningOwner } from "@/lib/learning";
+import { greetingFirstName } from "@/lib/session";
+import { accountStorageKey } from "@/lib/account-storage";
 import { useSession } from "@/components/anvik/session-provider";
 import { useAppearance } from "@/components/anvik/appearance-provider";
 
@@ -87,6 +89,7 @@ function ChatWorkspaceInner() {
   const setMessageMeta = useChatStore((state) => state.setMessageMeta);
 
   const [hydrated, setHydrated] = useState(false);
+  const [identityReady, setIdentityReady] = useState(false);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -98,10 +101,9 @@ function ChatWorkspaceInner() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [listening, setListening] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [userName, setUserName] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
-  const [deepSearch, setDeepSearch] = useState(false);
+  const [searchMode, setSearchMode] = useState<"auto" | "on" | "off">("auto");
   const [showPalette, setShowPalette] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -116,25 +118,9 @@ function ChatWorkspaceInner() {
 
   useEffect(() => {
     setHydrated(true);
-    // Persisted Zustand state is already hydrated by now (zustand persist
-    // hydrates synchronously on localStorage). A genuinely new browser tab —
-    // or a login / OAuth / onboarding boundary that set a one-shot pending
-    // request — starts with a fresh, empty conversation. Same-tab reloads and
-    // route navigation preserve the current conversation.
-    // Deep link from the Projects page (/chat?project=<id>): open that
-    // conversation instead of starting a fresh one. Only consumed when the
-    // target still exists — a stale link falls back to the fresh-chat contract.
-    const projectId = new URLSearchParams(window.location.search).get("project");
-    const targetProject = projectId
-      ? useChatStore.getState().conversations.find((conversation) => conversation.id === projectId)
-      : undefined;
-    if (targetProject) {
-      setActive(targetProject.id);
-    } else {
-      ensureFreshChat();
-    }
-    const mem = readMemory();
-    setUserName(mem.name.trim());
+    // Do not read the persisted chat store until the verified account namespace
+    // has been selected below. Legacy unscoped history is intentionally not
+    // imported because its owner cannot be proven.
     const prompt = new URLSearchParams(window.location.search).get("prompt");
     if (prompt) setInput(prompt.slice(0, 1600));
     const seenTip = localStorage.getItem("anvik-tip-seen");
@@ -145,15 +131,68 @@ function ChatWorkspaceInner() {
         localStorage.setItem("anvik-tip-seen", "1");
       }, 5000);
     }
-  }, [setActive]);
+  }, []);
+
+  const identityRef = useRef<string | null>(null);
+  const identitySwitchRef = useRef(0);
+
+  // Wait for server-verified identity before switching the persisted store.
+  useEffect(() => {
+    if (sessionLoading || (session && !profile)) {
+      identitySwitchRef.current += 1;
+      abortRef.current?.abort();
+      setPending(false);
+      setIdentityReady(false);
+      return;
+    }
+    const identity = profile?.id || "guest";
+    if (identityRef.current === identity) {
+      setIdentityReady(true);
+      return;
+    }
+
+    setIdentityReady(false);
+    abortRef.current?.abort();
+    setPending(false);
+    identityRef.current = identity;
+    const switchId = ++identitySwitchRef.current;
+    setLearningOwner(identity);
+    const storageKey = accountStorageKey("anvik-chat-history", identity);
+    try {
+      const previousAccountData = window.localStorage.getItem(storageKey);
+      useChatStore.persist.setOptions({ name: storageKey });
+      useChatStore.setState({
+        conversations: [],
+        activeId: null,
+        mode: "smart",
+        temperature: 0.65,
+        storageWarning: "",
+      });
+      // Persist middleware may write the empty state on setState; restore the
+      // saved account value before rehydrating it into the store.
+      if (previousAccountData) window.localStorage.setItem(storageKey, previousAccountData);
+      void useChatStore.persist.rehydrate()
+        .then(() => {
+          if (identitySwitchRef.current === switchId) setIdentityReady(true);
+        })
+        .catch(() => {
+          if (identitySwitchRef.current === switchId) setIdentityReady(true);
+        });
+    } catch {
+      useChatStore.setState({ conversations: [], activeId: null });
+      if (identitySwitchRef.current === switchId) setIdentityReady(true);
+    }
+  }, [sessionLoading, session?.access_token, profile?.id]);
 
   useEffect(() => {
-    const mem = readMemory();
-    setUserName((current) => {
-      const next = mem.name.trim();
-      return next === current ? current : next;
-    });
-  }, [activeChat]);
+    if (!hydrated || !identityReady) return;
+    const projectId = new URLSearchParams(window.location.search).get("project");
+    const targetProject = projectId
+      ? useChatStore.getState().conversations.find((conversation) => conversation.id === projectId)
+      : undefined;
+    if (targetProject) setActive(targetProject.id);
+    else ensureFreshChat();
+  }, [hydrated, identityReady, setActive]);
 
 
   useEffect(() => {
@@ -200,7 +239,7 @@ function ChatWorkspaceInner() {
 
   async function sendMessage(value = input, regeneration?: { assistantId: string; history: ChatMessage[] }) {
     const content = value.trim();
-    if (!content || pending) return;
+    if (!content || pending || !identityReady || sessionLoading || (session && !profile)) return;
 
     const apiKey = readApiKey();
     const token = bearerToken();
@@ -262,8 +301,7 @@ function ChatWorkspaceInner() {
           mode,
           temperature,
           memory: readMemory(),
-          search: deepSearch ? "on" : "off",
-          deepSearch,
+          search: searchMode,
         }),
         signal: controller.signal,
       });
@@ -535,7 +573,7 @@ function ChatWorkspaceInner() {
             )}
           </div>
 
-          <DeepSearchToggle enabled={deepSearch} onChange={setDeepSearch} />
+          <DeepSearchToggle value={searchMode} onChange={setSearchMode} />
 
           <div className="chatbar-input-wrap">
             <textarea
@@ -546,7 +584,7 @@ function ChatWorkspaceInner() {
               placeholder="Ask ANVIK a question..."
               aria-label="Ask ANVIK a question..."
               rows={1}
-              disabled={pending}
+              disabled={pending || !identityReady || sessionLoading || Boolean(session && !profile)}
               className="chatbar-input"
             />
           </div>
@@ -579,7 +617,7 @@ function ChatWorkspaceInner() {
           <button
             type="submit"
             aria-label="Send message"
-            disabled={!input.trim() || pending}
+            disabled={!input.trim() || pending || !identityReady || sessionLoading || Boolean(session && !profile)}
             className="send-btn shrink-0"
           >
             <ArrowUp className="h-4 w-4" />
@@ -589,15 +627,36 @@ function ChatWorkspaceInner() {
     </form>
   );
 
-  const safeConversations = hydrated ? conversations : [];
-  const activeMessages = hydrated ? (activeChat?.messages ?? []) : [];
+  const currentIdentity = profile?.id || "guest";
+  const namespaceReady = hydrated && identityReady && !sessionLoading && !(session && !profile)
+    && identityRef.current === currentIdentity;
+  const safeConversations = namespaceReady ? conversations : [];
+  const activeMessages = namespaceReady ? (activeChat?.messages ?? []) : [];
   const filteredChats = safeConversations.filter((chat) =>
     chat.title.toLowerCase().includes(search.toLowerCase()),
   );
   const showConnectButton = error.includes("Connect your own key");
   const showKeyHelper = showConnectButton || /key invalid|invalid or expired/i.test(error);
 
-  const welcomeText = profile?.name ? "Hello, " + profile.name : userName ? "Hello, " + userName : "Hello";
+  const welcomeGreeting = sessionLoading || (session && !profile)
+    ? "Verifying your account…"
+    : profile
+      ? `Hello, ${greetingFirstName(profile.name, profile.email)}`
+      : "Hello, Guest";
+
+  const quickStarts = [
+    { label: "Generate code", icon: Code2, prompt: "Help me write a clean, accessible code solution for: " },
+    { label: "Deep research", icon: Search, prompt: "Research this topic thoroughly, compare reliable sources, and cite the evidence: ", search: true },
+    { label: "Build a landing page", icon: Sparkles, prompt: "Help me plan and build a polished, responsive landing page for: " },
+    { label: "Explain a concept", icon: FileText, prompt: "Explain this concept clearly, step by step, with a simple example: " },
+    { label: "Analyze an image", icon: ImageIcon, prompt: "Analyze the image I upload and explain what you can observe." },
+  ];
+
+  function chooseQuickStart(prompt: string, enableSearch = false) {
+    setInput(prompt);
+    if (enableSearch) setSearchMode("on");
+    fieldRef.current?.focus();
+  }
 
   return (
     <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
@@ -763,14 +822,14 @@ function ChatWorkspaceInner() {
               className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#F0F0EE]"
             >
               <span aria-hidden="true" className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
-                {profile?.avatarUrl ? (
+                {!sessionLoading && profile?.avatarUrl ? (
                   <Image src={profile.avatarUrl} alt="" fill sizes="32px" className="object-cover" />
                 ) : (
-                  (profile?.name?.trim().charAt(0).toUpperCase() || userName.trim().charAt(0).toUpperCase() || "A")
+                  (!sessionLoading && profile?.name?.trim().charAt(0).toUpperCase()) || "G"
                 )}
               </span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#1A1A1A]">
-                {profile?.name || userName || (session ? "Your account" : "Sign in")}
+                {sessionLoading || (session && !profile) ? "Verifying account…" : profile?.name || "Guest"}
               </span>
               <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" aria-hidden="true" />
               <span className="sr-only">{session ? "Account settings" : "Sign in to ANVIK AI"}</span>
@@ -893,21 +952,30 @@ function ChatWorkspaceInner() {
           {activeMessages.length === 0 ? (
             <div className="welcome-stage relative isolate flex min-h-[calc(100dvh-58px)] w-full flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">
               <div className="welcome-stage-overlay" aria-hidden="true" />
-              <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[760px] flex-col items-center">
+              <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[920px] flex-col items-center">
               <AnvikStar size="lg" className="mb-5" />
               <h1
-                className={"welcome-fade-in font-serif text-[clamp(2.5rem,7vw,5.25rem)] font-normal leading-[1.04] tracking-[-0.055em] " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}
-                style={{ letterSpacing: "-0.055em" }}
+                className={"welcome-fade-in text-[clamp(2.6rem,7vw,5rem)] font-semibold leading-[1.02] tracking-[-0.065em] " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}
+                style={{ letterSpacing: "-0.065em" }}
               >
-                {welcomeText}
+                ANVIK AI
               </h1>
 
-              <p className={"mt-4 max-w-lg text-sm leading-7 sm:text-base " + (resolvedTheme === "dark" ? "text-white/70" : "text-[#666666]")}>
-                One mind. Infinite possibilities. What are we creating today?
+              <p className={"mt-4 max-w-2xl text-sm leading-7 sm:text-base " + (resolvedTheme === "dark" ? "text-white/75" : "text-[#666666]")}>
+                <span className={"font-semibold " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}>{welcomeGreeting}</span>
+                {" · Build something amazing — just start typing below."}
               </p>
 
               {/* Glowing chatbar — welcome screen */}
               {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
+              <div className="mt-6 flex w-full max-w-[920px] flex-wrap items-center justify-center gap-2.5" aria-label="Quick starts">
+                {quickStarts.map(({ label, icon: Icon, prompt, search: enableSearch }) => (
+                  <button key={label} type="button" onClick={() => chooseQuickStart(prompt, Boolean(enableSearch))} className="welcome-shortcut">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
 
               {error && (
                 <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/35 px-4 py-3 text-xs text-white/80">
