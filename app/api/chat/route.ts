@@ -386,7 +386,7 @@ export async function POST(request: Request) {
     return Response.json({error:candidate.error.message,detail:candidate.error.message,code:candidate.error.code},{status:candidate.error.status});
   };
   if (searchNeeded && hasExternalSources && externalSearchResult) {
-    const evidenceInstruction = [systemInstruction,buildExternalSearchContext(externalSearchResult.sources)].join("\\n\\n");
+    const evidenceInstruction = [systemInstruction,buildExternalSearchContext(externalSearchResult.sources)].join("\n\n");
     result = await openGeminiStreamWithFallback({apiKey:key,systemInstruction:evidenceInstruction,contents,
       temperature:safeTemperature,maxOutputTokens:tokenCap,signal:request.signal});
     if (result.ok) { searchStatus="on"; externalSearchUsed=true; }

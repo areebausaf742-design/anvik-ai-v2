@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 const VERTEX_SHADER = [
   "attribute vec2 a_position;",
   "void main() { gl_Position = vec4(a_position, 0.0, 1.0); }",
-].join("\\n");
+].join("\n");
 
 const FRAGMENT_SHADER = [
 "#ifdef GL_FRAGMENT_PRECISION_HIGH",
@@ -32,7 +32,7 @@ const FRAGMENT_SHADER = [
 "float vignette=1.0-smoothstep(0.18,1.05,length((uv-0.5)*vec2(1.0,0.86))); color*=0.56+0.44*vignette;",
 "gl_FragColor=vec4(clamp(color,0.0,1.0),1.0);",
 "}",
-].join("\\n");
+].join("\n");
 
 function compileShader(gl: WebGLRenderingContext, type: number, source: string) {
   const shader = gl.createShader(type);

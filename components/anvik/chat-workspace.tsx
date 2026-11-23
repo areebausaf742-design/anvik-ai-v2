@@ -982,7 +982,7 @@ function ChatWorkspaceInner() {
               {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
 
               {error && (
-                <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/35 px-4 py-3 text-xs text-white/80>
+                <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/35 px-4 py-3 text-xs text-white/80">
                   <span>{error}</span>
                   {showConnectButton && (
                     <a href="/settings" className="rounded-lg bg-[#1A1A1A] px-2.5 py-1.5 font-medium text-white hover:bg-[#333]">
@@ -994,7 +994,7 @@ function ChatWorkspaceInner() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-[720px] px-4 py-6>
+            <div className="mx-auto max-w-[720px] px-4 py-6">
               {activeMessages.map((message, index) => {
                 const isUser = message.role === "user";
                 const isLastAssistant = !isUser && index === activeMessages.length - 1;
