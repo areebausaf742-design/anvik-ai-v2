@@ -122,7 +122,7 @@ body {
 
 /* ============================ glowing rainbow chatbar ============================ */
 @property --rainbow-angle {
-  syntax: "<angle>";
+  syntax: "angle";
   inherits: false;
   initial-value: 0deg;
 }
@@ -1027,4 +1027,208 @@ body {
 .sources-toggle:hover,
 .sources-toggle:focus-visible {
   color: #1A1A1A;
+}
+
+
+/* ==========================================================================
+   ANVIK AI — Dark intelligence workspace
+   Scoped to .anvik-dark so account, pricing and onboarding retain their
+   existing route-specific styling while the main workspace becomes dark.
+   ========================================================================== */
+.anvik-dark {
+  color-scheme: dark;
+  --bg: #090b12;
+  --bg-sidebar: #0d111b;
+  --border: #252c3b;
+  --border-soft: #30394d;
+  --ink: #f3f5fb;
+  --ink-secondary: #a5afc3;
+  --ink-muted: #78839a;
+  --accent: #9b8cff;
+  --accent-soft: rgba(155, 140, 255, 0.12);
+  --accent-border: rgba(155, 140, 255, 0.28);
+  --code-bg: #111827;
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 74% 9%, rgba(105, 83, 220, 0.13), transparent 31%),
+    radial-gradient(ellipse at 46% 88%, rgba(36, 123, 181, 0.07), transparent 35%),
+    #090b12 !important;
+  color: #f3f5fb !important;
+}
+.anvik-dark > aside {
+  background: linear-gradient(180deg, #0e1320 0%, #0a0e17 100%) !important;
+  border-color: #252c3b !important;
+  box-shadow: 18px 0 60px rgba(0, 0, 0, 0.14);
+}
+.anvik-dark > section {
+  background: transparent !important;
+  min-height: 0;
+}
+.anvik-dark > section > div:first-child {
+  min-height: 58px;
+  background: rgba(10, 14, 23, 0.78);
+  border-color: #252c3b !important;
+  backdrop-filter: blur(18px);
+}
+.anvik-dark [class*="bg-white"] { background-color: #121827 !important; }
+.anvik-dark [class*="bg-[#F7F7F5]"],
+.anvik-dark [class*="bg-[#F0F0EE]"] { background-color: #171e2d !important; }
+.anvik-dark [class*="bg-[#FAFAF8]"] { background-color: #141b29 !important; }
+.anvik-dark [class*="border-[#EDEDED]"],
+.anvik-dark [class*="border-[#E5E5E5]"] { border-color: #293247 !important; }
+.anvik-dark [class*="text-[#1A1A1A]"] { color: #f0f2f8 !important; }
+.anvik-dark [class*="text-[#666666]"] { color: #a5afc3 !important; }
+.anvik-dark [class*="text-[#999999]"] { color: #77839a !important; }
+.anvik-dark [class*="hover:bg-[#F7F7F5]"]:hover,
+.anvik-dark [class*="hover:bg-[#F0F0EE]"]:hover { background-color: #20283a !important; }
+.anvik-dark :focus-visible {
+  outline-color: #a99cff;
+  outline-offset: 3px;
+}
+.anvik-dark .new-btn {
+  background: linear-gradient(135deg, #9b8cff 0%, #7161e8 100%) !important;
+  border: 1px solid rgba(190, 181, 255, 0.32) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 28px rgba(113, 97, 232, 0.24);
+  border-radius: 12px;
+}
+.anvik-dark .new-btn:hover {
+  box-shadow: 0 10px 34px rgba(113, 97, 232, 0.34);
+  transform: translateY(-1px);
+}
+.anvik-dark .chat-item {
+  color: #a5afc3;
+  border-radius: 10px;
+}
+.anvik-dark .chat-item:hover,
+.anvik-dark .chat-item.active {
+  background: rgba(143, 127, 255, 0.12) !important;
+  color: #f4f2ff !important;
+}
+.anvik-dark .chat-item.active {
+  box-shadow: inset 2px 0 0 #9b8cff;
+}
+.anvik-dark .chatbar {
+  border-radius: 22px;
+}
+.anvik-dark .chatbar::before {
+  background: conic-gradient(from var(--rainbow-angle), #6c5ce7, #9b8cff, #38bdf8, #6c5ce7);
+  opacity: 0.38;
+  filter: blur(23px);
+  inset: -7px;
+}
+.anvik-dark .chatbar::after {
+  border-radius: 22px;
+  background: conic-gradient(from var(--rainbow-angle), #6c5ce7, #9b8cff, #38bdf8, #6c5ce7);
+}
+.anvik-dark .chatbar-inner {
+  margin: 2px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #171e2d 0%, #111725 100%) !important;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255,255,255,.045);
+  padding: 10px 12px;
+}
+.anvik-dark .chatbar-input {
+  color: #f3f5fb !important;
+}
+.anvik-dark .chatbar-placeholder {
+  color: #77839a !important;
+}
+.anvik-dark .chatbar-icon-btn {
+  background: #20283a !important;
+  border-color: #35405a !important;
+  color: #c0c8d8 !important;
+}
+.anvik-dark .chatbar-icon-btn:hover {
+  border-color: #9b8cff !important;
+  color: #fff !important;
+  background: #292d49 !important;
+}
+.anvik-dark .chatbar-icon-btn-on,
+.anvik-dark .send-btn {
+  background: linear-gradient(135deg, #9b8cff 0%, #7161e8 100%) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  box-shadow: 0 5px 18px rgba(113, 97, 232, 0.28);
+}
+.anvik-dark .send-btn:disabled {
+  opacity: .4;
+}
+.anvik-dark .websearch-btn {
+  background: #171e2d !important;
+  border-color: #35405a !important;
+  color: #b7c1d4 !important;
+}
+.anvik-dark .websearch-btn-live {
+  background: rgba(56, 189, 248, .11) !important;
+  border-color: rgba(56, 189, 248, .32) !important;
+  color: #bae6fd !important;
+}
+.anvik-dark .sources-panel,
+.anvik-dark .palette-panel {
+  background: #121827 !important;
+  border-color: #2a3448 !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .42);
+}
+.anvik-dark .sources-head,
+.anvik-dark .sources-chip,
+.anvik-dark .sources-index {
+  background: #1a2233 !important;
+  border-color: #303b52 !important;
+  color: #bdc7da !important;
+}
+.anvik-dark .sources-list,
+.anvik-dark .sources-item + .sources-item { border-color: #293247 !important; }
+.anvik-dark .sources-title,
+.anvik-dark .sources-preview-title,
+.anvik-dark .md,
+.anvik-dark .md h1,
+.anvik-dark .md h2,
+.anvik-dark .md h3,
+.anvik-dark .md h4,
+.anvik-dark .md h5,
+.anvik-dark .md h6,
+.anvik-dark .md strong { color: #e9edf7 !important; }
+.anvik-dark .md-code,
+.anvik-dark .md-pre,
+.anvik-dark .md-table-wrap {
+  background: #111827 !important;
+  border-color: #2a3448 !important;
+}
+.anvik-dark .md-pre code { color: #dce5f5 !important; }
+.anvik-dark .md-table th { background: #1a2233 !important; }
+.anvik-dark .md-table th,
+.anvik-dark .md-table td { border-color: #2a3448 !important; }
+.anvik-dark .md a { color: #b8adff !important; }
+.anvik-dark .md-quote { background: rgba(155, 140, 255, .1) !important; }
+.anvik-dark .search-live-badge {
+  background: rgba(56, 189, 248, .1) !important;
+  border-color: rgba(56, 189, 248, .25) !important;
+  color: #bae6fd !important;
+}
+.anvik-dark .thin-scroll::-webkit-scrollbar-thumb { background: #35405a; }
+.anvik-dark input,
+.anvik-dark textarea { color: #f3f5fb; }
+.anvik-dark input::placeholder,
+.anvik-dark textarea::placeholder { color: #77839a; }
+.anvik-dark kbd { border-color: #35405a !important; color: #a5afc3 !important; }
+.anvik-dark .msg-toolbar button:hover { background: #20283a !important; }
+.anvik-dark .stream-cursor::after { background: #9b8cff; }
+.anvik-dark .palette-overlay { background: rgba(3, 5, 10, .72) !important; }
+.anvik-dark .palette-panel > div:first-child { border-color: #293247 !important; }
+.anvik-dark .palette-panel input { color: #f3f5fb !important; }
+@media (max-width: 767px) {
+ .anvik-dark > aside { box-shadow: 24px 0 80px rgba(0,0,0,.45); }
+ .anvik-dark .chatbar-inner { padding: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anvik-dark *,
+ .anvik-dark *::before,
+ .anvik-dark *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
 }
