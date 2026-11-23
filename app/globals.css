@@ -1676,3 +1676,37 @@ html[data-theme="dark"] [class*="hover:bg-[#F0F0EE]"]:hover {
 html[data-theme="dark"] [class*="text-[#D97757]"] {
   color: #bac8dc !important;
 }
+
+@property --ring-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 205deg;
+}
+.ambient-ring-host::before,
+.ambient-ring-host::after {
+  --ring-angle: 205deg;
+  background: conic-gradient(from var(--ring-angle),
+    #9254f2 0deg,
+    #6d76f7 72deg,
+    #4f9cff 154deg,
+    #a6e7ff 225deg,
+    #f7fbff 258deg,
+    #a2ddff 300deg,
+    #9254f2 360deg);
+  animation: ring-fallback-rotate 28s linear infinite;
+}
+.ambient-ring-host::before {
+  animation-name: ring-fallback-rotate, ring-fallback-breathe;
+  animation-duration: 28s, 12s;
+  animation-timing-function: linear, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-direction: normal, alternate;
+}
+@keyframes ring-fallback-rotate {
+  from { --ring-angle: 205deg; }
+  to { --ring-angle: 565deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ambient-ring-host::before,
+  .ambient-ring-host::after { animation: none !important; }
+}

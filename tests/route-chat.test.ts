@@ -230,20 +230,27 @@ test("the per-IP spacing limit returns 429 with a Retry-After header", async () 
   assert.ok(second.headers.get("retry-after"));
 });
 
-test("server-key chat keeps verified auth when the service-role credit backend is unavailable", async () => {
-  // Supabase Auth remains configured so the bearer can be verified. Removing
-  // the service-role key exercises the existing fail-safe in-memory credit
-  // fallback without turning a signed-out caller into an eligible guest.
+test("server-key chat fails closed when the atomic credit reservation backend is unavailable", async () => {
+  // Auth remains verified; without the service-role key reserve_credit is
+  // unavailable, so the route must reject before calling Gemini.
   const previousServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = VALID_AIza_KEY;
-  mockGeminiFetch("server key flow works");
-  const ip = "198.51.100.247";
+  const fetchMock = mockGeminiFetch("this must never reach the model");
   const response = await POST(
-    makeRequest({ messages: [{ role: "user", content: "hello" }] }, { "x-vercel-forwarded-for": ip }),
+    makeRequest(
+      { messages: [{ role: "user", content: "hello" }] },
+      { "x-vercel-forwarded-for": "198.51.100.247" },
+    ),
   );
-  assert.equal(response.status, 200, "the verified request should degrade to the in-memory credit fallback, not fail");
-  assert.equal(response.headers.get("x-anvik-model"), "gemini-2.5-flash");
+  assert.equal(response.status, 429);
+  const body = await response.json();
+  assert.equal(body.code, "free_limit_reached");
+  assert.equal(
+    fetchMock.mock.calls.filter((call) => String(call.arguments[0]).includes("generativelanguage.googleapis.com")).length,
+    0,
+    "credit reservation failure must happen before any model provider call",
+  );
   if (previousServiceRole) process.env.SUPABASE_SERVICE_ROLE_KEY = previousServiceRole;
   else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;

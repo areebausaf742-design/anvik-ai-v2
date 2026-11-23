@@ -600,7 +600,7 @@ function ChatWorkspaceInner() {
   const welcomeText = profile?.name ? "Hello, " + profile.name : userName ? "Hello, " + userName : "Hello";
 
   return (
-    <div className={`${resolvedTheme === "dark" ? "anvik-dark" : "anvik-light"} relative flex h-[100dvh] w-full overflow-hidden bg-white`}>
+    <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
       {/* ==================== Sidebar ==================== */}
       {!focusMode && (
         <aside

@@ -5,12 +5,13 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "rea
 import * as THREE from "three";
 
 const vertexShader = `
-  varying vec3 vPosition;
+  varying vec3 vWorldPosition;
   varying vec3 vNormal;
   void main() {
-    vPosition = position;
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
     vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
   }
 `;
 
@@ -18,7 +19,7 @@ const fragmentShader = `
   precision highp float;
   uniform float uTime;
   uniform float uStrength;
-  varying vec3 vPosition;
+  varying vec3 vWorldPosition;
   varying vec3 vNormal;
 
   vec3 ringPalette(float phase) {
@@ -33,7 +34,7 @@ const fragmentShader = `
   }
 
   void main() {
-    float angle = atan(vPosition.y, vPosition.x);
+    float angle = atan(vWorldPosition.y, vWorldPosition.x);
     float phase = mod(angle + 1.57079632679 + uTime * 0.014, 6.28318530718) / 6.28318530718;
     vec3 color = ringPalette(phase);
     float lowerArc = smoothstep(0.02, 0.92, -sin(angle));
