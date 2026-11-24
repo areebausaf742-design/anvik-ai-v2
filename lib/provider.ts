@@ -1,15 +1,43 @@
+/**
+ * The one place that decides which model ANVIK asks.
+ *
+ * This module used to be a second, half-finished provider client: it exported
+ * `openLive`/`parseLive`, hardcoded `gemini-2.0-flash` at 600 output tokens,
+ * and had no fallback chain. Nothing imported it except itself — every real
+ * route uses `lib/gemini.ts`. Dead code that *looks* like the provider layer is
+ * a trap: the next person to add a route would have copied the stale client
+ * and silently shipped a model with no fallback and a 600-token cap.
+ *
+ * What remains is the part that is actually shared: the key resolution rules
+ * and the ordered model chain. The chain lives here so the fallback order is
+ * defined once and read by `lib/gemini.ts`.
+ */
+
 import { isValidGeminiKeyFormat } from "@/lib/gemini";
 
 export const GEMINI_BASE_URL =
   process.env.GEMINI_BASE_URL?.trim() || "https://generativelanguage.googleapis.com/v1beta";
 
-export const AI_MODEL = process.env.ANVIK_MODEL ?? "gemini-2.0-flash";
-export const LIVE_MODEL = AI_MODEL;
+/**
+ * The ordered fallback chain is owned by `lib/gemini.ts`
+ * (`MODEL_FALLBACK_CHAIN`) because that module is the only one that calls the
+ * API. It is re-exported here so anything that already imports the "provider
+ * layer" gets the live chain instead of a hardcoded copy that can drift.
+ */
+export { MODEL_FALLBACK_CHAIN, MODEL_FALLBACK_CHAIN as MODEL_CHAIN } from "@/lib/gemini";
 
+/** The model used when a caller does not care (single-shot helpers). */
+export const DEFAULT_MODEL = "gemini-2.5-flash";
+
+/**
+ * Server key resolution. Order matters: the dedicated Gemini variable wins over
+ * the Google-SDK variable, so an operator can rotate one without touching the
+ * other.
+ */
 export function serverKey(): string | undefined {
   const key =
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
-    process.env.GEMINI_API_KEY?.trim();
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
   return key || undefined;
 }
 
@@ -21,6 +49,7 @@ export function clientKey(request: Request): string | undefined {
   return key;
 }
 
+/** The caller's own key wins unconditionally — the user is paying Google. */
 export function resolveKey(request: Request): string | undefined {
   return clientKey(request) ?? serverKey();
 }
@@ -30,73 +59,3 @@ export type Usage = {
   outputTokens?: number;
   cachedTokens?: number;
 };
-
-const MAX_OUTPUT_TOKENS = 600;
-
-const SYSTEM = `You are ANVIK, a plain-spoken, helpful personal AI.
-Answer the user's actual question accurately and directly in the language they wrote in (English, Devanagari Hindi, or Roman Hinglish).`;
-
-export async function openLive(question: string, signal?: AbortSignal): Promise<Response> {
-  const key = serverKey();
-  if (!key) throw new Error("no key");
-  return fetch(
-    `${GEMINI_BASE_URL}/models/${LIVE_MODEL}:streamGenerateContent?alt=sse`,
-    {
-      method: "POST",
-      headers: { "x-goog-api-key": key, "content-type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ role: "user", parts: [{ text: question }] }],
-        generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS, temperature: 0.4 },
-      }),
-      signal,
-    },
-  );
-}
-
-export async function* parseLive(
-  body: ReadableStream<Uint8Array>,
-  usage: Usage,
-  signal?: AbortSignal,
-): AsyncGenerator<string> {
-  const reader = body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const raw = line.slice(6).trim();
-        if (!raw || raw === "[DONE]") continue;
-        let frame: {
-          candidates?: { content?: { parts?: { text?: string }[] } }[];
-          usageMetadata?: {
-            promptTokenCount?: number;
-            candidatesTokenCount?: number;
-            cachedContentTokenCount?: number;
-          };
-        };
-        try {
-          frame = JSON.parse(raw);
-        } catch {
-          continue;
-        }
-        const text = frame.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-        if (text) yield text;
-        if (frame.usageMetadata) {
-          usage.promptTokens = frame.usageMetadata.promptTokenCount;
-          usage.outputTokens = frame.usageMetadata.candidatesTokenCount;
-          usage.cachedTokens = frame.usageMetadata.cachedContentTokenCount;
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-    void signal;
-  }
-}

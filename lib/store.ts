@@ -19,7 +19,7 @@ import path from "node:path";
 import { CORPUS, type CorpusEntry } from "./corpus";
 import { slugify } from "./transliterate";
 import type { Lang } from "./detect";
-import { sbInsert, sbSelect, supabaseEnabled } from "./supabase";
+import { sbSelect, supabaseEnabled } from "./supabase";
 
 export type ModerationState = "clean" | "flagged" | "removed";
 
@@ -402,11 +402,10 @@ export const store = {
       persist(db);
       return created;
     });
-    void sbInsert("anvik_questions", [{
-      id: full.id, device_id: full.deviceId, text: full.text, lang: full.lang,
-      slug: full.slug, idempotency_key: full.idempotencyKey,
-      created_at: full.createdAt, status: full.status,
-    }]);
+    // No mirror write: `anvik_questions` does not exist in the live database.
+    // The slug IS the identifier here (the local durable store is the source of
+    // truth for public journal pages), so a failed mirror added nothing but a
+    // log line on every question.
     return full;
   },
 
@@ -418,14 +417,9 @@ export const store = {
       persist(db);
       return created;
     });
-    void sbInsert("anvik_answers", [{
-      id: full.id, question_id: full.questionId, body: full.body, model: full.model,
-      prompt_tokens: full.promptTokens, output_tokens: full.outputTokens,
-      cached_tokens: full.cachedTokens, cost_paise: full.costPaise, latency_ms: full.latencyMs,
-      is_public: full.isPublic, published_at: full.publishedAt,
-      moderation_state: full.moderationState, reviewed: full.reviewed,
-      lang: full.lang, slug: full.slug,
-    }]);
+    // No mirror write: `anvik_answers` does not exist in the live database, so
+    // this was a silent 404 on every answer. Mirrors must target a real table —
+    // see `lib/chat-record.ts` (chats + messages) for the persisted path.
     return full;
   },
 
@@ -444,16 +438,21 @@ export const store = {
     return db.answers.find((a) => a.id === id);
   },
 
+  /**
+   * Moderation decisions are local-only.
+   *
+   * This used to `return` the lock first and then `void sbInsert(...)` into
+   * `anvik_moderation` — unreachable code, on a table that does not exist. It
+   * is deleted rather than "fixed": mirroring untrusted moderation text to the
+   * database needs a real table, a retention policy, and a schema migration,
+   * none of which existed.
+   */
   async logModeration(row: Omit<ModerationRow, "id" | "createdAt">): Promise<void> {
     return withLock(() => {
       const db = load();
       db.moderation.push({ ...row, id: `m-${crypto.randomUUID()}`, createdAt: Date.now() });
       persist(db);
     });
-    void sbInsert("anvik_moderation", [{
-      id: `m-${crypto.randomUUID()}`, question_text: row.questionText, stage: row.stage,
-      reason_code: row.reasonCode, action: row.action, created_at: Date.now(),
-    }]);
   },
 
   /** §4.3 duplicate check: normalised token-overlap, no embeddings. */

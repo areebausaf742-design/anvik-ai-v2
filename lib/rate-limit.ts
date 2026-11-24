@@ -32,15 +32,35 @@ import { sbRpc } from "@/lib/supabase";
 const hits = new Map<string, number[]>();
 const lastSpacing = new Map<string, number>();
 
+/**
+ * Best-effort client IP.
+ *
+ * Trust order matters. On Vercel, `x-vercel-forwarded-for` is written by the
+ * platform edge and overwrites whatever the client sent; `x-real-ip` is also
+ * platform-set. Plain `x-forwarded-for` is the caller's own header and is
+ * fully spoofable, so it is only consulted last, and only its LAST hop (the one
+ * our proxy appended) is used — a client cannot prepend a fake IP and be
+ * believed.
+ *
+ * Caveat, documented rather than hidden: with no trusted proxy in front of the
+ * app nothing here is authoritative. That is why the free-tier quota and every
+ * rate limit ALSO key on the verified user id; the IP is only the fallback for
+ * unauthenticated traffic, which `/api/chat` no longer accepts at all.
+ */
 export function clientIp(request: Request): string {
   const vercel = request.headers.get("x-vercel-forwarded-for");
-  if (vercel) return vercel.split(",")[0]?.trim() || "unknown";
+  if (vercel) {
+    const first = vercel.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
     const hops = forwarded.split(",").map((h) => h.trim()).filter(Boolean);
     return hops[hops.length - 1] ?? "unknown";
   }
-  return request.headers.get("x-real-ip")?.trim() || "local";
+  return "local";
 }
 
 export function clientIdentity(request: Request, deviceId?: string | null): string {
