@@ -268,3 +268,63 @@ test("a cancelled reservation is never persisted", async () => {
 });
 
 mock.restoreAll();
+
+/* ------------------------------------------------------------------ */
+/* Money paths: grants must be idempotent and column-scoped            */
+/* ------------------------------------------------------------------ */
+
+test("an unfiltered UPDATE is refused by the adapter", () => {
+  const source = readFileSync(join(root, "lib/supabase.ts"), "utf8");
+  assert.ok(
+    source.includes("update requires a filter"),
+    "sbUpdateWhereDetailed must refuse to rewrite an entire table",
+  );
+});
+
+test("a daily/yearly grant cannot touch pack credits", () => {
+  const source = readFileSync(join(root, "app/api/entitlements/grant/route.ts"), "utf8");
+  // The daily/yearly branch must use the column-scoped update...
+  assert.ok(
+    source.includes("sbUpdateWhereDetailed("),
+    "daily/yearly reset must be a column-scoped UPDATE",
+  );
+  // ...and must never ASSIGN available_pack_credits (that is how paid credits
+  // were silently deleted). Comments are stripped first so that documenting the
+  // old bug cannot fail the test.
+  const code = source
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//") && !line.trim().startsWith("*"))
+    .join("\n");
+  assert.equal(
+    /available_pack_credits\s*:\s*\d/.test(code),
+    false,
+    "grant must never assign a pack-credit total",
+  );
+});
+
+test("a pack grant goes through the idempotent RPC, not a read-modify-write", () => {
+  const source = readFileSync(join(root, "app/api/entitlements/grant/route.ts"), "utf8");
+  assert.ok(source.includes('"grant_pack_credits"'), "pack grants must use the locked, idempotent RPC");
+  assert.equal(
+    /const\s+newBalance\s*=/.test(source),
+    false,
+    "no JS read-modify-write balance arithmetic",
+  );
+});
+
+test("the settle and grant RPCs are defined with a pinned search_path and no public EXECUTE", () => {
+  const migration = readFileSync(
+    join(root, "supabase/migrations/20261124000000_quota_and_settle_rpcs.sql"),
+    "utf8",
+  );
+  for (const fn of ["consume_quota", "settle_credit", "reclaim_stale_reservations", "grant_pack_credits"]) {
+    assert.ok(migration.includes(`function public.${fn}`), `${fn} must be in the migration`);
+  }
+  assert.ok(migration.includes("security definer"), "RPCs must be SECURITY DEFINER");
+  assert.ok(migration.includes("set search_path = pg_catalog, public"), "search_path must be pinned");
+  assert.ok(
+    migration.includes("from public, anon, authenticated"),
+    "EXECUTE must be revoked from anon and authenticated",
+  );
+  assert.ok(migration.includes("to service_role"), "EXECUTE must be granted to service_role only");
+});

@@ -255,3 +255,84 @@ select cron.schedule(
   '*/10 * * * *',
   $job$ select public.reclaim_stale_reservations(interval '15 minutes'); $job$
 );
+
+-- ------------------------------------------------------------------
+-- 4) Idempotent pack grant
+-- ------------------------------------------------------------------
+-- The operator grant path did a JS read-modify-write:
+--
+--     read available_pack_credits -> add packTotal -> upsert
+--
+-- Two retries of the same request (or two operators clicking twice) could
+-- either double-credit the user or lose credits to a lost update. It was also
+-- not idempotent: there was no way to tell "already applied" from "apply now".
+--
+-- `grant_pack_credits` locks the balance row, increments it once, and records a
+-- ledger entry keyed on a supplied idempotency reference. A replay returns
+-- `applied: false` and changes nothing. Existing rows are only ever ADDED to —
+-- nothing is deleted or reset.
+
+create or replace function public.grant_pack_credits(
+  p_user_id uuid,
+  p_credits integer,
+  p_reference text,
+  p_description text default null,
+  p_expires_at timestamptz default null
+)
+returns json
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_existing public.credit_ledger%rowtype;
+  v_balance integer;
+begin
+  if p_user_id is null or p_reference is null or length(btrim(p_reference)) = 0 then
+    return json_build_object('ok', false, 'reason', 'invalid_request');
+  end if;
+  if p_credits is null or p_credits <= 0 or p_credits > 100000 then
+    return json_build_object('ok', false, 'reason', 'invalid_amount');
+  end if;
+
+  -- Replay guard: this exact grant was already applied.
+  select * into v_existing
+  from public.credit_ledger
+  where user_id = p_user_id
+    and reference_id = p_reference
+    and transaction_type = 'pack_grant';
+
+  if found then
+    select available_pack_credits into v_balance
+    from public.credit_balances where user_id = p_user_id;
+    return json_build_object(
+      'ok', true, 'applied', false, 'replayed', true,
+      'available_pack_credits', coalesce(v_balance, 0)
+    );
+  end if;
+
+  insert into public.credit_balances (user_id, available_pack_credits, pack_credits_expires_at, updated_at)
+  values (p_user_id, p_credits, p_expires_at, now())
+  on conflict (user_id) do update
+    set available_pack_credits = public.credit_balances.available_pack_credits + p_credits,
+        pack_credits_expires_at = coalesce(p_expires_at, public.credit_balances.pack_credits_expires_at),
+        updated_at = now()
+  returning available_pack_credits into v_balance;
+
+  insert into public.credit_ledger (user_id, transaction_type, credit_amount, description, reference_id)
+  values (p_user_id, 'pack_grant', p_credits, coalesce(p_description, 'pack credits granted'), p_reference);
+
+  return json_build_object(
+    'ok', true, 'applied', true, 'replayed', false,
+    'available_pack_credits', v_balance
+  );
+end;
+$$;
+
+comment on function public.grant_pack_credits(uuid, integer, text, text, timestamptz) is
+  'Adds pack credits exactly once per reference. Idempotent, row-locked. Service-role only.';
+
+revoke all on function public.grant_pack_credits(uuid, integer, text, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.grant_pack_credits(uuid, integer, text, text, timestamptz)
+  to service_role;

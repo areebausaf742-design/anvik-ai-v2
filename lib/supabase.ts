@@ -203,6 +203,45 @@ export async function sbUpsertDetailed(
   }
 }
 
+/**
+ * PATCH rows selected by a PostgREST filter — a column-scoped UPDATE.
+ *
+ * Why this exists: the daily/yearly grant path needed to reset `daily_usage`
+ * and `daily_limit` for one user. It did that with a JS read-modify-write
+ * upsert that rewrote the whole row, and wrote `available_pack_credits: 0` —
+ * silently deleting credits the user had paid for.
+ *
+ * A filtered UPDATE that names only the columns being changed cannot do that:
+ * Postgres leaves every unmentioned column untouched, so there is no read to
+ * race and no field to lose.
+ */
+export async function sbUpdateWhereDetailed(
+  table: string,
+  filter: string,
+  patch: Record<string, unknown>,
+): Promise<SbWriteResult> {
+  if (!supabaseEnabled()) return { ok: false, error: { category: "bad_response", detail: "supabase not configured" } };
+  if (!filter.trim()) {
+    // Refuse an unfiltered UPDATE outright: this helper must never be able to
+    // rewrite an entire table.
+    return { ok: false, error: { category: "bad_response", detail: "update requires a filter" } };
+  }
+  try {
+    const response = await fetch(`${base()}/rest/v1/${table}?${filter}`, {
+      method: "PATCH",
+      headers: { ...headers(), Prefer: "return=minimal" },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (response.ok) return { ok: true };
+    const body = await response.json().catch(() => null);
+    return { ok: false, error: await sbReject(response, body) };
+  } catch (e) {
+    const isAbort = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    return { ok: false, error: { category: isAbort ? "timeout" : "network_error" } };
+  }
+}
+
 export async function sbSelectDetailed<T>(table: string, query: string): Promise<SbReadResult<T>> {
   if (!supabaseEnabled()) return { ok: false, error: { category: "bad_response", detail: "supabase not configured" } };
   try {
