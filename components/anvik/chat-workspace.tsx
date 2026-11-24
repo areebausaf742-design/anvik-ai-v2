@@ -199,6 +199,14 @@ function ChatWorkspaceInner() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [activeChat?.messages, pending]);
 
+  useEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(field.scrollHeight, 180)}px`;
+    field.style.overflowY = field.scrollHeight > 180 ? "auto" : "hidden";
+  }, [input]);
+
   useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
@@ -555,12 +563,14 @@ function ChatWorkspaceInner() {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={keySubmit}
+                aria-describedby="chat-composer-hint"
                 placeholder="Ask ANVIK a question..."
                 aria-label="Ask ANVIK a question..."
                 rows={1}
                 disabled={pending || !identityReady || sessionLoading || Boolean(session && !profile)}
                 className="chatbar-input"
               />
+              <span id="chat-composer-hint" className="sr-only">Press Enter to send. Press Shift and Enter for a new line.</span>
             </div>
             <button
               type="submit"
@@ -710,6 +720,7 @@ function ChatWorkspaceInner() {
                 key={`${item.label}-${i}`}
                 href={item.href}
                 className={`chat-item ${item.label === "Chat" ? pathname === "/" || pathname === "/chat" ? "active" : "" : pathname.startsWith(item.href) ? "active" : ""}`}
+                aria-current={item.label === "Chat" ? (pathname === "/" || pathname === "/chat" ? "page" : undefined) : pathname.startsWith(item.href) ? "page" : undefined}
               >
                 <item.icon className="h-4 w-4 shrink-0 text-[#999999]" />
                 <span>{item.label}</span>
@@ -1004,7 +1015,7 @@ function ChatWorkspaceInner() {
 
                 if (isUser) {
                   return (
-                    <article key={message.id} className="msg-enter mb-6">
+                    <article key={message.id} className="user-message msg-enter mb-6">
                       <p className="whitespace-pre-wrap text-[15px] leading-[1.7] text-[#1A1A1A]">{message.content}</p>
                     </article>
                   );
@@ -1047,7 +1058,7 @@ function ChatWorkspaceInner() {
                           </div>
                         )}
 
-                        <div className="mt-1 text-xs text-[#999999]">ANVIK</div>
+                        <div className="mt-1 text-xs text-[#999999]">{message.model || "ANVIK"}</div>
 
                         {!isStreaming && message.searchStatus && message.searchStatus !== "off" && (
                           <SourcesPanel
@@ -1072,6 +1083,7 @@ function ChatWorkspaceInner() {
                           <button
                             type="button"
                             aria-label="Helpful"
+                            aria-pressed={message.verdict === "like"}
                             onClick={() => setMessageMeta(activeChat?.id ?? "", message.id, { verdict: "like" })}
                             className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-[#F7F7F5] ${
                               message.verdict === "like" ? "text-[#1A1A1A] font-medium" : "text-[#999999] hover:text-[#1A1A1A]"
@@ -1083,6 +1095,7 @@ function ChatWorkspaceInner() {
                           <button
                             type="button"
                             aria-label="Not right"
+                            aria-pressed={message.verdict === "dislike"}
                             onClick={() => setMessageMeta(activeChat?.id ?? "", message.id, { verdict: "dislike" })}
                             className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-[#F7F7F5] ${
                               message.verdict === "dislike" ? "text-[#1A1A1A] font-medium" : "text-[#999999] hover:text-[#1A1A1A]"

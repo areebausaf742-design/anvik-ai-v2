@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import * as THREE from "three";
 
 const vertexShader = `
@@ -97,6 +97,25 @@ function RingMesh({ pointer }: { pointer: MutableRefObject<{ x: number; y: numbe
   );
 }
 
+class WebGLBoundary extends Component<{
+  children: ReactNode;
+  onError: () => void;
+}, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 export function ShaderBackground({ className = "" }: { className?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const pointer = useRef({ x: 0, y: 0 });
@@ -155,8 +174,11 @@ export function ShaderBackground({ className = "" }: { className?: string }) {
 
   return (
     <div ref={hostRef} aria-hidden="true" className={"main-shader-background " + className}>
-      <Canvas
-        frameloop={animate ? "always" : "demand"}
+      <WebGLBoundary onError={() => {
+        if (hostRef.current) hostRef.current.dataset.webgl = "lost";
+      }}>
+        <Canvas
+          frameloop={animate ? "always" : "demand"}
         dpr={[1, 1.25]}
         camera={{ position: [0, 0, 4.6], fov: 38, near: 0.1, far: 30 }}
         gl={{ alpha: true, antialias: false, depth: true, stencil: false, powerPreference: "low-power", preserveDrawingBuffer: false }}
@@ -167,9 +189,10 @@ export function ShaderBackground({ className = "" }: { className?: string }) {
             if (hostRef.current) hostRef.current.dataset.webgl = "lost";
           }, { once: true });
         }}
-      >
-        <RingMesh pointer={pointer} />
-      </Canvas>
+        >
+          <RingMesh pointer={pointer} />
+        </Canvas>
+      </WebGLBoundary>
     </div>
   );
 }
