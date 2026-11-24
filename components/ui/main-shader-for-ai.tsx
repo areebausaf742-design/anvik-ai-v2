@@ -120,10 +120,24 @@ export function ShaderBackground({ className = "" }: { className?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const pointer = useRef({ x: 0, y: 0 });
   const [animate, setAnimate] = useState(false);
+  const [webglAvailable, setWebglAvailable] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+
+    let context: WebGL2RenderingContext | null = null;
+    try {
+      context = document.createElement("canvas").getContext("webgl2");
+    } catch {
+      context = null;
+    }
+    if (!context) {
+      host.dataset.webgl = "lost";
+      return;
+    }
+    context.getExtension("WEBGL_lose_context")?.loseContext();
+    setWebglAvailable(true);
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     let pageVisible = document.visibilityState === "visible";
@@ -174,6 +188,7 @@ export function ShaderBackground({ className = "" }: { className?: string }) {
 
   return (
     <div ref={hostRef} aria-hidden="true" className={"main-shader-background " + className}>
+      {webglAvailable && (
       <WebGLBoundary onError={() => {
         if (hostRef.current) hostRef.current.dataset.webgl = "lost";
       }}>
@@ -193,6 +208,7 @@ export function ShaderBackground({ className = "" }: { className?: string }) {
           <RingMesh pointer={pointer} />
         </Canvas>
       </WebGLBoundary>
+      )}
     </div>
   );
 }

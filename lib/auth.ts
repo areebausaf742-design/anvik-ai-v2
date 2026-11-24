@@ -130,6 +130,33 @@ function readError(body: unknown, fallback: string): string {
   return fallback;
 }
 
+export function mapSupabaseAuthError(
+  body: unknown,
+  status: number,
+  action: "signin" | "signup",
+): string {
+  const details = body && typeof body === "object" ? JSON.stringify(body).toLowerCase() : "";
+  if (status === 429 || /rate.?limit|too many requests|over_email_send_rate_limit/.test(details)) {
+    return "Too many attempts. Wait a moment, then try again.";
+  }
+  if (/email_not_confirmed|email not confirmed/.test(details)) {
+    return "Confirm your email using the link in your inbox, then sign in again.";
+  }
+  if (/weak_password|password.*(at least|too short|weak)/.test(details)) {
+    return "Choose a stronger password with at least 8 characters.";
+  }
+  if (/email_address_invalid|invalid email|email.*invalid/.test(details)) {
+    return "Enter a valid email address.";
+  }
+  if (status >= 500) {
+    return action === "signin"
+      ? "Sign-in is temporarily unavailable. Please try again shortly."
+      : "Account creation is temporarily unavailable. Please try again shortly.";
+  }
+  if (action === "signin") return "Invalid email or password.";
+  return "Could not create your account with those details. Please try again.";
+}
+
 async function storeSession(session: AuthSession): Promise<void> {
   // localStorage is browser-only; server routes never write sessions here.
   if (typeof window === "undefined") return;
@@ -651,6 +678,7 @@ export async function signUpWithPassword(
     const response = await fetch(authUrl("/signup"), {
       method: "POST",
       headers: headers(),
+      signal: timeoutSignal(15_000),
       body: JSON.stringify({
         email,
         password,
@@ -663,7 +691,7 @@ export async function signUpWithPassword(
     const body = await safeJson(response);
     const obj = (body ?? {}) as Record<string, unknown>;
     if (!response.ok) {
-      return { ok: false, error: readError(body, "Could not create your account."), code: "signup_failed" };
+      return { ok: false, error: mapSupabaseAuthError(body, response.status, "signup"), code: "signup_failed" };
     }
     const accessToken = typeof obj.access_token === "string" ? obj.access_token : null;
     const user = (obj.user ?? obj.user_metadata ?? obj) as SupabaseUser | undefined;
@@ -693,11 +721,12 @@ export async function signInWithPassword(email: string, password: string): Promi
     const response = await fetch(authUrl("/token?grant_type=password"), {
       method: "POST",
       headers: headers(),
+      signal: timeoutSignal(15_000),
       body: JSON.stringify({ email, password }),
     });
     const body = await safeJson(response);
     if (!response.ok) {
-      return { ok: false, error: readError(body, "Could not sign in. Check your email and password."), code: "signin_failed" };
+      return { ok: false, error: mapSupabaseAuthError(body, response.status, "signin"), code: "signin_failed" };
     }
     const obj = (body ?? {}) as Record<string, unknown>;
     const accessToken = typeof obj.access_token === "string" ? obj.access_token : "";
@@ -722,6 +751,7 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true } 
     const response = await fetch(authUrl("/recover"), {
       method: "POST",
       headers: headers(),
+      signal: timeoutSignal(15_000),
       body: JSON.stringify({ email }),
     });
     // Always report success for email-not-found too — the endpoint deliberately

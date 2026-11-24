@@ -73,7 +73,7 @@ function makeId() {
 function ChatWorkspaceInner() {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile, credits, session, loading: sessionLoading, bearerToken, signOut } = useSession();
+  const { profile, credits, session, loading: sessionLoading, bearerToken, signOut, refresh } = useSession();
   const { resolvedTheme } = useAppearance();
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
@@ -650,11 +650,13 @@ function ChatWorkspaceInner() {
   const showConnectButton = error.includes("Connect your own key");
   const showKeyHelper = showConnectButton || /key invalid|invalid or expired/i.test(error);
 
-  const welcomeGreeting = sessionLoading || (session && !profile)
-    ? "Verifying your account…"
-    : profile
-      ? `Hello, ${greetingFirstName(profile.name, profile.email)}`
-      : "Hello, Guest";
+  const welcomeGreeting = sessionLoading
+    ? "Restoring your workspace…"
+    : session && !profile
+      ? "Your account is signed in"
+      : profile
+        ? `Hello, ${greetingFirstName(profile.name, profile.email)}`
+        : "Hello, Guest";
 
   const quickStarts = [
     { label: "Generate code", icon: Code2, prompt: "Help me write a clean, accessible code solution for: " },
@@ -965,6 +967,11 @@ function ChatWorkspaceInner() {
           {activeMessages.length === 0 ? (
             <div className="welcome-stage relative isolate flex min-h-[calc(100dvh-58px)] w-full flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">
               <div className="welcome-stage-overlay" aria-hidden="true" />
+              <div className="welcome-3d-object" aria-hidden="true">
+                <span className="welcome-3d-core" />
+                <span className="welcome-3d-ring welcome-3d-ring-primary" />
+                <span className="welcome-3d-ring welcome-3d-ring-secondary" />
+              </div>
               <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[920px] flex-col items-center">
               <AnvikStar size="lg" className="mb-5" />
               <h1
@@ -976,8 +983,20 @@ function ChatWorkspaceInner() {
 
               <p className={"mt-4 max-w-2xl text-sm leading-7 sm:text-base " + (resolvedTheme === "dark" ? "text-white/75" : "text-[#666666]")}>
                 <span className={"font-semibold " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}>{welcomeGreeting}</span>
-                {" · Build something amazing — just start typing below."}
+                {sessionLoading
+                  ? " · Reconnecting securely. Your conversations will appear in a moment."
+                  : session && !profile
+                    ? " · Your secure session is active. Reconnect to restore your saved workspace."
+                    : " · Build something amazing — just start typing below."}
               </p>
+              {session && !profile && !sessionLoading && (
+                <div role="status" className="mt-4 flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-3 text-xs text-white/75">
+                  <span>We couldn&apos;t load your account details. Your chats remain protected.</span>
+                  <button type="button" onClick={() => void refresh()} className="rounded-full border border-white/20 px-3 py-1.5 font-semibold text-white transition hover:bg-white/10">
+                    Retry connection
+                  </button>
+                </div>
+              )}
 
               {/* Glowing chatbar — welcome screen */}
               {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
