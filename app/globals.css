@@ -1792,6 +1792,101 @@ html[data-theme="dark"] [class*="text-[#D97757]"] {
 .anvik-dark .chatbar-inner {
   border-radius: 22px;
 }
+
+/* Workspace refinements: restrained focus, clearer hierarchy, and mobile-safe surfaces. */
+.anvik-dark .chatbar::before {
+  inset: -2px;
+  background: radial-gradient(ellipse at 50% 65%, rgba(88, 137, 196, .28), transparent 72%);
+  filter: blur(18px);
+  opacity: .18;
+  animation: none;
+}
+.anvik-dark .chatbar:hover::before,
+.anvik-dark .chatbar:focus-within::before,
+.anvik-dark .chatbar[data-typing="true"]::before {
+  opacity: .34;
+  filter: blur(22px);
+}
+.anvik-dark .chatbar::after {
+  background: linear-gradient(135deg, rgba(142, 163, 194, .32), rgba(105, 117, 151, .14) 55%, rgba(107, 139, 182, .3));
+  animation: none;
+}
+.anvik-dark .chatbar[data-typing="true"]::after { filter: none; }
+.anvik-dark .chatbar-inner {
+  background: linear-gradient(155deg, #141923, #10131a 68%) !important;
+  box-shadow: 0 20px 64px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .045);
+}
+.anvik-dark > aside {
+  background: linear-gradient(180deg, #0c1018 0%, #0a0d13 100%) !important;
+}
+.anvik-dark > section > div:first-child {
+  background: rgba(9, 12, 18, .8);
+  backdrop-filter: blur(20px);
+}
+.anvik-dark .user-message {
+  width: fit-content;
+  max-width: min(88%, 620px);
+  margin-left: auto;
+  padding: 12px 16px;
+  border: 1px solid rgba(203, 214, 231, .1);
+  border-radius: 18px 18px 5px 18px;
+  background: linear-gradient(145deg, rgba(33, 41, 56, .92), rgba(24, 30, 42, .92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+.anvik-dark .user-message p { color: #edf1f7 !important; }
+.anvik-dark .msg-row { max-width: 100%; }
+.anvik-dark .msg-row > .md { font-size: 15px; line-height: 1.8; }
+.anvik-dark .msg-row > div.mt-1 {
+  margin-top: 10px;
+  color: #8792a5 !important;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.anvik-dark .msg-toolbar { min-height: 34px; }
+.anvik-dark .msg-toolbar button { min-height: 32px; }
+.anvik-dark .thin-scroll { scrollbar-width: thin; scrollbar-color: #30394b transparent; }
+.anvik-dark .thin-scroll::-webkit-scrollbar { width: 8px; }
+.anvik-dark .thin-scroll::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background-clip: padding-box; }
+.anvik-dark .md-pre:focus-visible,
+.anvik-dark pre:focus-visible { outline: 2px solid rgba(166, 196, 235, .72); outline-offset: -2px; }
+.anvik-dark .md-table-wrap { max-width: 100%; }
+.anvik-dark .md-table { min-width: max-content; }
+.anvik-dark .welcome-shortcut {
+  border-color: rgba(177, 192, 218, .14);
+  background: rgba(18, 22, 31, .62);
+  color: #dbe2ee;
+}
+.anvik-dark .welcome-shortcut:hover {
+  border-color: rgba(169, 189, 220, .44);
+  background: rgba(51, 68, 95, .3);
+}
+html[data-theme="light"] .anvik-dark .chatbar::before { opacity: .08; }
+html[data-theme="light"] .anvik-dark .chatbar::after {
+  background: linear-gradient(135deg, rgba(90, 107, 130, .2), rgba(90, 107, 130, .08));
+}
+html[data-theme="light"] .anvik-dark .chatbar-inner { background: rgba(255, 255, 255, .96) !important; }
+html[data-theme="light"] .anvik-dark .user-message {
+  border-color: rgba(25, 35, 50, .09);
+  background: linear-gradient(145deg, #f0f2f5, #e9edf2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .78);
+}
+html[data-theme="light"] .anvik-dark .user-message p { color: #191b20 !important; }
+html[data-theme="light"] .anvik-dark .welcome-shortcut {
+  border-color: rgba(25, 35, 50, .12);
+  background: rgba(255, 255, 255, .82);
+  color: #424852;
+}
+html[data-theme="light"] .anvik-dark .welcome-shortcut:hover {
+  border-color: rgba(25, 35, 50, .28);
+  background: #fff;
+}
+@media (max-width: 640px) {
+  .anvik-dark .user-message { max-width: 94%; padding: 10px 13px; }
+  .anvik-dark .msg-row > .md { font-size: 14px; }
+  .anvik-dark .chatbar-toolbar { row-gap: 8px; }
+}
 @media(max-width:640px) {
   .anvik-dark .chatbar,
   .anvik-dark .chatbar::before,

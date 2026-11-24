@@ -79,13 +79,14 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
         <button
           type="button"
           onClick={() => void copy()}
+          aria-label={copied ? "Code copied" : `Copy ${lang || "code"}`}
           className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-[11px] font-medium text-[#1A1A1A] transition hover:bg-[#F7F7F5]"
         >
           {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-x-auto p-3.5 font-mono text-[13px] leading-relaxed text-[#1A1A1A]">
+      <pre tabIndex={0} className="overflow-x-auto p-3.5 font-mono text-[13px] leading-relaxed text-[#1A1A1A]">
         <code>
           {lines.map((line, i) => (
             <Fragment key={`cl-${i}`}>
