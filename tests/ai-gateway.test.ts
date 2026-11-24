@@ -183,8 +183,6 @@ test("every sbUpsert call site names its conflict columns", () => {
   const callers = [
     "app/api/auth/me/route.ts",
     "app/api/profile/route.ts",
-    "app/api/chat/route.ts",
-    "app/api/quota/route.ts",
     "app/api/entitlements/grant/route.ts",
     "lib/consent.ts",
     "lib/credits.ts",
@@ -209,12 +207,35 @@ test("every sbUpsert call site names its conflict columns", () => {
 /* Quota wiring                                                        */
 /* ------------------------------------------------------------------ */
 
-test("the chat route persists the free-tier counter through the atomic RPC", () => {
+test("chat charges exactly one meter: the account credit ledger", () => {
   const source = readFileSync(join(root, "app/api/chat/route.ts"), "utf8");
-  assert.ok(
-    source.includes('"consume_quota"'),
-    "chat must increment the free counter with consume_quota, not a read-modify-write",
+  // Every AI route requires a verified user, so the anonymous device/IP branches
+  // are unreachable. Charging two meters would double-bill; charging the dead
+  // per-IP counter would not bill at all.
+  assert.ok(source.includes("reserveCredit("), "chat must reserve a credit");
+  assert.ok(source.includes("settleCredit("), "chat must settle the reservation atomically");
+  assert.equal(
+    source.includes("consume_quota"),
+    false,
+    "chat must not also charge the per-IP free counter",
   );
+  assert.equal(
+    /kind:\s*"free"/.test(source),
+    false,
+    "the dead anonymous quota reservation must be gone",
+  );
+});
+
+test("the per-IP counter is still atomic for whoever still reads it", () => {
+  // /api/quota no longer reports it, but the RPC and the store remain correct
+  // and covered, so a future surface cannot reintroduce the frozen counter.
+  const store = readFileSync(join(root, "lib/quota.ts"), "utf8");
+  assert.ok(store.includes("increment"), "the quota store keeps the atomic increment path");
+  const migration = readFileSync(
+    join(root, "supabase/migrations/20261124000000_quota_and_settle_rpcs.sql"),
+    "utf8",
+  );
+  assert.ok(migration.includes("on conflict (ip_hash, date) do update"), "consume_quota must upsert atomically");
 });
 
 test("the quota store supports atomic increments and keeps reservations in-process", async () => {
