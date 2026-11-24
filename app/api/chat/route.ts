@@ -51,7 +51,7 @@ import { hashIp, safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
 import { QuotaStore, supabaseQuotaHooks } from "@/lib/quota";
 import { EntitlementsStore, supabaseEntitlementHooks } from "@/lib/entitlements";
 import type { PlanId } from "@/lib/plans";
-import { sbSelect, sbUpsert } from "@/lib/supabase";
+import { sbRpc, sbSelect, sbUpsert } from "@/lib/supabase";
 import { recordChatExchange } from "@/lib/chat-record";
 import { clientIp, allowDistributed } from "@/lib/rate-limit";
 import { requireUser, type VerifiedUser } from "@/lib/session";
@@ -59,11 +59,11 @@ import {
   ensureEntitlement,
   effectivePlan,
   reserveCredit,
-  refundCredit,
-  recordUsage,
+  settleCredit,
 } from "@/lib/credits";
 import { planById } from "@/lib/plans";
 import { logRouteEvent } from "@/lib/observability";
+import { accountBlockedResponse, readAccountStanding } from "@/lib/account-status";
 
 export const maxDuration = 60;
 
@@ -71,8 +71,26 @@ const validModes = new Set<string>(modes.map(({ id }) => id));
 const MIN_SPACING_MS = 2_000;
 const PER_MINUTE = 60;
 
-const quota = new QuotaStore(supabaseQuotaHooks(sbSelect, sbUpsert));
-const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows)));
+/**
+ * The free-tier counter is incremented by the `consume_quota` Postgres function,
+ * not by a read-then-write. The old upsert had no conflict target, so PostgREST
+ * arbitrated on the primary key and every second write raised 23505 — the
+ * counter was frozen at 1 for every visitor, every day.
+ */
+const quota = new QuotaStore(
+  supabaseQuotaHooks(
+    sbSelect,
+    (table, rows, conflict) => sbUpsert(table, rows, conflict),
+    async (ipHash, day) => {
+      const next = await sbRpc<number | null>("consume_quota", {
+        p_ip_hash: ipHash,
+        p_day: day,
+      });
+      return typeof next === "number" && Number.isFinite(next) ? next : null;
+    },
+  ),
+);
+const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows, "device_id")));
 
 const modeInstructions: Record<ModeId, string> = {
   fast: "Keep answers concise and prioritize the quickest useful response.",
@@ -106,50 +124,47 @@ function sseFrame(payload: Record<string, unknown>): string {
 type Reservation =
   | { kind: "free"; key: string }
   | { kind: "entitlement"; deviceId: string }
-  | { kind: "user"; userId: string; source: "daily" | "pack"; reference: string };
+  | { kind: "user"; userId: string; reference: string };
 
-function cancelReservation(reservation: Reservation | undefined): void {
-  if (!reservation) return;
-  if (reservation.kind === "free") quota.cancel(reservation.key);
-  else if (reservation.kind === "entitlement") entitlements.cancel(reservation.deviceId);
-  else void refundCredit(reservation.userId, reservation.source, reservation.reference).catch(() => undefined);
-}
+/**
+ * Close a reservation exactly once, on every exit path.
+ *
+ * The previous code called `recordUsage` on success and `refundCredit` on
+ * failure as two separate best-effort RPCs and swallowed both errors, so a
+ * stream killed between them left the credit spent forever. `settle_credit`
+ * confirms-or-refunds under a row lock and is idempotent per reference; the
+ * every-10-minutes sweeper catches whatever still slips through.
+ */
+type ReservationOutcome = "success" | "failure" | "aborted";
 
-async function confirmReservation(
+async function settleReservation(
   reservation: Reservation | undefined,
+  outcome: ReservationOutcome,
   model: string,
   feature: string,
 ): Promise<void> {
   if (!reservation) return;
-  if (reservation.kind === "free") {
-    try {
-      await quota.confirm(reservation.key);
-    } catch {
-      // keep going even if persistence fails
-    }
-    return;
-  }
-  if (reservation.kind === "entitlement") {
-    try {
-      await entitlements.confirm(reservation.deviceId);
-    } catch {
-      // keep going even if persistence fails
-    }
-    return;
-  }
   try {
-    await recordUsage(
-      reservation.userId,
-      reservation.source,
-      reservation.reference,
+    if (reservation.kind === "free") {
+      if (outcome === "success") await quota.confirm(reservation.key);
+      else quota.cancel(reservation.key);
+      return;
+    }
+    if (reservation.kind === "entitlement") {
+      if (outcome === "success") await entitlements.confirm(reservation.deviceId);
+      else entitlements.cancel(reservation.deviceId);
+      return;
+    }
+    await settleCredit({
+      userId: reservation.userId,
+      reference: reservation.reference,
+      outcome,
       model,
       feature,
-      null,
-      null,
-      "success",
-    );
+    });
   } catch {
-    // keep going even if persistence fails
+    // Persistence is best-effort by contract — the answer already streamed.
+    // A missing settlement is recovered by reclaim_stale_reservations().
   }
 }
 
@@ -231,7 +246,12 @@ export async function POST(request: Request) {
   const auth = await requireUser(request);
   if ("response" in auth) return auth.response;
 
-  // 6. Distributed rate limit — keyed only by this verified user id.
+  // 6. Account standing — a suspended or closed account is refused before it
+  //    can spend a credit (the status column used to be decorative).
+  const standing = await readAccountStanding(auth.user.id);
+  if (!standing.allowed) return accountBlockedResponse(standing);
+
+  // 7. Distributed rate limit — keyed only by this verified user id.
   // Never trusts client-supplied identity headers (audit: H-1/H-8).
   const ip = clientIp(request);
   const verifiedUserForLimit = auth.user;
@@ -296,12 +316,7 @@ export async function POST(request: Request) {
           { status: 429 },
         );
       }
-      reservation = {
-        kind: "user",
-        userId: verifiedUser.id,
-        source: result.source === "pack" ? "pack" : "daily",
-        reference,
-      };
+      reservation = { kind: "user", userId: verifiedUser.id, reference };
       const spec = planById(effective.plan);
       paidPlan = effective.active && spec.priceInr > 0 ? spec.id : null;
     } else {
@@ -387,7 +402,7 @@ export async function POST(request: Request) {
     candidate.error.code === "invalid_key" || candidate.error.code === "bad_format" ||
     candidate.error.status === 400 || candidate.error.status === 401 || candidate.error.status === 403;
   const returnTerminalError = (candidate: {error:{message:string;code:string;status:number}}) => {
-    cancelReservation(reservation);
+    void settleReservation(reservation, "failure", "", "chat");
     return Response.json({error:candidate.error.message,detail:candidate.error.message,code:candidate.error.code},{status:candidate.error.status});
   };
   if (searchNeeded && hasExternalSources && externalSearchResult) {
@@ -427,7 +442,7 @@ export async function POST(request: Request) {
 
   try {
     if (!result.ok) {
-      cancelReservation(reservation);
+      await settleReservation(reservation, "failure", "", "chat");
       logRouteEvent({
         route: "chat",
         outcome: "error",
@@ -508,8 +523,9 @@ export async function POST(request: Request) {
           }
           completed = true;
 
-          // 8. Count quota only after a full, successful stream.
-          await confirmReservation(reservation, model, "chat");
+          // 8. Settle only after a full, successful stream: one atomic
+          //    confirm-or-refund, so an interrupted answer never eats a credit.
+          await settleReservation(reservation, "success", model, "chat");
 
           // Persist every exchange (user message + answer + model). Best-effort:
           // a Supabase outage must never break the answer, so failures are
@@ -530,15 +546,16 @@ export async function POST(request: Request) {
           }
           controller.close();
         } catch (error) {
-          cancelReservation(reservation);
+          await settleReservation(reservation, "failure", model, "chat");
           controller.error(error);
         } finally {
           upstreamReader.releaseLock();
         }
       },
-      cancel(reason) {
+      async cancel(reason) {
         void upstreamReader.cancel(reason);
-        cancelReservation(reservation);
+        // Client hung up → the user should not pay for a partial answer.
+        await settleReservation(reservation, "aborted", model, "chat");
       },
     });
 
@@ -555,7 +572,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    cancelReservation(reservation);
+    await settleReservation(reservation, err instanceof Error && err.name === "AbortError" ? "aborted" : "failure", "", "chat");
     if (err instanceof Error && err.name === "AbortError") {
       return new Response(null, { status: 499 });
     }

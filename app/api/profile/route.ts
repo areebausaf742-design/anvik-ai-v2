@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       account_status: "active",
       updated_at: now,
     },
-  ]);
+  ], "user_id");
   if (!ok) {
     // One retry with the least required row: the profile may already exist.
     const retry = await sbUpsert("user_profiles", [
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         avatar_url: avatar,
         updated_at: now,
       },
-    ]);
+    ], "user_id");
     if (!retry) {
       return Response.json({ error: "Could not save your profile. Please try again.", code: "profile_failed" }, { status: 500 });
     }

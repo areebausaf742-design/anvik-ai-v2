@@ -1,16 +1,12 @@
-import { serverKey } from "@/lib/provider";
-import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
-import { requireUser } from "@/lib/session";
 import { CHAT_MAX_TOKENS } from "@/lib/credit";
-import {
-  KEY_FORMAT_ERROR,
-  isValidGeminiKeyFormat,
-  openGeminiStreamWithFallback,
-} from "@/lib/gemini";
+import { openGeminiStreamWithFallback } from "@/lib/gemini";
+import { requireUser } from "@/lib/session";
+import { beginMeteredRequest, meteredStream } from "@/lib/ai-gateway";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  // Identity first: a guest must be refused before anything else happens.
   const auth = await requireUser(request);
   if ("response" in auth) return auth.response;
   let body: unknown;
@@ -31,25 +27,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Keep the transcript under 6,000 characters." }, { status: 400 });
   }
 
-  const supplied = request.headers.get("x-google-generative-ai-api-key")?.trim();
-  if (supplied && !isValidGeminiKeyFormat(supplied)) {
-    return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 400 });
-  }
-
-  const key = supplied || serverKey();
-  if (!key || !isValidGeminiKeyFormat(key)) {
-    return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 401 });
-  }
-
-  const verified = auth.user;
-  const rate = await allowDistributed(request, "voice", 12, 100, { verifiedUserId: verified?.id ?? null });
-  if (!rate.allowed) {
-    const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
-    return Response.json(
-      { error: LIMIT_MESSAGE, code: "rate" },
-      { status: 429, headers: { "Retry-After": String(retryAfter) } },
-    );
-  }
+  // Identity → key → rate limit → one reserved credit, shared with every
+  // other AI surface. Unmetered provider calls no longer exist.
+  const gateway = await beginMeteredRequest(request, "voice", auth.user);
+  if (!gateway.ok) return gateway.response;
+  const { session } = gateway;
+  const key = session.key;
 
   try {
     const result = await openGeminiStreamWithFallback({
@@ -63,22 +46,25 @@ export async function POST(request: Request) {
     });
 
     if (!result.ok) {
+      await session.settle("failure", { model: null });
       return Response.json(
         { error: result.error.message, detail: result.error.message, code: result.error.code },
         { status: result.error.status },
       );
     }
 
-    return new Response(result.stream, {
+    return new Response(meteredStream(result.stream, session.settle, { model: result.model }), {
       status: 200,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store, no-transform",
         "X-ANVIK-MODEL": result.model,
         "X-ANVIK-LABEL": "ANVIK",
+        ...(Number.isFinite(session.remaining) ? { "X-ANVIK-REMAINING": String(session.remaining) } : {}),
       },
     });
   } catch (err) {
+    await session.settle(err instanceof Error && err.name === "AbortError" ? "aborted" : "failure");
     if (err instanceof Error && err.name === "AbortError") {
       return new Response(null, { status: 499 });
     }

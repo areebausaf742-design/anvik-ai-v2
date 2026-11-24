@@ -14,13 +14,13 @@
  */
 
 import { EntitlementsStore, supabaseEntitlementHooks } from "@/lib/entitlements";
-import { sbSelect, sbUpsert } from "@/lib/supabase";
+import { sbInsertDetailed, sbSelect, sbUpsert } from "@/lib/supabase";
 import { planById, type PlanId } from "@/lib/plans";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows)));
+const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows, "device_id")));
 
 const NON_FREE_PLANS = new Set<string>(["pack", "daily", "yearly"]);
 
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
       entitlement_start: activated,
       entitlement_expiry: expiry.toISOString(),
     };
-    const entitlementOk = await sbUpsert("user_entitlements", [entitlementRow]);
+    const entitlementOk = await sbUpsert("user_entitlements", [entitlementRow], "user_id");
     if (!entitlementOk) {
       return json({ error: "Could not persist the entitlement — check server configuration.", code: "grant_failed" }, 500);
     }
@@ -128,12 +128,14 @@ export async function POST(request: Request) {
           pack_credits_expires_at: expiry.toISOString(),
           updated_at: activated,
         },
-      ]);
+      ], "user_id");
       if (!balanceOk) {
         return json({ error: "Could not persist the pack credits — check server configuration.", code: "grant_failed" }, 500);
       }
       // Audit trail: one ledger entry per grant.
-      await sbUpsert("credit_ledger", [
+      // Append-only audit row -> plain INSERT. An upsert here could rewrite an
+      // earlier grant's amount on a reference collision.
+      await sbInsertDetailed("credit_ledger", [
         {
           user_id: targetUserId,
           transaction_type: "pack_grant",
@@ -145,18 +147,28 @@ export async function POST(request: Request) {
     }
 
     // 3. Daily plans (daily/yearly) reset today's usage so the grant opens a
-    //    fresh window honestly.
+    //    fresh window honestly — WITHOUT destroying pack credits the user
+    //    already bought. The old code wrote `available_pack_credits: 0` here,
+    //    so buying a daily plan silently deleted a paid pack balance.
     if (safePlan === "daily" || safePlan === "yearly") {
+      const currentBalance = await sbSelect<Record<string, unknown>>(
+        "credit_balances",
+        `user_id=eq.${encodeURIComponent(targetUserId)}&select=available_pack_credits&limit=1`,
+      ).catch(() => null);
+      const existingPackCredits =
+        typeof currentBalance?.[0]?.available_pack_credits === "number"
+          ? (currentBalance[0].available_pack_credits as number)
+          : 0;
       await sbUpsert("credit_balances", [
         {
           user_id: targetUserId,
-          available_pack_credits: 0,
+          available_pack_credits: existingPackCredits,
           daily_usage: 0,
           daily_limit: dailyLimit,
           last_reset_at: activated,
           updated_at: activated,
         },
-      ]).catch(() => undefined);
+      ], "user_id").catch(() => undefined);
     }
 
     return json({

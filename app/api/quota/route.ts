@@ -32,7 +32,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const quota = new QuotaStore(supabaseQuotaHooks(sbSelect, sbUpsert));
-const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows)));
+const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows, "device_id")));
 
 type QuotaPlanMeta = {
   id: PlanId;

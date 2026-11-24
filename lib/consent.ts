@@ -60,6 +60,20 @@ const EMPTY: ConsentState = {
   privacyVersion: null,
 };
 
+/**
+ * Thrown when the consent table cannot be read.
+ *
+ * Deliberately a distinct error instead of a falsy state: callers must render
+ * "we could not check your consent" (retryable) rather than "you have not
+ * accepted" (which invites a duplicate acceptance).
+ */
+export class ConsentReadError extends Error {
+  constructor(readonly category: string) {
+    super(`consent_unreadable:${category}`);
+    this.name = "ConsentReadError";
+  }
+}
+
 /** Sanitized, category-level diagnostic log — never identity, tokens or rows. */
 export function consentLog(step: string, fields: Record<string, string>): void {
   try {
@@ -137,7 +151,14 @@ export async function readConsent(userId: string): Promise<ConsentState> {
     `user_id=eq.${encodeURIComponent(userId)}&select=agreement_version,privacy_version,terms_accepted_at,privacy_accepted_at,ai_improvement_consent,ai_improvement_consent_at,withdrawn_at,created_at&order=created_at.desc&limit=1`,
   );
   if (!res.ok) {
-    return EMPTY;
+    // A database outage is NOT "this user never consented".
+    //
+    // The old code returned EMPTY here, so an unreachable Supabase made the UI
+    // show the consent gate again to someone who had already accepted — and the
+    // next POST re-recorded consent the user never gave. Callers must be able to
+    // tell "no consent" apart from "could not read", so the failure is surfaced
+    // as a distinct, throwable error.
+    throw new ConsentReadError(res.error.category);
   }
   const latest = res.rows?.[0];
   if (!latest) return EMPTY;
@@ -176,7 +197,7 @@ async function mirrorProfile(userId: string, patch: Record<string, unknown>, rea
       consentLog(reason, { outcome: "skip_mirror_no_profile" });
       return;
     }
-    const ok = await sbUpsert("user_profiles", [{ user_id: userId, updated_at: new Date().toISOString(), ...patch }]);
+    const ok = await sbUpsert("user_profiles", [{ user_id: userId, updated_at: new Date().toISOString(), ...patch }], "user_id");
     if (!ok) consentLog(reason, { outcome: "mirror_failed" });
   } catch {
     consentLog(reason, { outcome: "mirror_failed" });
