@@ -72,3 +72,27 @@ test("the guest limit points at the free account instead of a dead end", () => {
   const limited = mapHttpErrorMessage(429, undefined, "guest_limit_reached");
   assert.match(limited, /sign in/i, "tells the user how to continue");
 });
+
+test("the free-key status reports the SERVER key, not the user's local one", () => {
+  // Reported live: Settings said "No free key detected — add your own below"
+  // under the "ANVIK Free Key (Automatic)" heading while /api/health and
+  // /api/quota both confirmed a working server key. The badge was reading the
+  // locally-saved personal key, so a user with no personal key was told the
+  // product was broken.
+  // Strip comments: the fix explains the old wording in prose, and that must
+  // not count as the wording still being there.
+  const source = readFileSync("components/anvik/settings-screen.tsx", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(source.includes("quota?.hasServerKey"), "the badge must consult hasServerKey");
+  assert.ok(
+    !/No free key detected/.test(source),
+    "the misleading wording must be gone",
+  );
+  assert.ok(
+    source.includes("Automatic free key active"),
+    "an available server key is stated plainly",
+  );
+  // And it must not assert a key problem before usage has loaded.
+  assert.ok(source.includes("Checking availability"), "unknown state says so instead of guessing");
+});
