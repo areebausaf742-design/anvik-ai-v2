@@ -55,6 +55,10 @@ type QuotaStatus = {
   status: string;
   remaining: number;
   limit: number;
+  /** False for a signed-out visitor — their allowance is the guest meter. */
+  authenticated?: boolean;
+  /** IST day the guest allowance resets on. */
+  resetsOn?: string | null;
   plan: {
     id: string;
     name: string;
@@ -106,7 +110,7 @@ function SettingsScreenInner() {
           cache: "no-store",
           headers: { "x-anvik-device": readDeviceId(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         });
-        if (!response.ok) throw new Error("quota fetch failed");
+        if (!response.ok) throw new Error(`quota ${response.status}`);
         const body = (await response.json()) as QuotaStatus;
         if (cancelled) return;
         setQuota({
@@ -114,19 +118,26 @@ function SettingsScreenInner() {
           status: typeof body.status === "string" ? body.status : "ok",
           remaining: typeof body.remaining === "number" ? body.remaining : 0,
           limit: typeof body.limit === "number" && body.limit > 0 ? body.limit : 10,
+          authenticated: body.authenticated !== false,
+          resetsOn: body.resetsOn ?? null,
           plan: body.plan ?? null,
         });
       } catch {
         if (cancelled) return;
-        setQuota({
-          hasServerKey: false,
-          status: "ok",
-          remaining: 10,
-          limit: 10,
-          plan: { id: "free", name: "Free", expiresAt: null, packTotal: null, packUsed: null },
-        });
-        setQuotaError("Could not reach the quota service — showing the free-tier limit.");
-        errorTimer = window.setTimeout(() => setQuotaError(""), 6000);
+        // Report the failure as a failure.
+        //
+        // This used to fabricate `remaining: 10`, `hasServerKey: false` and a
+        // Free plan, then label it "could not reach the quota service". A 401
+        // and a real outage looked identical, and the invented numbers were
+        // presented as fact. There is no honest number to show when the request
+        // failed, so we show none and say what happened.
+        setQuota(null);
+        setQuotaError(
+          navigator.onLine
+            ? "Could not load your usage right now. This page will retry when you reload."
+            : "You're offline — your usage will load once you reconnect.",
+        );
+        errorTimer = window.setTimeout(() => setQuotaError(""), 8000);
       }
     })();
     return () => {
@@ -467,16 +478,20 @@ function SettingsScreenInner() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold text-[#1A1A1A]">Quota Status</h2>
-              {quota?.plan?.id !== "free" && quota?.plan?.id && (
+              {quota && quota.plan?.id && !["free", "guest"].includes(quota.plan.id) && (
                 <span className="rounded-full border border-[#EDEDED] bg-[#F7F7F5] px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-[#666666]">
                   {quota.plan.name} plan
                 </span>
               )}
             </div>
             <p className="text-xs text-[#666666]">
-              {quota?.plan?.id === "pack"
-                ? `Pack: 50 questions total, valid ${"30"} days from activation.`
-                : "Questions per day (resets midnight IST)."}
+              {!quota
+                ? "Loading your usage…"
+                : quota.plan?.id === "pack"
+                  ? `Pack: 50 questions total, valid ${"30"} days from activation.`
+                  : quota.authenticated === false
+                    ? "Free guest questions per day (resets midnight IST). Sign in to keep unlimited history."
+                    : "Questions per day (resets midnight IST)."}
             </p>
           </div>
         </div>

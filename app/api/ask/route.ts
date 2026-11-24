@@ -14,7 +14,7 @@ const json = (body: unknown, status = 200) =>
 
 export async function POST(req: Request) {
   // Identity first: a guest must be refused before anything else happens.
-  const auth = await requireUser(req);
+  const auth = await requireUser(req, "Ask");
   if ("response" in auth) return auth.response;
   let body: { question?: unknown };
   try {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   FolderOpen,
@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import TiltCard from "@/components/anvik/tilt-card";
 import { useChatStore, type Conversation } from "@/store/use-chat-store";
+import { useSession } from "@/components/anvik/session-provider";
+import { activateChatOwner, resolveChatOwner } from "@/lib/chat-owner";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -139,10 +141,47 @@ function ProjectRow({
 export default function ProjectsPage() {
   const conversations = useChatStore((state) => state.conversations);
   const deleteConversation = useChatStore((state) => state.deleteConversation);
+  const { profile, session, loading: sessionLoading } = useSession();
   const [search, setSearch] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  // Identity has been applied to the store, so what we render belongs to the
+  // current owner. Until then the list would be a lie.
+  const [identityReady, setIdentityReady] = useState(false);
+  const identityRef = useRef<string | null>(null);
 
   useEffect(() => setHydrated(true), []);
+
+  /**
+   * Point the store at this user's history before reading it.
+   *
+   * This page reads `useChatStore` directly, and that store is persisted under
+   * a per-account localStorage key. Only /chat used to perform the switch, so a
+   * direct visit or refresh of /projects read whichever key the store happened
+   * to be on — normally the guest one — and showed empty or stale conversations
+   * to a signed-in user. Both surfaces now go through lib/chat-owner.ts.
+   */
+  useEffect(() => {
+    const owner = resolveChatOwner({
+      sessionLoading,
+      hasSession: Boolean(session),
+      hasProfile: Boolean(profile),
+      userId: profile?.id,
+    });
+    if (!owner) return;
+    if (identityRef.current === owner) {
+      setIdentityReady(true);
+      return;
+    }
+    setIdentityReady(false);
+    identityRef.current = owner;
+    void activateChatOwner(owner)
+      .catch(() => undefined)
+      .finally(() => {
+        if (identityRef.current === owner) setIdentityReady(true);
+      });
+  }, [sessionLoading, session, profile]);
+
+  const ready = hydrated && identityReady;
 
   const sorted = useMemo(
     () => [...conversations].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -217,7 +256,7 @@ export default function ProjectsPage() {
         />
       </label>
 
-      {hydrated && sorted.length === 0 ? (
+      {ready && sorted.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#E5E5E5] bg-white px-6 py-16 text-center">
           <FolderOpen className="h-10 w-10 text-[#D97757]" aria-hidden="true" />
           <h2 className="mt-4 text-lg font-semibold text-[#1A1A1A]">No projects yet</h2>
@@ -231,7 +270,7 @@ export default function ProjectsPage() {
             Start a conversation <ExternalLink className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
-      ) : hydrated && filtered.length === 0 ? (
+      ) : ready && filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[#E5E5E5] bg-white px-6 py-12 text-center">
           <p className="text-sm font-medium text-[#1A1A1A]">Nothing matches “{search}”</p>
           <p className="mt-1 text-xs text-[#666666]">Try a different word, or clear the search.</p>

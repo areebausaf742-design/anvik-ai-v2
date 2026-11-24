@@ -33,7 +33,6 @@ import { serverKey } from "@/lib/provider";
 import { CHAT_MAX_TOKENS, CODE_MAX_TOKENS, MAX_TEMPERATURE, PAID_MAX_TOKENS } from "@/lib/credit";
 import { memoryInstruction, type Memory } from "@/lib/learning";
 import {
-  isValidGeminiKeyFormat,
   openGeminiStreamWithFallback,
   type GeminiTurn,
   type SearchMetaCapture,
@@ -51,17 +50,9 @@ import { safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
 import type { PlanId } from "@/lib/plans";
 
 import { recordChatExchange } from "@/lib/chat-record";
-import { allowDistributed } from "@/lib/rate-limit";
-import { requireUser } from "@/lib/session";
-import {
-  ensureEntitlement,
-  effectivePlan,
-  reserveCredit,
-  settleCredit,
-} from "@/lib/credits";
-import { planById } from "@/lib/plans";
+import { getVerifiedUserIfPresent } from "@/lib/session";
+import { beginMeteredRequest } from "@/lib/ai-gateway";
 import { logRouteEvent } from "@/lib/observability";
-import { accountBlockedResponse, readAccountStanding } from "@/lib/account-status";
 
 export const maxDuration = 60;
 
@@ -96,46 +87,6 @@ function readMemory(input: unknown): Memory | null {
 
 function sseFrame(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
-}
-
-/**
- * There is exactly one reservation kind now: a verified account's credit.
- *
- * The free per-IP quota and the device entitlement branches were only reachable
- * for anonymous callers, which this route no longer serves.
- */
-type Reservation = { userId: string; reference: string };
-
-/**
- * Close a reservation exactly once, on every exit path.
- *
- * The previous code called `recordUsage` on success and `refundCredit` on
- * failure as two separate best-effort RPCs and swallowed both errors, so a
- * stream killed between them left the credit spent forever. `settle_credit`
- * confirms-or-refunds under a row lock and is idempotent per reference; the
- * every-10-minutes sweeper catches whatever still slips through.
- */
-type ReservationOutcome = "success" | "failure" | "aborted";
-
-async function settleReservation(
-  reservation: Reservation | undefined,
-  outcome: ReservationOutcome,
-  model: string,
-  feature: string,
-): Promise<void> {
-  if (!reservation) return;
-  try {
-    await settleCredit({
-      userId: reservation.userId,
-      reference: reservation.reference,
-      outcome,
-      model,
-      feature,
-    });
-  } catch {
-    // Persistence is best-effort by contract — the answer already streamed.
-    // A missing settlement is recovered by reclaim_stale_reservations().
-  }
 }
 
 export async function POST(request: Request) {
@@ -188,106 +139,31 @@ export async function POST(request: Request) {
     content: stripSecrets(turn.content).text,
   }));
 
-  // 4. Verify the Supabase user BEFORE resolving the server key. The old order
-  //    answered a guest with `no_server_key` when the deployment had no key,
-  //    which both leaked a configuration fact and made the client render the
-  //    wrong error ("connect your own key") instead of "sign in".
-  const auth = await requireUser(request);
-  if ("response" in auth) return auth.response;
+  // 4. Resolve identity — a verified account, or a guest.
+  //
+  //    `getVerifiedUserIfPresent` never throws and never trusts a header: a
+  //    bad/absent token simply means "guest". Chat is the one AI surface the
+  //    product promises without an account, so the guest branch is real here and
+  //    everywhere else refuses with `unauthenticated`.
+  const caller = await getVerifiedUserIfPresent(request).catch(() => null);
+  const auth = caller ? { user: caller } : null;
 
-  // 5. Key resolution — the user's own key wins unconditionally.
-  const suppliedClientKey = request.headers.get("x-google-generative-ai-api-key")?.trim();
-  if (suppliedClientKey && !isValidGeminiKeyFormat(suppliedClientKey)) {
-    return Response.json(
-      {
-        error: "Key looks wrong. Paste a new key from aistudio.google.com",
-        code: "bad_format",
-      },
-      { status: 400 },
-    );
-  }
-  const validClientKey = isValidGeminiKeyFormat(suppliedClientKey) ? suppliedClientKey : undefined;
-  const configuredServerKey = serverKey();
-  const key = validClientKey || configuredServerKey;
-  if (!key) {
-    return Response.json(
-      { error: "ANVIK free key is not set. Connect your own key to continue.", code: "no_server_key" },
-      { status: 401 },
-    );
-  }
-  if (!validClientKey) {
+  // 5. The single metered entrance: key choice → account standing → rate limit
+  //    → exactly one reservation (account credit, or one of the ten free guest
+  //    answers). This route used to duplicate that chain inline, which is how
+  //    /api/chat and the other five AI routes drifted apart.
+  const gateway = await beginMeteredRequest(request, "chat", caller);
+  if (!gateway.ok) return gateway.response;
+
+  const { key, userId, guest, remaining } = gateway.session;
+  const settleSession = gateway.session.settle;
+
+  if (!guest && key === serverKey()) {
     console.warn(`chat using ${safeKeyLog(key)}`);
   }
 
-  // 6. Account standing — a suspended or closed account is refused before it
-  //    can spend a credit (the status column used to be decorative).
-  const standing = await readAccountStanding(auth.user.id);
-  if (!standing.allowed) return accountBlockedResponse(standing);
-
-  // 7. Distributed rate limit — keyed only by this verified user id.
-  // Never trusts client-supplied identity headers (audit: H-1/H-8).
-  const pace = await allowDistributed(request, "chat", PER_MINUTE, 0, {
-    verifiedUserId: auth.user.id,
-    spacingMs: MIN_SPACING_MS,
-  });
-  if (!pace.allowed) {
-    const retryAfter = Math.max(1, Math.ceil(pace.retryAfterMs / 1000));
-    logRouteEvent({
-      route: "chat",
-      outcome: "rate_limited",
-      status: 429,
-      latencyMs: Date.now() - startedAt,
-      rateLimitSource: pace.source,
-      errorCode: "rate_limit",
-    });
-    return Response.json(
-      {
-        error: "Too many requests. Please wait a few seconds and try again.",
-        code: "rate_limit",
-      },
-      { status: 429, headers: { "Retry-After": String(retryAfter) } },
-    );
-  }
-
-  // 8. Credit reservation — server key only. Own keys are unlimited by design
-  //    (the user is paying Google directly).
-  //
-  //    Auth is mandatory on this route, so there is exactly one money path:
-  //    the verified account's credit ledger, reserved atomically and settled
-  //    atomically. The old anonymous branch (device entitlements, free per-IP
-  //    quota, `anonymous` as a user id) could never be reached after identity
-  //    became required, and a device id must never be an identity anyway.
-  let reservation: Reservation | undefined;
-  let paidPlan: PlanId | null = null;
-
-  if (!validClientKey) {
-    const reference = (request.headers.get("x-anvik-request-id") ?? "").trim().slice(0, 160) || crypto.randomUUID();
-    const entitlement = await ensureEntitlement(auth.user.id).catch(() => null);
-    const effective = effectivePlan(entitlement);
-    const result = await reserveCredit(auth.user.id, effective.limit, reference);
-
-    if (!result.ok) {
-      const isDuplicate = result.reason === "duplicate_request";
-      return Response.json(
-        {
-          error: isDuplicate
-            ? "This request was already answered. Ask again to continue."
-            : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
-          detail: isDuplicate
-            ? "This request was already answered."
-            : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
-          code: isDuplicate ? "duplicate_request" : (effective.plan === "free" ? "free_limit_reached" : "plan_limit_reached"),
-          plan: effective.plan,
-          remaining: 0,
-        },
-        { status: 429 },
-      );
-    }
-
-    reservation = { userId: auth.user.id, reference };
-    const spec = planById(effective.plan);
-    paidPlan = effective.active && spec.priceInr > 0 ? spec.id : null;
-  }
+  // Plan label for the response, mirroring the credit the gateway reserved.
+  const paidPlan: PlanId | null = gateway.session.metered && !guest ? (gateway.session.plan as PlanId) : null;
 
   const selectedMode = (validModes.has(String(mode)) ? mode : "smart") as ModeId;
   const remembered = readMemory(memory);
@@ -338,7 +214,7 @@ export async function POST(request: Request) {
     candidate.error.code === "invalid_key" || candidate.error.code === "bad_format" ||
     candidate.error.status === 400 || candidate.error.status === 401 || candidate.error.status === 403;
   const returnTerminalError = (candidate: {error:{message:string;code:string;status:number}}) => {
-    void settleReservation(reservation, "failure", "", "chat");
+    void settleSession("failure");
     return Response.json({error:candidate.error.message,detail:candidate.error.message,code:candidate.error.code},{status:candidate.error.status});
   };
   if (searchNeeded && hasExternalSources && externalSearchResult) {
@@ -378,7 +254,7 @@ export async function POST(request: Request) {
 
   try {
     if (!result.ok) {
-      await settleReservation(reservation, "failure", "", "chat");
+      await settleSession("failure");
       logRouteEvent({
         route: "chat",
         outcome: "error",
@@ -461,14 +337,16 @@ export async function POST(request: Request) {
 
           // 8. Settle only after a full, successful stream: one atomic
           //    confirm-or-refund, so an interrupted answer never eats a credit.
-          await settleReservation(reservation, "success", model, "chat");
+          await settleSession("success", { model });
 
           // Persist every exchange (user message + answer + model). Best-effort:
           // a Supabase outage must never break the answer, so failures are
           // swallowed; the write is still awaited so it completes before the
           // response closes.
           const finalUser = redactedMessages[redactedMessages.length - 1];
-          if (completed && answer.trim() && finalUser) {
+          // Guests keep their conversation in the browser only; only a signed-in
+          // owner has a row to write.
+          if (completed && answer.trim() && finalUser && userId) {
             try {
               await recordChatExchange({
                 // ownership: always the VERIFIED account id.
@@ -478,9 +356,10 @@ export async function POST(request: Request) {
                 // RLS read policy is `user_id = auth.uid()::text`, so rows
                 // written with a device id were invisible to their own owner —
                 // and a caller could forge the device header to plant rows in
-                // someone else's history. Every AI route now requires a
-                // verified user, so the device id is never an identity.
-                userId: auth.user.id,
+                // someone else's history. Ownership is only ever the verified
+                // account id, and a guest (userId null) is not persisted at all
+                // — there is no owner to file the row under.
+                userId: userId as string,
                 userMessage: finalUser.content,
                 answer,
                 model,
@@ -491,7 +370,7 @@ export async function POST(request: Request) {
           }
           controller.close();
         } catch (error) {
-          await settleReservation(reservation, "failure", model, "chat");
+          await settleSession("failure", { model });
           controller.error(error);
         } finally {
           upstreamReader.releaseLock();
@@ -500,7 +379,7 @@ export async function POST(request: Request) {
       async cancel(reason) {
         void upstreamReader.cancel(reason);
         // Client hung up → the user should not pay for a partial answer.
-        await settleReservation(reservation, "aborted", model, "chat");
+        await settleSession("aborted", { model });
       },
     });
 
@@ -517,7 +396,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    await settleReservation(reservation, err instanceof Error && err.name === "AbortError" ? "aborted" : "failure", "", "chat");
+    await settleSession(err instanceof Error && err.name === "AbortError" ? "aborted" : "failure");
     if (err instanceof Error && err.name === "AbortError") {
       return new Response(null, { status: 499 });
     }

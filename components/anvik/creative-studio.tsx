@@ -31,11 +31,13 @@ import {
   readDeviceId,
 } from "@/lib/client-key";
 import {
+  aiRequestHeaders,
   mapClientFetchError,
   mapHttpErrorMessage,
   testGeminiKeyRequest,
   validateStoredKeyBeforeSend,
 } from "@/lib/client-api";
+import { useSession } from "@/components/anvik/session-provider";
 import {
   compressImageForStorage,
   persistGallery,
@@ -137,6 +139,7 @@ function InlineKeyAlert({
 }
 
 function ImageStudio() {
+  const { bearerToken } = useSession();
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState(IMAGE_STYLES[0]);
   const [loading, setLoading] = useState(false);
@@ -176,11 +179,9 @@ function ImageStudio() {
     try {
       const response = await fetch("/api/image", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-anvik-device": readDeviceId(),
-          ...(keyCheck.apiKey ? { "x-google-generative-ai-api-key": keyCheck.apiKey } : {}),
-        },
+        // The bearer token is mandatory: /api/image verifies the user before it
+        // touches a provider, so a request without it can never succeed.
+        headers: aiRequestHeaders({ token: bearerToken(), apiKey: keyCheck.apiKey }),
         body: JSON.stringify({ prompt: prompt.trim(), style }),
       });
 
@@ -479,6 +480,7 @@ if (!out.textContent && !document.getElementById('app').innerHTML) {
 }
 
 function CodeLab() {
+  const { bearerToken } = useSession();
   const [prompt, setPrompt] = useState("");
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState("Python");
@@ -513,11 +515,7 @@ function CodeLab() {
     try {
       const response = await fetch("/api/code", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-anvik-device": readDeviceId(),
-          ...(keyCheck.apiKey ? { "x-google-generative-ai-api-key": keyCheck.apiKey } : {}),
-        },
+        headers: aiRequestHeaders({ token: bearerToken(), apiKey: keyCheck.apiKey }),
         body: JSON.stringify({ prompt: prompt.trim(), language }),
         signal: controller.signal,
       });
@@ -770,6 +768,7 @@ type Recognition = {
 type RecognitionConstructor = new () => Recognition;
 
 function VoiceStudio() {
+  const { bearerToken } = useSession();
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [answer, setAnswer] = useState("");
@@ -863,11 +862,7 @@ function VoiceStudio() {
     try {
       const response = await fetch("/api/voice", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-anvik-device": readDeviceId(),
-          ...(keyCheck.apiKey ? { "x-google-generative-ai-api-key": keyCheck.apiKey } : {}),
-        },
+        headers: aiRequestHeaders({ token: bearerToken(), apiKey: keyCheck.apiKey }),
         body: JSON.stringify({ transcript: text }),
       });
       if (!response.ok || !response.body) {

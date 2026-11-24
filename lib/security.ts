@@ -33,11 +33,27 @@ export function safeKeyLog(key: string): string {
 /* IP hashing — quota and rate-limit identity                          */
 /* ------------------------------------------------------------------ */
 
-const IP_SALT = "anvik-v2-ip-salt";
+/**
+ * The pepper mixed into the IP digest.
+ *
+ * A hardcoded constant is not a secret — it sits in a public repository — so
+ * anyone with the IPv4 space could recompute the hash for every address and
+ * de-anonymise the key. `ANVIK_IP_HASH_SALT` makes the digest unguessable. The
+ * constant stays as a fallback so existing rows keep matching (changing the
+ * pepper mid-day would reset everyone's counter), and it is only a privacy
+ * problem, never an access-control one: guessing a digest just means guessing
+ * which bucket you are in.
+ */
+const IP_SALT_FALLBACK = "anvik-v2-ip-salt";
+
+function ipSalt(): string {
+  const configured = (process.env.ANVIK_IP_HASH_SALT ?? "").trim();
+  return configured || IP_SALT_FALLBACK;
+}
 
 /** Deterministic, salted hash of an IP so raw addresses never reach the DB. */
 export function hashIp(ip: string): string {
-  return createHash("sha256").update(`${IP_SALT}:${ip}`).digest("hex");
+  return createHash("sha256").update(`${ipSalt()}:${ip}`).digest("hex");
 }
 
 /* ------------------------------------------------------------------ */

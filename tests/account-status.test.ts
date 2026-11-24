@@ -24,10 +24,30 @@ test("account standing is enforced on every AI route, not just reported", () => 
   const gateway = readFileSync(join(root, "lib/ai-gateway.ts"), "utf8");
   assert.ok(gateway.includes("readAccountStanding("), "the shared gateway must check standing");
 
-  const chat = readFileSync(join(root, "app/api/chat/route.ts"), "utf8");
-  assert.ok(chat.includes("readAccountStanding("), "chat must check standing");
+  // Every AI route now delegates to the gateway, so the check runs once, in one
+  // place, before any provider call. Chat no longer repeats it inline.
+  for (const routePath of [
+    "app/api/chat/route.ts",
+    "app/api/ask/route.ts",
+    "app/api/code/route.ts",
+    "app/api/voice/route.ts",
+    "app/api/vision/route.ts",
+    "app/api/image/route.ts",
+  ]) {
+    const source = readFileSync(join(root, routePath), "utf8");
+    assert.ok(
+      source.includes("beginMeteredRequest("),
+      routePath + " must go through the metered gateway (which checks standing)",
+    );
+    assert.ok(
+      !source.includes("readAccountStanding("),
+      routePath + " must not re-implement the standing check",
+    );
+  }
+
+  // Ordering inside the gateway: standing is read before any key is used.
   assert.ok(
-    chat.indexOf("readAccountStanding(") < chat.indexOf("openGeminiStreamWithFallback("),
-    "standing must be checked before the model is called",
+    gateway.indexOf("readAccountStanding(") < gateway.indexOf("const key = userKey ?? serverKey()"),
+    "standing must be checked before the server key is resolved",
   );
 });

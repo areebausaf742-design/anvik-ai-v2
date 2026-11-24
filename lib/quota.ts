@@ -59,6 +59,20 @@ export type QuotaHooks = {
 /** In-process reservations so same-process concurrency can't double-spend. */
 const reservations = new Map<string, number>();
 
+/**
+ * Answers this process has already counted, keyed `ipHash:day`.
+ *
+ * This is the degraded-mode ledger and the reason the fallback is real. Before
+ * it existed, `confirm()` only released the in-process reservation and relied on
+ * the database row to become the record of the answer — so whenever Supabase was
+ * unavailable (no env, an outage, a failing RPC) the count went back to zero and
+ * the "in-process fallback" enforced nothing: a guest got unlimited answers.
+ *
+ * `checkAndReserve` now treats `max(stored, confirmed)` as the day's total, so
+ * the counter can never rewind below what this process has actually served.
+ */
+const confirmed = new Map<string, number>();
+
 /** Tiny in-process cache for /api/quota display. Never used for the chat call. */
 const readCache = new Map<string, { value: number | null; expiresAt: number }>();
 const CACHE_TTL_MS = 3_000;
@@ -85,7 +99,8 @@ export class QuotaStore {
 
     const stored = await this.readQuotaCount(ipHash, day);
     const reserved = reservations.get(key) ?? 0;
-    const counted = (stored ?? 0) + reserved;
+    // Never trust a persisted value lower than what we know we served.
+    const counted = Math.max(stored ?? 0, confirmed.get(key) ?? 0) + reserved;
     const remaining = Math.max(0, FREE_LIMIT - counted);
 
     if (remaining <= 0) {
@@ -130,11 +145,18 @@ export class QuotaStore {
     else reservations.delete(reservationKey);
 
     const [ipHash, day] = splitKey(reservationKey);
+    // Record the answer in-process FIRST: whatever happens to the database, this
+    // process has served it and must not hand it out again.
+    const floor = (confirmed.get(reservationKey) ?? 0) + 1;
+    confirmed.set(reservationKey, floor);
 
     if (this.hooks.increment) {
       try {
         const next = await this.hooks.increment(ipHash, day);
         if (next !== null) {
+          // The database is authoritative when it answered; keep the in-process
+          // floor in step so a later outage cannot rewind below it.
+          confirmed.set(reservationKey, Math.max(floor, next));
           readCache.delete(reservationKey);
           return next;
         }
@@ -166,14 +188,19 @@ export class QuotaStore {
   /** Display helper: remaining for the quota endpoint. */
   async remaining(ipHash: string, now = this.hooks.now?.() ?? new Date()): Promise<number> {
     const day = istDay(now);
+    const key = this.reservationKey(ipHash, day);
     const stored = await this.readQuotaCountCached(ipHash, day);
-    const reserved = reservations.get(this.reservationKey(ipHash, day)) ?? 0;
-    return Math.max(0, FREE_LIMIT - ((stored ?? 0) + reserved));
+    const reserved = reservations.get(key) ?? 0;
+    // Same floor as checkAndReserve: what this process served is never less than
+    // what the database remembers, so the displayed number never over-reports.
+    const counted = Math.max(stored ?? 0, confirmed.get(key) ?? 0) + reserved;
+    return Math.max(0, FREE_LIMIT - counted);
   }
 
   /** Visible for tests. */
   reset(): void {
     reservations.clear();
+    confirmed.clear();
     readCache.clear();
   }
 }

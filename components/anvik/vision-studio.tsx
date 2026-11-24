@@ -21,15 +21,18 @@ import TiltCard from "@/components/anvik/tilt-card";
 import ErrorBoundary from "@/components/anvik/error-boundary";
 import { KEY_FORMAT_MESSAGE, readDeviceId } from "@/lib/client-key";
 import {
+  aiRequestHeaders,
   mapClientFetchError,
   mapHttpErrorMessage,
   testGeminiKeyRequest,
   validateStoredKeyBeforeSend,
 } from "@/lib/client-api";
+import { useSession } from "@/components/anvik/session-provider";
 
 const MAX_BYTES = 3 * 1024 * 1024;
 
 function VisionStudioInner() {
+  const { bearerToken } = useSession();
   const [image, setImage] = useState("");
   const [mediaType, setMediaType] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -172,11 +175,9 @@ function VisionStudioInner() {
     try {
       const response = await fetch("/api/vision", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-anvik-device": readDeviceId(),
-          ...(keyCheck.apiKey ? { "x-google-generative-ai-api-key": keyCheck.apiKey } : {}),
-        },
+        // /api/vision verifies the user before touching the model; without the
+        // bearer token this request was guaranteed to 401 for everyone.
+        headers: aiRequestHeaders({ token: bearerToken(), apiKey: keyCheck.apiKey }),
         body: JSON.stringify({
           image,
           mediaType,

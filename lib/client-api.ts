@@ -23,6 +23,37 @@ export function validateStoredKeyBeforeSend(): { ok: true; apiKey: string } | { 
   return { ok: true, apiKey: raw };
 }
 
+/**
+ * Headers every AI request must carry.
+ *
+ * The bearer token is what the server verifies; without it an AI route answers
+ * 401 no matter who is signed in. The Creative Studio (image/code/voice) and the
+ * Vision studio built their own header objects and omitted it, so those screens
+ * could not authenticate a signed-in user at all — they were dead on arrival
+ * against `requireUser`.
+ *
+ * `token` comes from `useSession().bearerToken()`; passing null/empty just means
+ * "no token", which the server treats as a guest.
+ */
+export function aiRequestHeaders(options: {
+  token?: string | null;
+  apiKey?: string | null;
+  accept?: string;
+  requestId?: string;
+} = {}): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-anvik-device": readDeviceId(),
+  };
+  if (options.accept) headers.Accept = options.accept;
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  // A user-supplied Gemini key is sent as its own header, never as a bearer
+  // token — the two mean different things to the server.
+  if (options.apiKey) headers["x-google-generative-ai-api-key"] = options.apiKey;
+  if (options.requestId) headers["x-anvik-request-id"] = options.requestId;
+  return headers;
+}
+
 export function mapClientFetchError(err: unknown): string {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return "No internet. Try again";
@@ -41,12 +72,21 @@ export function mapClientFetchError(err: unknown): string {
 
 export function mapHttpErrorMessage(status: number, serverMessage?: string, code?: string): string {
   if (status === 401 || status === 403) {
+    // An auth refusal and a bad personal key are different problems with
+    // different fixes. Reporting a missing session as "key invalid" sent people
+    // to their Gemini key settings when all they needed was to sign in.
+    if (code === "unauthenticated") {
+      return "Sign in to use this. It's free — your account keeps your history and credits.";
+    }
     if (serverMessage && /ANVIK free key is not set|aistudio\.google\.com/i.test(serverMessage)) {
       return serverMessage;
     }
     return "Key invalid or expired. Check your saved API key and try again.";
   }
   if (status === 429) {
+    if (code === "guest_limit_reached") {
+      return "You've used today's free questions. Sign in for more — it's free, and your history follows you.";
+    }
     if (code === "plan_limit_reached") {
       return "You've reached your plan limit. Upgrade at /pricing or connect your own key to continue.";
     }

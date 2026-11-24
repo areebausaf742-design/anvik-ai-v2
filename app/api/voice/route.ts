@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   // Identity first: a guest must be refused before anything else happens.
-  const auth = await requireUser(request);
+  const auth = await requireUser(request, "Voice");
   if ("response" in auth) return auth.response;
   let body: unknown;
   try {

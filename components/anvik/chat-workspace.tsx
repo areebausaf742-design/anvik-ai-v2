@@ -51,9 +51,9 @@ import {
   mapHttpErrorMessage,
   testGeminiKeyRequest,
 } from "@/lib/client-api";
-import { readMemory, setLearningOwner } from "@/lib/learning";
+import { readMemory } from "@/lib/learning";
 import { greetingFirstName } from "@/lib/session";
-import { accountStorageKey } from "@/lib/account-storage";
+import { activateChatOwner, resolveChatOwner } from "@/lib/chat-owner";
 import { useSession } from "@/components/anvik/session-provider";
 import { useAppearance } from "@/components/anvik/appearance-provider";
 
@@ -134,19 +134,26 @@ function ChatWorkspaceInner() {
   }, []);
 
   const identityRef = useRef<string | null>(null);
-  const identitySwitchRef = useRef(0);
 
   // Wait for server-verified identity before switching the persisted store.
+  // The switch itself lives in lib/chat-owner.ts so /projects (and anything else
+  // that reads history) applies exactly the same rules.
   useEffect(() => {
-    if (sessionLoading || (session && !profile)) {
-      identitySwitchRef.current += 1;
+    const owner = resolveChatOwner({
+      sessionLoading,
+      hasSession: Boolean(session),
+      hasProfile: Boolean(profile),
+      userId: profile?.id,
+    });
+
+    if (!owner) {
       abortRef.current?.abort();
       setPending(false);
       setIdentityReady(false);
       return;
     }
-    const identity = profile?.id || "guest";
-    if (identityRef.current === identity) {
+
+    if (identityRef.current === owner) {
       setIdentityReady(true);
       return;
     }
@@ -154,34 +161,13 @@ function ChatWorkspaceInner() {
     setIdentityReady(false);
     abortRef.current?.abort();
     setPending(false);
-    identityRef.current = identity;
-    const switchId = ++identitySwitchRef.current;
-    setLearningOwner(identity);
-    const storageKey = accountStorageKey("anvik-chat-history", identity);
-    try {
-      const previousAccountData = window.localStorage.getItem(storageKey);
-      useChatStore.persist.setOptions({ name: storageKey });
-      useChatStore.setState({
-        conversations: [],
-        activeId: null,
-        mode: "smart",
-        temperature: 0.65,
-        storageWarning: "",
+    identityRef.current = owner;
+    void activateChatOwner(owner)
+      .catch(() => undefined)
+      .finally(() => {
+        // Guard against a stale switch landing after a newer one started.
+        if (identityRef.current === owner) setIdentityReady(true);
       });
-      // Persist middleware may write the empty state on setState; restore the
-      // saved account value before rehydrating it into the store.
-      if (previousAccountData) window.localStorage.setItem(storageKey, previousAccountData);
-      void Promise.resolve(useChatStore.persist.rehydrate())
-        .then(() => {
-          if (identitySwitchRef.current === switchId) setIdentityReady(true);
-        })
-        .catch(() => {
-          if (identitySwitchRef.current === switchId) setIdentityReady(true);
-        });
-    } catch {
-      useChatStore.setState({ conversations: [], activeId: null });
-      if (identitySwitchRef.current === switchId) setIdentityReady(true);
-    }
   }, [sessionLoading, session, profile]);
 
   useEffect(() => {
@@ -251,11 +237,17 @@ function ChatWorkspaceInner() {
 
     const apiKey = readApiKey();
     const token = bearerToken();
-    if (!token) {
-      if (sessionLoading) return;
-      router.replace("/login");
-      return;
-    }
+
+    // Guests are allowed to chat. This branch used to `router.replace("/login")`
+    // whenever there was no bearer token, so pressing Send as a guest silently
+    // threw away the message and dumped the user on the login screen — while
+    // that screen advertised "Continue without an account" and ten free daily
+    // questions. The server now meters guests itself (lib/guest-quota.ts), so
+    // the client sends the request with no token and lets the server decide.
+    //
+    // Wait for identity to settle first: sending mid-resolution would race the
+    // token and could spend a guest question for a user who is in fact signed in.
+    if (!token && sessionLoading) return;
 
     const requestId = crypto.randomUUID();
 
@@ -315,12 +307,28 @@ function ChatWorkspaceInner() {
       });
 
       if (!response.ok || !response.body) {
-        if (response.status === 401) {
+        const issue = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
+
+        // Only an expired/invalid SESSION signs the user out. A guest hitting
+        // the daily allowance also gets a 401-shaped refusal in older builds,
+        // and signing them out would be meaningless — they were never signed in.
+        const sessionRejected =
+          (response.status === 401 || response.status === 403) &&
+          issue?.code !== "guest_limit_reached";
+        if (sessionRejected) {
           await signOut();
           router.replace("/login");
           return;
         }
-        const issue = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
+
+        // Out of guest questions: keep the message on screen and point at the
+        // free account that lifts the limit, instead of a dead end.
+        if (issue?.code === "guest_limit_reached") {
+          throw new Error(
+            "You've used today's free questions. Sign in for more — it's free, and your history follows you.",
+          );
+        }
+
         throw new Error(mapHttpErrorMessage(response.status, issue?.error ?? issue?.detail, issue?.code));
       }
 

@@ -43,12 +43,14 @@ test("every AI route settles its reservation instead of dropping it", () => {
     const settles =
       /settle\(\s*("success"|outcome)/.test(source) ||
       source.includes('settleReservation(reservation, "success"') ||
+      /settleSession\(\s*"success"/.test(source) ||
       source.includes("meteredStream(");
     assert.ok(settles, `${routePath} never settles its reservation on success`);
 
     const refunds =
       /settle\(\s*("failure"|"aborted"|outcome)/.test(source) ||
       source.includes('settleReservation(reservation, "failure"') ||
+      /settleSession\(\s*("failure"|"aborted"|outcome)/.test(source) ||
       source.includes('settleReservation(reservation, "aborted"') ||
       source.includes("meteredStream(");
     assert.ok(refunds, `${routePath} never refunds its reservation on failure`);
@@ -207,22 +209,38 @@ test("every sbUpsert call site names its conflict columns", () => {
 /* Quota wiring                                                        */
 /* ------------------------------------------------------------------ */
 
-test("chat charges exactly one meter: the account credit ledger", () => {
+test("chat charges exactly one meter per caller: credit ledger, or the guest allowance", () => {
   const source = readFileSync(join(root, "app/api/chat/route.ts"), "utf8");
-  // Every AI route requires a verified user, so the anonymous device/IP branches
-  // are unreachable. Charging two meters would double-bill; charging the dead
-  // per-IP counter would not bill at all.
-  assert.ok(source.includes("reserveCredit("), "chat must reserve a credit");
-  assert.ok(source.includes("settleCredit("), "chat must settle the reservation atomically");
-  assert.equal(
-    source.includes("consume_quota"),
-    false,
-    "chat must not also charge the per-IP free counter",
+  // The gateway decides which meter applies — account credit for a signed-in
+  // user, the ten-a-day guest allowance otherwise — and chat must not charge
+  // either one itself. Two meters in one request would double-bill; a second
+  // inline counter would be a third source of truth.
+  assert.ok(source.includes("beginMeteredRequest("), "chat must delegate metering to the gateway");
+  assert.equal(source.includes("reserveCredit("), false, "chat must not reserve credits itself");
+  assert.equal(source.includes("settleCredit("), false, "chat must not settle credits itself");
+  assert.equal(source.includes("consume_quota"), false, "chat must not charge the per-IP counter directly");
+  assert.equal(/kind:\s*"free"/.test(source), false, "no legacy anonymous reservation branch");
+
+  // The two meters themselves must stay mutually exclusive, and both atomic.
+  const gateway = readFileSync(join(root, "lib/ai-gateway.ts"), "utf8");
+  assert.ok(gateway.includes("reserveCredit("), "the gateway owns the account credit path");
+  assert.ok(gateway.includes("reserveGuestRequest("), "the gateway owns the guest allowance path");
+  assert.ok(
+    gateway.indexOf('if (!user) {') < gateway.indexOf("reserveCredit(user.id"),
+    "a guest must never reach the account credit path",
   );
+
+  // Strip comments before scanning: this module explains at length *why* the
+  // device header is not an identity, and that prose must not read as usage.
+  const guestMeter = readFileSync(join(root, "lib/guest-quota.ts"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(guestMeter.includes("consume_quota"), "the guest meter increments atomically");
+  assert.ok(guestMeter.includes("hashIp("), "the guest key is a salted IP hash");
   assert.equal(
-    /kind:\s*"free"/.test(source),
+    /x-anvik-device/.test(guestMeter),
     false,
-    "the dead anonymous quota reservation must be gone",
+    "a client-supplied device header must never be a guest identity",
   );
 });
 
