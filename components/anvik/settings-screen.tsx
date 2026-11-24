@@ -334,12 +334,28 @@ function SettingsScreenInner() {
             {savedKey ? (
               <>
                 <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
-                Active key: <code className="font-mono text-[#1A1A1A]">{maskKey(savedKey)}</code>
+                Your key: <code className="font-mono text-[#1A1A1A]">{maskKey(savedKey)}</code>
               </>
-            ) : (
+            ) : quota?.hasServerKey ? (
+              // The free key is a SERVER key. Reporting on the local one here
+              // said "No free key detected" while the deployment was serving
+              // answers on its own key — a false alarm under a heading that
+              // promises automatic setup.
+              <>
+                <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
+                Automatic free key active — no setup needed
+              </>
+            ) : quota ? (
+              // Only true when the server really has no key.
               <>
                 <AlertCircle className="h-4 w-4 text-[#999999]" />
-                No free key detected — add your own below
+                Free key unavailable — add your own below
+              </>
+            ) : (
+              // Usage has not loaded yet; do not claim anything either way.
+              <>
+                <span className="h-4 w-4 animate-pulse rounded-full bg-[#E5E5E5]" />
+                Checking availability…
               </>
             )}
           </span>
