@@ -1897,3 +1897,110 @@ html[data-theme="light"] .anvik-dark .welcome-shortcut:hover {
     border-radius: 18px;
   }
 }
+
+/* ANVIK chrome atmosphere: a custom metallic light field behind the existing chat UI. */
+html[data-theme="dark"] .anvik-dark > section {
+  position: relative;
+  isolation: isolate;
+  background: #07080b !important;
+}
+html[data-theme="dark"] .anvik-dark > section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 52% 30% at 52% 48%, rgba(17, 35, 54, .38), transparent 74%),
+    radial-gradient(ellipse 42% 24% at 58% 56%, rgba(61, 39, 36, .2), transparent 75%),
+    linear-gradient(112deg, transparent 30%, rgba(0,0,0,.94) 38%, rgba(13,16,21,.96) 42%, rgba(91,109,133,.14) 43%, rgba(230,237,247,.34) 43.35%, rgba(85,157,228,.32) 43.7%, rgba(19,22,29,.96) 47%, #050609 54%, transparent 69%);
+  opacity: .72;
+}
+html[data-theme="dark"] .anvik-dark > section > * {
+  position: relative;
+  z-index: 1;
+}
+html[data-theme="dark"] .anvik-dark > section > div:first-child {
+  background: rgba(7, 8, 11, .68) !important;
+  backdrop-filter: blur(18px);
+}
+html[data-theme="dark"] .anvik-dark .welcome-stage {
+  border-color: transparent;
+  background: transparent !important;
+}
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay {
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 68% 55% at 50% 49%, rgba(7, 8, 11, .18), rgba(7, 8, 11, .48) 72%, rgba(7, 8, 11, .8)),
+    radial-gradient(ellipse 40% 33% at 50% 49%, rgba(26, 53, 77, .4), transparent 75%);
+}
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::before,
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::after {
+  content: "";
+  position: absolute;
+  inset: -38% -22%;
+  pointer-events: none;
+  transform: rotate(-24deg) scale(1.1);
+}
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::before {
+  background:
+    linear-gradient(90deg, transparent 28%, rgba(0,0,0,.92) 32%, #0b0d11 34%, rgba(80,96,116,.24) 35%, rgba(235,241,248,.55) 35.2%, rgba(98,174,242,.7) 35.55%, rgba(255,202,158,.58) 35.82%, rgba(34,38,45,.95) 37.5%, #050608 43%, transparent 48%),
+    linear-gradient(90deg, transparent 48%, rgba(0,0,0,.96) 52%, #0b0c10 54%, rgba(139,151,170,.28) 55%, rgba(224,231,241,.42) 55.2%, rgba(96,157,216,.45) 55.5%, rgba(31,34,40,.96) 58%, #050608 64%, transparent 69%),
+    linear-gradient(90deg, transparent 67%, rgba(0,0,0,.94) 70%, #12141a 72%, rgba(210,219,230,.3) 72.2%, rgba(48,58,72,.8) 73%, #050608 78%, transparent 83%);
+  filter: blur(10px);
+  opacity: .76;
+}
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::after {
+  inset: -20% -12%;
+  background:
+    radial-gradient(ellipse 4% 16% at 40% 42%, rgba(255,218,185,.88), transparent 80%),
+    radial-gradient(ellipse 5% 18% at 40.7% 43%, rgba(89,176,255,.7), transparent 82%),
+    radial-gradient(ellipse 3% 17% at 59% 57%, rgba(255,227,203,.6), transparent 84%),
+    radial-gradient(ellipse 4% 20% at 59.8% 58%, rgba(104,172,242,.54), transparent 84%);
+  filter: blur(18px);
+  opacity: .62;
+  animation: chrome-light-drift 18s ease-in-out infinite alternate;
+}
+html[data-theme="dark"] .anvik-dark .welcome-content .chatbar {
+  filter: drop-shadow(0 26px 62px rgba(0,0,0,.52));
+}
+html[data-theme="dark"] .anvik-dark .welcome-content .chatbar::before {
+  background: linear-gradient(115deg, rgba(110,159,207,.14), rgba(235,241,248,.7) 38%, rgba(108,177,232,.55) 47%, rgba(255,201,159,.4) 52%, rgba(110,159,207,.12));
+  opacity: .62;
+  filter: blur(18px);
+  animation: none;
+}
+html[data-theme="dark"] .anvik-dark .welcome-content .chatbar::after {
+  background: linear-gradient(115deg, rgba(99,126,157,.7), rgba(222,230,240,.88) 38%, rgba(96,167,229,.86) 48%, rgba(255,206,172,.7) 52%, rgba(86,115,147,.6));
+  animation: none;
+}
+html[data-theme="dark"] .anvik-dark .welcome-content .chatbar-inner {
+  background: linear-gradient(145deg, rgba(21,23,28,.97), rgba(10,11,14,.97)) !important;
+  border-color: rgba(223,232,243,.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.075), 0 18px 52px rgba(0,0,0,.48);
+}
+html[data-theme="dark"] .anvik-dark .welcome-shortcut {
+  background: rgba(13,15,19,.68);
+  border-color: rgba(210,222,238,.18);
+  backdrop-filter: blur(10px);
+}
+html[data-theme="dark"] .anvik-dark .welcome-shortcut:hover {
+  border-color: rgba(169,205,239,.48);
+  background: rgba(38,50,65,.78);
+}
+@keyframes chrome-light-drift {
+  from { transform: rotate(-24deg) translate3d(-1.2%, 0, 0) scale(1.1); }
+  to { transform: rotate(-24deg) translate3d(1.2%, -1%, 0) scale(1.1); }
+}
+@media (max-width: 640px) {
+  html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::before {
+    inset: -32% -70%;
+    transform: rotate(-24deg) scale(1.1);
+    filter: blur(13px);
+    opacity: .58;
+  }
+  html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::after { opacity: .48; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::after { animation: none !important; }
+}
