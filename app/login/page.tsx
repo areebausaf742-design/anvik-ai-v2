@@ -25,11 +25,15 @@ import AnvikStar from "@/components/anvik/anvik-star";
 import { useSession } from "@/components/anvik/session-provider";
 import { requestFreshChat } from "@/lib/fresh-chat";
 import {
+  buildOAuthRedirect,
   completeGoogleOAuth,
+  rememberOAuthDestination,
   requestPasswordReset,
+  safeNextPath,
   signInWithPassword,
   signUpWithPassword,
   startGoogleOAuth,
+  takeOAuthDestination,
   type SupabaseUser,
 } from "@/lib/auth";
 
@@ -59,16 +63,25 @@ export default function LoginPage() {
     };
   }, []);
 
+  // Where to land after signing in.
+  //
+  // Two untrusted sources, both validated by safeNextPath(): the destination
+  // remembered before the OAuth round-trip (the callback URL itself carries no
+  // query string, so it cannot carry one), and a `?next=` a caller linked to
+  // directly. Anything else — a scheme, //host, a backslash — becomes /chat.
+  // Resolved once per page load and memoised: reading the remembered value is
+  // destructive, and several effects ask for the destination (already-signed-in
+  // redirect, OAuth return, sign-in button). Without the memo the first caller
+  // would consume it and the rest would silently fall back to /chat.
+  const destinationRef = useRef<string | null>(null);
   const postLoginDestination = useCallback(() => {
-    const url = new URL(window.location.href);
-    const next = url.searchParams.get("next");
-    if (!next) return "/chat";
-    try {
-      const target = new URL(next, window.location.origin);
-      return target.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : "/chat";
-    } catch {
-      return "/chat";
-    }
+    if (destinationRef.current) return destinationRef.current;
+    const resolved =
+      takeOAuthDestination() ??
+      safeNextPath(new URL(window.location.href).searchParams.get("next")) ??
+      "/chat";
+    destinationRef.current = resolved;
+    return resolved;
   }, []);
 
   // OAuth callback: Supabase returns to /login?code=... (the state param,
@@ -89,11 +102,17 @@ export default function LoginPage() {
     oauthExchangeStarted.current = true;
     setOauthPending(true);
     void (async () => {
-      window.history.replaceState({}, "", postLoginDestination() === "/chat" ? "/login" : `/login?next=${encodeURIComponent(postLoginDestination())}`);
+      // The destination was stashed before the redirect and is re-read (and
+      // cleared) after the exchange, so the address bar only ever holds /login.
+      window.history.replaceState({}, "", "/login");
       const result = await completeGoogleOAuth(code);
       if (!mounted.current) return;
       setOauthPending(false);
       if (!result.ok) {
+        // The code in the URL is single-use and now spent, so a retry must
+        // start a fresh flow — release the one-shot guard.
+        oauthExchangeStarted.current = false;
+        oauthStartStarted.current = false;
         setError(result.error ?? "Google sign-in could not be completed.");
         return;
       }
@@ -129,11 +148,19 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const origin = window.location.origin;
+      // redirect_to is always the bare allow-listed /login; the destination is
+      // remembered separately. Building a decorated `?next=` URL here was how an
+      // unlisted redirect_to reached Supabase and got swapped for the Site URL.
       const destination = postLoginDestination();
-      const redirectTo = destination === "/chat"
-        ? `${origin}/login`
-        : `${origin}/login?next=${encodeURIComponent(destination)}`;
-      const result = await startGoogleOAuth(redirectTo, origin);
+      const redirect = buildOAuthRedirect(origin, destination);
+      if (!redirect.ok) {
+        setError(redirect.error);
+        setBusy(false);
+        oauthStartStarted.current = false;
+        return;
+      }
+      rememberOAuthDestination(redirect.destination);
+      const result = await startGoogleOAuth(redirect.redirectTo, origin);
       if (!result.ok) {
         setError(result.error ?? "Could not start Google sign-in.");
         setBusy(false);
