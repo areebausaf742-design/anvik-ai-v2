@@ -13,7 +13,7 @@ function normaliseBase64(value: string): string {
 
 export async function POST(request: Request) {
   // Identity first: a guest must be refused before anything else happens.
-  const auth = await requireUser(request);
+  const auth = await requireUser(request, "Image analysis");
   if ("response" in auth) return auth.response;
   let body: unknown;
   try {

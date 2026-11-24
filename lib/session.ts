@@ -132,15 +132,28 @@ export async function getVerifiedUserIfPresent(request: Request): Promise<Verifi
   return getVerifiedUser(request).catch(() => null);
 }
 
-/** Helper for "require auth" routes — returns the user or a 401 response. */
+/**
+ * Helper for "require auth" routes — returns the user or a 401 response.
+ *
+ * `feature` names the surface in the refusal so the UI can say what specifically
+ * needs an account ("Image generation needs an account") instead of one blanket
+ * sentence. The `code` is always `unauthenticated`, which is what clients switch
+ * on — the wording is presentation only.
+ */
 export async function requireUser(
   request: Request,
+  feature?: string,
 ): Promise<{ user: VerifiedUser } | { response: Response }> {
   const user = await getVerifiedUser(request);
   if (!user) {
     return {
       response: Response.json(
-        { error: "You must be signed in.", code: "unauthenticated" },
+        {
+          error: feature
+            ? `${feature} needs an account. Sign in to continue — it's free.`
+            : "You must be signed in.",
+          code: "unauthenticated",
+        },
         { status: 401, headers: { "Cache-Control": "no-store" } },
       ),
     };

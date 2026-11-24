@@ -10,7 +10,7 @@ const LANGUAGES: ReadonlySet<string> = new Set(CODE_LAB_LANGUAGES);
 
 export async function POST(request: Request) {
   // Identity first: a guest must be refused before anything else happens.
-  const auth = await requireUser(request);
+  const auth = await requireUser(request, "The code lab");
   if ("response" in auth) return auth.response;
   let body: unknown;
   try {

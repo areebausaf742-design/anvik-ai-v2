@@ -47,13 +47,35 @@ function authedQuotaRequest(extra?: (url: string) => Response | null) {
   });
 }
 
-test("quota refuses a signed-out caller instead of inventing an allowance", async () => {
-  // The old route reported `remaining: 10` to anyone, read from a per-IP
-  // counter that nothing incremented. Guests now get a 401.
+test("quota answers a signed-out caller with the REAL guest meter, not a 401", async () => {
+  // Two failure modes are being prevented here.
+  //
+  // The original route reported a hard-coded `remaining: 10` to everyone, read
+  // from a per-IP counter that no route incremented — a number nobody had
+  // earned. The next version swung the other way and answered 401, which made
+  // the Settings page render an invented "10 left / no server key" state from
+  // its catch block and call it a service outage.
+  //
+  // The honest answer is the meter /api/chat actually charges.
   const response = await quotaGET(new Request("http://localhost/api/quota"));
-  assert.equal(response.status, 401);
+  assert.equal(response.status, 200, "a guest is a supported caller");
   const body = await response.json();
-  assert.equal(body.code, "unauthenticated");
+  assert.equal(body.authenticated, false);
+  assert.equal(body.plan.id, "guest");
+  assert.equal(typeof body.remaining, "number");
+  assert.equal(body.limit, 10, "the promise on the home page");
+  assert.ok(body.remaining >= 0 && body.remaining <= body.limit, "never outside the real range");
+  assert.equal(body.userId, null, "a guest has no account id");
+  assert.ok(typeof body.resetsOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.resetsOn), "the reset day is stated");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("quota never claims a guest has an account plan", async () => {
+  const response = await quotaGET(new Request("http://localhost/api/quota"));
+  const body = await response.json();
+  assert.equal(body.plan.id, "guest");
+  assert.equal(body.plan.priceInr, 0);
+  assert.equal(body.plan.expiresAt, null);
 });
 
 test.afterEach(() => {

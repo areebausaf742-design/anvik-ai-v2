@@ -1,17 +1,20 @@
 /**
  * /api/quota — the caller's live allowance, computed server-side.
  *
- * Every AI route now requires a verified user, and the only meter that is
- * actually charged is the per-account credit ledger (`reserve_credit` /
- * `settle_credit`). This endpoint therefore reports the account view, and
- * reports a signed-out caller as `unauthenticated` instead of inventing a free
- * per-IP allowance that nothing enforces any more.
+ * Two meters exist, and this endpoint reports whichever one is actually being
+ * charged for the caller:
  *
- * Why the per-IP branch is gone rather than kept "for compatibility": the free
- * counter was frozen for its entire life (the dead-upsert bug), and the chat
- * route no longer charges it. Reporting `remaining: 10` from a counter that
- * nobody increments would be a lie in the one place users look to see what they
- * have left.
+ *   - a verified account: the credit ledger (`reserve_credit`/`settle_credit`)
+ *   - a guest: the ten-answers-a-day IP allowance in lib/guest-quota.ts, which
+ *     `/api/chat` genuinely charges
+ *
+ * A guest is therefore a first-class answer, not a 401. Returning
+ * `unauthenticated` made every signed-out caller — including the Settings page
+ * and the chat composer — render an invented "10 left / no server key" state
+ * from a catch block, which read as a service outage.
+ *
+ * `hasServerKey` is still reported honestly: if the deployment has no key, a
+ * guest cannot be served at all and the UI must say so instead of pretending.
  *
  * Response (locked contract — the chat UI reads hasServerKey/status/remaining):
  *   { "hasServerKey": true, "status": "ok", "remaining": X,
@@ -22,7 +25,8 @@
 import { MODEL_FALLBACK_CHAIN, validateGeminiServerKey } from "@/lib/gemini";
 import { serverKey } from "@/lib/provider";
 import { planById, type PlanId } from "@/lib/plans";
-import { requireUser } from "@/lib/session";
+import { getVerifiedUserIfPresent } from "@/lib/session";
+import { readGuestAllowance } from "@/lib/guest-quota";
 import { readCredits } from "@/lib/credits";
 import { FREE_DAILY_LIMIT } from "@/lib/plans";
 
@@ -66,11 +70,38 @@ function paidPlanMeta(row: { plan: "pack" | "daily" | "yearly"; expires_at: stri
 }
 
 export async function GET(request: Request) {
-  // One identity model: a verified account. Guests are refused instead of being
-  // handed a free allowance that no route would honour.
-  const auth = await requireUser(request);
-  if ("response" in auth) return auth.response;
-  const verified = auth.user;
+  // Resolve identity without demanding it: a guest is a supported caller.
+  const verified = await getVerifiedUserIfPresent(request).catch(() => null);
+
+  if (!verified) {
+    // Guest view — the same meter `/api/chat` charges.
+    const hasServerKey = Boolean(serverKey());
+    const allowance = await readGuestAllowance(request);
+    return Response.json(
+      {
+        hasServerKey,
+        status: !hasServerKey ? "not_configured" : allowance.remaining <= 0 ? "limit_reached" : "ok",
+        remaining: allowance.remaining,
+        limit: allowance.limit,
+        googleStatus: null,
+        modelUsed: MODEL_FALLBACK_CHAIN[0],
+        plan: {
+          id: "guest",
+          name: "Guest",
+          priceInr: 0,
+          validityDays: null,
+          expiresAt: null,
+          packTotal: null,
+          packUsed: null,
+        },
+        // Lets the UI say "resets at midnight IST" instead of guessing.
+        resetsOn: allowance.day,
+        authenticated: false,
+        userId: null,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   const configuredKey = serverKey();
   const hasServerKey = Boolean(configuredKey);
@@ -114,6 +145,7 @@ export async function GET(request: Request) {
       modelUsed: MODEL_FALLBACK_CHAIN[0],
       limit,
       plan: planMeta,
+      authenticated: true,
       userId: verified.id,
     },
     { headers: { "Cache-Control": "no-store" } },

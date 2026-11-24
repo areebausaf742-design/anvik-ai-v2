@@ -16,8 +16,9 @@
  * suggestion, not a limit. Every route now calls `beginMeteredRequest`, which
  * applies, in this order and with no shortcuts:
  *
- *   1. take the already-verified user (each route calls `requireUser` first,
- *      so an unauthenticated guest is refused before the body is even parsed)
+ *   1. take the already-resolved caller — a verified user, or a guest whose
+ *      only identity is a salted hash of the platform-set IP (never a
+ *      client-supplied device header)
  *   2. refuse a suspended or closed account
  *   3. validate the caller's own key, if one was supplied
  *   4. choose the key: user key wins, otherwise the server key
@@ -26,11 +27,28 @@
  *   7. hand back a `settle()` the route MUST call once, on every exit path
  *
  * A user-supplied key is never metered: the user is paying Google directly.
+ *
+ * Guests are a deliberate, narrow case:
+ *
+ *   - only the `chat` feature is open to them. Everything else is account-only
+ *     (see `ACCOUNT_ONLY_FEATURES` in lib/guest-quota.ts) — those are the
+ *     expensive, abuse-prone calls, and the product never promised them
+ *     without an account.
+ *   - they spend the server key against the ten-a-day guest allowance, counted
+ *     per IST day and charged only after a successful answer.
+ *   - they get no `chats` row: `userId` is null and routes must skip
+ *     persistence, because a guest has no owner to file history under.
  */
 
 import { serverKey } from "@/lib/provider";
 import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
 import type { VerifiedUser } from "@/lib/session";
+import {
+  ACCOUNT_ONLY_FEATURES,
+  GUEST_LIMIT,
+  reserveGuestRequest,
+  type AccountOnlyFeature,
+} from "@/lib/guest-quota";
 import { isValidGeminiKeyFormat, KEY_FORMAT_ERROR } from "@/lib/gemini";
 import { ensureEntitlement, effectivePlan, reserveCredit, settleCredit } from "@/lib/credits";
 import { planById } from "@/lib/plans";
@@ -55,8 +73,15 @@ export type SettleOutcome = "success" | "failure" | "aborted";
 export type MeteredSession = {
   /** The Gemini key to use. */
   key: string;
-  /** Verified Supabase user id — always present for metered routes. */
-  userId: string;
+  /**
+   * Verified Supabase user id, or `null` for a guest. Routes that persist rows
+   * MUST treat `null` as "do not write": a guest has no owner, and the old code
+   * that filed guest rows under a device id made them invisible to their own
+   * author.
+   */
+  userId: string | null;
+  /** True when this request is a guest spending the free daily allowance. */
+  guest: boolean;
   /** True when the server key is being spent and a credit was reserved. */
   metered: boolean;
   /** Plan the request was billed under ("free" | "pack" | "daily" | "yearly"). */
@@ -85,6 +110,34 @@ function requestReference(request: Request): string {
   return supplied || crypto.randomUUID();
 }
 
+/** Who is spending: a verified account, or a guest. */
+export type GatewayCaller = VerifiedUser | null;
+
+const ACCOUNT_ONLY = new Set<string>(ACCOUNT_ONLY_FEATURES);
+
+/** One error shape for "this surface needs an account", used by every route. */
+function signInRequired(feature: AiFeature): GatewayResult {
+  return {
+    ok: false,
+    response: jsonError(
+      {
+        error: `${FEATURE_LABEL[feature] ?? "This"} needs an account. Sign in to continue — it's free.`,
+        code: "unauthenticated",
+      },
+      401,
+    ),
+  };
+}
+
+const FEATURE_LABEL: Record<string, string> = {
+  image: "Image generation",
+  code: "The code lab",
+  voice: "Voice",
+  vision: "Image analysis",
+  chat: "Chat",
+  ask: "Ask",
+};
+
 /**
  * Run the full guard chain for one AI request.
  *
@@ -92,25 +145,34 @@ function requestReference(request: Request): string {
  * refusal — the caller must return it unchanged so the UI keeps seeing one
  * error vocabulary across every surface.
  *
- * `user` must come from `requireUser(request)` in the calling route: identity
- * is verified once, at the very top of the route, before any request body is
- * parsed. Guests therefore never reach validation, rate limiting, or a
- * provider call.
+ * `caller` is `getVerifiedUserIfPresent(request)`: identity is resolved once, at
+ * the very top of the route, before any request body is parsed. Pass `null` for
+ * a guest. Guests are only accepted on features that are open to them; on every
+ * other feature this refuses with `unauthenticated` BEFORE the body is read or a
+ * provider is touched.
  */
 export async function beginMeteredRequest(
   request: Request,
   feature: AiFeature,
-  user: VerifiedUser,
+  caller: GatewayCaller,
 ): Promise<GatewayResult> {
   const startedAt = Date.now();
   const limits = GATEWAY_LIMITS[feature];
   const reference = requestReference(request);
+  const user = caller;
+
+  // 1b. Guests: only the features the product actually promises without an
+  //     account. Refusing here means a guest can never reach validation, rate
+  //     limiting or a provider call on an account-only surface.
+  if (!user && ACCOUNT_ONLY.has(feature)) return signInRequired(feature);
 
   // 2. Account standing. A suspended or closed account must not spend the
   //    server key, even with credits on the balance.
-  const standing = await readAccountStanding(user.id);
-  if (!standing.allowed) {
-    return { ok: false, response: accountBlockedResponse(standing) };
+  if (user) {
+    const standing = await readAccountStanding(user.id);
+    if (!standing.allowed) {
+      return { ok: false, response: accountBlockedResponse(standing) };
+    }
   }
 
   // 3. The caller's own key, if any, must look like a Gemini key.
@@ -123,19 +185,36 @@ export async function beginMeteredRequest(
   // 4. Key choice. A user key is unlimited by design (the user pays Google).
   const key = userKey ?? serverKey();
   if (!key) {
-    return {
-      ok: false,
-      response: jsonError(
-        { error: "ANVIK free key is not set. Connect your own key to continue.", code: "no_server_key" },
-        401,
-      ),
-    };
+    // Two different situations, two different answers.
+    //
+    // A signed-in user can act: they can connect their own Gemini key, so the
+    // refusal is a 401 with that instruction.
+    //
+    // A guest cannot. "Connect your own key" is advice they have no way to
+    // follow, and the real cause is our deployment — so they are told the truth
+    // (the service is unavailable) with a 503, which is what it is.
+    return user
+      ? {
+          ok: false,
+          response: jsonError(
+            { error: "ANVIK free key is not set. Connect your own key to continue.", code: "no_server_key" },
+            401,
+          ),
+        }
+      : {
+          ok: false,
+          response: jsonError(
+            { error: "ANVIK is temporarily unavailable — please try again shortly.", code: "unavailable" },
+            503,
+          ),
+        };
   }
 
-  // 5. Distributed rate limit — keyed only by the verified user id, never by a
-  //    client-supplied identity header.
+  // 5. Distributed rate limit — keyed by the verified user id when we have one,
+  //    otherwise by the platform-derived IP (`rateLimitIdentity` falls back to
+  //    that). Never by a client-supplied identity header.
   const rate = await allowDistributed(request, feature, limits.perMinute, 0, {
-    verifiedUserId: user.id,
+    verifiedUserId: user?.id ?? null,
     spacingMs: limits.spacingMs,
   });
   if (!rate.allowed) {
@@ -156,17 +235,66 @@ export async function beginMeteredRequest(
     };
   }
 
-  // Own key → nothing to reserve, and nothing to settle.
+  // Own key → nothing to reserve, and nothing to settle. This applies to guests
+  // too: they are paying Google directly, so they are not spending our quota
+  // and there is nothing for us to meter.
   if (userKey) {
     return {
       ok: true,
       session: {
         key: userKey,
-        userId: user.id,
+        userId: user?.id ?? null,
+        guest: !user,
         metered: false,
         plan: "own_key",
         remaining: Number.POSITIVE_INFINITY,
         settle: async () => undefined,
+      },
+    };
+  }
+
+  // 6a. Guest allowance. A guest has no credit ledger, so they spend the ten
+  //     free answers instead — reserved now, charged only after an answer.
+  if (!user) {
+    const guest = await reserveGuestRequest(request, "chat");
+    if (!guest.ok) {
+      logRouteEvent({
+        route: feature,
+        outcome: "error",
+        status: 429,
+        latencyMs: Date.now() - startedAt,
+        errorCode: "guest_limit_reached",
+      });
+      return {
+        ok: false,
+        response: jsonError(
+          {
+            error: "You've used today's free questions. Sign in for more — it's free.",
+            code: "guest_limit_reached",
+            limit: GUEST_LIMIT,
+            remaining: 0,
+          },
+          429,
+          // So the UI can say exactly when the allowance comes back.
+          { "X-ANVIK-Guest-Limit": String(GUEST_LIMIT) },
+        ),
+      };
+    }
+    return {
+      ok: true,
+      session: {
+        key,
+        userId: null,
+        guest: true,
+        metered: true,
+        plan: "guest",
+        remaining: guest.allowance.remaining,
+        settle: async (outcome) => {
+          // Charge only a completed answer; a failure or a client disconnect
+          // must not consume one of ten free questions.
+          if (outcome === "success") await guest.reserve();
+          else guest.release();
+        },
       },
     };
   }
@@ -214,6 +342,7 @@ export async function beginMeteredRequest(
     session: {
       key,
       userId: user.id,
+      guest: false,
       metered: true,
       plan: effective.active && spec.priceInr > 0 ? spec.id : effective.plan,
       remaining: reserved.remaining,

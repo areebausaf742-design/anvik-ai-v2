@@ -145,35 +145,112 @@ test("rejects a client key that does not look like a Google key with a 400", asy
   assert.equal(body.code, "bad_format");
 });
 
-test("a guest is refused before the server key is even resolved", async () => {
-  // Regression: key resolution used to run first, so a keyless deployment
-  // answered a guest with `no_server_key` — leaking configuration and telling
-  // a signed-out visitor to "connect your own key" instead of "sign in".
+test("a guest is metered, never told to sign in, and never told to bring a key", async () => {
+  // Chat is the one surface the product promises without an account. A guest
+  // therefore must NOT be refused for lacking a token (`unauthenticated`) and
+  // must NOT be asked to "connect your own key" (`no_server_key`) — that would
+  // leak a configuration fact and contradict the home page. When the deployment
+  // is genuinely keyless, the honest answer names the outage, not the visitor.
+  const previous = {
+    a: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    b: process.env.GEMINI_API_KEY,
+  };
   delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   delete process.env.GEMINI_API_KEY;
-  const response = await POST(
-    makeRequest(
-      { messages: [{ role: "user", content: "hi" }] },
-      { Authorization: "" },
-    ),
-  );
-  assert.equal(response.status, 401);
-  const body = await response.json();
-  assert.equal(body.code, "unauthenticated");
+  try {
+    const response = await POST(
+      makeRequest({ messages: [{ role: "user", content: "hi" }] }, { Authorization: "" }),
+    );
+    assert.notEqual(response.status, 200, "no key means no answer");
+    const body = (await response.json()) as { code?: string };
+    assert.notEqual(body.code, "unauthenticated", "a guest is a supported caller on chat");
+  } finally {
+    if (previous.a) process.env.GOOGLE_GENERATIVE_AI_API_KEY = previous.a;
+    if (previous.b) process.env.GEMINI_API_KEY = previous.b;
+  }
 });
 
-test("returns 401 no_server_key with no user key and no server key", async () => {
-  const previousKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+test("a guest with no token is not rejected by chat's auth step", async () => {
+  // With a server key present, a guest must get as far as the guest allowance —
+  // which means no `unauthenticated` refusal on this route.
+  const previous = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "AIza-guest-meter-test-key-000000000000000";
+  try {
+    const response = await POST(
+      makeRequest({ messages: [{ role: "user", content: "hi" }] }, { Authorization: "" }),
+    );
+    if (response.status === 401 || response.status === 429) {
+      const body = (await response.json()) as { code?: string };
+      assert.notEqual(body.code, "unauthenticated", "chat must not demand a token");
+    }
+  } finally {
+    if (previous) process.env.GEMINI_API_KEY = previous;
+    else delete process.env.GEMINI_API_KEY;
+  }
+});
+
+test("a signed-in user with no key anywhere is told to connect their own", async () => {
+  const previous = {
+    a: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    key: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    secret: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    plain: process.env.SUPABASE_URL,
+  };
   delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   delete process.env.GEMINI_API_KEY;
-  mockAuthOnly();
+  // A real signed-in user requires configured auth: without it every request is
+  // a guest, and this test would be asserting the guest path by accident.
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://supabase.test";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+  process.env.SUPABASE_URL = "https://supabase.test";
+  const fetchMock = mockAuthOnly();
   try {
     const response = await POST(makeRequest({ messages: [{ role: "user", content: "hi" }] }));
     assert.equal(response.status, 401);
     const body = await response.json();
     assert.equal(body.code, "no_server_key");
+    assert.match(body.error, /your own key/i, "a user can act on this");
+    assert.equal(
+      fetchMock.mock.calls.some((call) => String(call.arguments[0]).endsWith("/auth/v1/user")),
+      true,
+      "the user must actually have been verified",
+    );
   } finally {
-    if (previousKey) process.env.GOOGLE_GENERATIVE_AI_API_KEY = previousKey;
+    if (previous.a) process.env.GOOGLE_GENERATIVE_AI_API_KEY = previous.a;
+    if (previous.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = previous.url;
+    if (previous.key === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    else process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = previous.key;
+    if (previous.secret === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = previous.secret;
+    if (previous.plain === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = previous.plain;
+  }
+});
+
+test("a guest is not told to connect a key they cannot have", async () => {
+  // "Connect your own key" is unactionable for a guest — and the real cause is
+  // our deployment. A guest must be told the service is unavailable, not blamed.
+  const previous = {
+    a: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    b: process.env.GEMINI_API_KEY,
+  };
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  try {
+    const response = await POST(
+      makeRequest({ messages: [{ role: "user", content: "hi" }] }, { Authorization: "" }),
+    );
+    assert.notEqual(response.status, 200);
+    const body = (await response.json()) as { code?: string; error?: string };
+    assert.notEqual(body.code, "unauthenticated", "a guest is a supported caller on chat");
+    assert.notEqual(body.code, "no_server_key", "a guest has no key to connect");
+    assert.doesNotMatch(String(body.error), /your own key/i, "no unactionable advice");
+  } finally {
+    if (previous.a) process.env.GOOGLE_GENERATIVE_AI_API_KEY = previous.a;
+    if (previous.b) process.env.GEMINI_API_KEY = previous.b;
   }
 });
 
@@ -217,27 +294,32 @@ test("Accept: text/event-stream frames the same tokens as SSE", async () => {
   assert.match(body, /data: \{"t":"done"/);
 });
 
-test("a guest is rejected by the server before any model request", async () => {
-  let modelCalled = false;
-  mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.endsWith("/auth/v1/user")) {
-      modelCalled = true;
-    } else {
-      modelCalled = true;
-    }
-    return new Response(JSON.stringify({ id: "unexpected" }), { status: 200 });
-  });
+test("a guest using their own key is served without touching our account plumbing", async () => {
+  // A guest who brings their own Gemini key is paying Google directly, so there
+  // is nothing for us to meter and no reason to refuse them. What must NOT
+  // happen is a Supabase user lookup: they have no session to verify, and an
+  // auth round-trip per guest request would be pure latency.
+  const fetchMock = mockGeminiFetch("Guests with their own key are welcome.");
   const response = await POST(
     makeRequest(
       { messages: [{ role: "user", content: "hello from a guest" }] },
       { Authorization: "", "x-google-generative-ai-api-key": VALID_AQ_KEY },
     ),
   );
-  assert.equal(response.status, 401);
-  const body = await response.json();
-  assert.equal(body.code, "unauthenticated");
-  assert.equal(modelCalled, false, "unauthenticated traffic must not call Supabase or a model provider");
+  assert.equal(response.status, 200, "an own-key guest must be served");
+  const requested = fetchMock.mock.calls.map((call) => String(call.arguments[0]));
+  assert.equal(
+    requested.some((url) => url.includes("/auth/v1/user")),
+    false,
+    "an own-key guest must not trigger a session lookup",
+  );
+  // The guest's key is passed through, never treated as a bearer token.
+  const modelCall = fetchMock.mock.calls.find((call) =>
+    String(call.arguments[0]).includes("generativelanguage.googleapis.com"),
+  );
+  assert.ok(modelCall, "the guest's own key reaches the provider");
+  const [, init] = modelCall!.arguments as [unknown, RequestInit];
+  assert.equal(new Headers(init.headers).get("x-goog-api-key"), VALID_AQ_KEY);
 });
 
 test("the per-IP spacing limit returns 429 with a Retry-After header", async () => {
