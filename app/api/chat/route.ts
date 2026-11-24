@@ -218,7 +218,14 @@ export async function POST(request: Request) {
     content: stripSecrets(turn.content).text,
   }));
 
-  // 4. Key resolution — the user's own key wins unconditionally.
+  // 4. Verify the Supabase user BEFORE resolving the server key. The old order
+  //    answered a guest with `no_server_key` when the deployment had no key,
+  //    which both leaked a configuration fact and made the client render the
+  //    wrong error ("connect your own key") instead of "sign in".
+  const auth = await requireUser(request);
+  if ("response" in auth) return auth.response;
+
+  // 5. Key resolution — the user's own key wins unconditionally.
   const suppliedClientKey = request.headers.get("x-google-generative-ai-api-key")?.trim();
   if (suppliedClientKey && !isValidGeminiKeyFormat(suppliedClientKey)) {
     return Response.json(
@@ -241,10 +248,6 @@ export async function POST(request: Request) {
   if (!validClientKey) {
     console.warn(`chat using ${safeKeyLog(key)}`);
   }
-
-  // 5. Verify the Supabase user before rate limits, credit reservations, or model calls.
-  const auth = await requireUser(request);
-  if ("response" in auth) return auth.response;
 
   // 6. Account standing — a suspended or closed account is refused before it
   //    can spend a credit (the status column used to be decorative).
