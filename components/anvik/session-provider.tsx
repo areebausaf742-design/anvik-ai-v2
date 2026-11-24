@@ -82,12 +82,16 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 type JsonFetchResult = { data: Record<string, unknown> | null; status: number };
 
 async function fetchJson(url: string, init?: RequestInit): Promise<JsonFetchResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetch(url, { cache: "no-store", ...init });
+    const response = await fetch(url, { cache: "no-store", ...init, signal: controller.signal });
     if (!response.ok) return { data: null, status: response.status };
     return { data: (await response.json()) as Record<string, unknown>, status: response.status };
   } catch {
-    return { data: null, status: 0 };
+    return { data: null, status: controller.signal.aborted ? 408 : 0 };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

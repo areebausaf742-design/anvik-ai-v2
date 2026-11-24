@@ -39,6 +39,10 @@ import {
 
 type Mode = "signin" | "signup" | "forgot";
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { session, consent, loading: sessionLoading, signOut, refresh } = useSession();
@@ -184,6 +188,10 @@ export default function LoginPage() {
       setError("Enter your email and password.");
       return;
     }
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email address.");
+      return;
+    }
     setBusy(true);
     try {
       const result = await signInWithPassword(email.trim().toLowerCase(), password);
@@ -216,6 +224,10 @@ export default function LoginPage() {
     }
     if (!email.trim()) {
       setError("Enter your email.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email address.");
       return;
     }
     if (password.length < 8) {
@@ -267,6 +279,10 @@ export default function LoginPage() {
       setError("Enter your email.");
       return;
     }
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email address.");
+      return;
+    }
     setBusy(true);
     try {
       const result = await requestPasswordReset(email.trim().toLowerCase());
@@ -298,9 +314,14 @@ export default function LoginPage() {
   }, [mode]);
 
   return (
-    <main className="auth-page">
+    <main className="auth-page" aria-busy={busy || oauthPending}>
       <div className="auth-particles" aria-hidden="true">
         <i /><i /><i /><i /><i /><i />
+      </div>
+      <div className="auth-orbit" aria-hidden="true">
+        <span className="auth-orbit-core" />
+        <span className="auth-orbit-ring auth-orbit-ring-one" />
+        <span className="auth-orbit-ring auth-orbit-ring-two" />
       </div>
 
       <div className="auth-card" style={{ maxWidth: 440 }}>
@@ -338,6 +359,9 @@ export default function LoginPage() {
                 className="auth-input"
                 type="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                spellCheck={false}
+                inputMode="email"
                 required
                 placeholder="you@example.com"
                 value={email}
@@ -372,6 +396,9 @@ export default function LoginPage() {
                 className="auth-input"
                 type="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                spellCheck={false}
+                inputMode="email"
                 required
                 placeholder="you@example.com"
                 value={email}
@@ -429,6 +456,9 @@ export default function LoginPage() {
                 className="auth-input"
                 type="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                spellCheck={false}
+                inputMode="email"
                 required
                 placeholder="you@example.com"
                 value={email}
