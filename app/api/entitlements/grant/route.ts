@@ -14,13 +14,13 @@
  */
 
 import { EntitlementsStore, supabaseEntitlementHooks } from "@/lib/entitlements";
-import { sbSelect, sbUpsert } from "@/lib/supabase";
+import { sbRpc, sbSelect, sbUpdateWhereDetailed, sbUpsert } from "@/lib/supabase";
 import { planById, type PlanId } from "@/lib/plans";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows)));
+const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows, "device_id")));
 
 const NON_FREE_PLANS = new Set<string>(["pack", "daily", "yearly"]);
 
@@ -103,60 +103,67 @@ export async function POST(request: Request) {
       entitlement_start: activated,
       entitlement_expiry: expiry.toISOString(),
     };
-    const entitlementOk = await sbUpsert("user_entitlements", [entitlementRow]);
+    const entitlementOk = await sbUpsert("user_entitlements", [entitlementRow], "user_id");
     if (!entitlementOk) {
       return json({ error: "Could not persist the entitlement — check server configuration.", code: "grant_failed" }, 500);
     }
 
     // 2. Pack credits (one-time total questions) go onto the balance; pack
     //    users get zero daily cap (they spend pack credits only).
+    //
+    //    The old code was a JS read-modify-write with no idempotency, so a
+    //    retried grant could double-credit or lose credits to a lost update.
+    //    `grant_pack_credits` locks the balance row and applies a given
+    //    reference exactly once; a replay returns applied:false and the
+    //    balance is unchanged. The ledger entry is written by the same
+    //    function, so the audit row can never drift from the balance.
     if (safePlan === "pack") {
       const packTotal = spec.totalQuestions ?? 50;
-      const current = await sbSelect<Record<string, unknown>>(
-        "credit_balances",
-        `user_id=eq.${encodeURIComponent(targetUserId)}&select=available_pack_credits&limit=1`,
-      ).catch(() => null);
-      const existing = typeof current?.[0]?.available_pack_credits === "number" ? current[0].available_pack_credits : 0;
-      const newBalance = existing + packTotal;
-      const balanceOk = await sbUpsert("credit_balances", [
+      // The reference is stable per (user, plan, activation instant) so an
+      // operator retry of the SAME request is a no-op, while a deliberate
+      // second purchase (different `activatedAt`) still adds credits.
+      const grantReference = `grant:${targetUserId}:${safePlan}:${activated}`;
+      const granted = await sbRpc<{ ok?: boolean; applied?: boolean; replayed?: boolean; available_pack_credits?: number }>(
+        "grant_pack_credits",
         {
-          user_id: targetUserId,
-          available_pack_credits: newBalance,
-          daily_usage: 0,
-          daily_limit: 0,
-          last_reset_at: activated,
-          pack_credits_expires_at: expiry.toISOString(),
-          updated_at: activated,
+          p_user_id: targetUserId,
+          p_credits: packTotal,
+          p_reference: grantReference,
+          p_description: `${spec.name} pack granted`,
+          p_expires_at: expiry.toISOString(),
         },
-      ]);
-      if (!balanceOk) {
+      );
+      if (!granted || granted.ok !== true) {
         return json({ error: "Could not persist the pack credits — check server configuration.", code: "grant_failed" }, 500);
       }
-      // Audit trail: one ledger entry per grant.
-      await sbUpsert("credit_ledger", [
-        {
-          user_id: targetUserId,
-          transaction_type: "pack_grant",
-          credit_amount: packTotal,
-          description: `${spec.name} pack granted`,
-          reference_id: `grant:${targetUserId}:${safePlan}`,
-        },
-      ]).catch(() => undefined);
     }
 
-    // 3. Daily plans (daily/yearly) reset today's usage so the grant opens a
-    //    fresh window honestly.
+    // 3. Daily plans (daily/yearly) open a fresh window: reset today's usage and
+    //    set the new cap.
+    //
+    //    This is a COLUMN-SCOPED update, not a whole-row upsert. The old code
+    //    rewrote the row and set `available_pack_credits: 0`, so buying a daily
+    //    plan silently deleted pack credits the user had paid for; a filtered
+    //    UPDATE that names only these columns cannot touch them at all.
     if (safePlan === "daily" || safePlan === "yearly") {
-      await sbUpsert("credit_balances", [
+      const reset = await sbUpdateWhereDetailed(
+        "credit_balances",
+        `user_id=eq.${encodeURIComponent(targetUserId)}`,
         {
-          user_id: targetUserId,
-          available_pack_credits: 0,
           daily_usage: 0,
           daily_limit: dailyLimit,
           last_reset_at: activated,
           updated_at: activated,
         },
-      ]).catch(() => undefined);
+      );
+      // No row yet is fine (created lazily on first spend); any other failure
+      // means the grant did not fully apply, so say so instead of returning 200.
+      if (!reset.ok && reset.error.category !== "table_missing") {
+        return json(
+          { error: "Granted the plan but could not reset today's usage. Retry the grant.", code: "grant_partial" },
+          500,
+        );
+      }
     }
 
     return json({

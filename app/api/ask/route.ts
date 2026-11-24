@@ -1,12 +1,7 @@
 import { detectLanguage, langLabel } from "@/lib/detect";
-import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { openGeminiStreamWithFallback } from "@/lib/gemini";
 import { requireUser } from "@/lib/session";
-import { serverKey } from "@/lib/provider";
-import {
-  KEY_FORMAT_ERROR,
-  isValidGeminiKeyFormat,
-  openGeminiStreamWithFallback,
-} from "@/lib/gemini";
+import { beginMeteredRequest } from "@/lib/ai-gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +13,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 export async function POST(req: Request) {
+  // Identity first: a guest must be refused before anything else happens.
   const auth = await requireUser(req);
   if ("response" in auth) return auth.response;
   let body: { question?: unknown };
@@ -32,25 +28,12 @@ export async function POST(req: Request) {
   if (question.length > 1600)
     return json({ message: "Keep the question under 1,600 characters.", code: "long" }, 413);
 
-  const supplied = req.headers.get("x-google-generative-ai-api-key")?.trim();
-  if (supplied && !isValidGeminiKeyFormat(supplied)) {
-    return json({ message: KEY_FORMAT_ERROR, code: "bad_format" }, 400);
-  }
-
-  const key = supplied || serverKey();
-  if (!key || !isValidGeminiKeyFormat(key)) {
-    return json({ message: KEY_FORMAT_ERROR, code: "bad_format" }, 401);
-  }
-
-  const verified = auth.user;
-  const rate = await allowDistributed(req, "ask", 12, 100, { verifiedUserId: verified?.id ?? null });
-  if (!rate.allowed) {
-    const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
-    return new Response(JSON.stringify({ message: LIMIT_MESSAGE, code: "rate" }), {
-      status: 429,
-      headers: { "content-type": "application/json; charset=utf-8", "Retry-After": String(retryAfter) },
-    });
-  }
+  // Identity → key → rate limit → one reserved credit, shared with every
+  // other AI surface. Unmetered provider calls no longer exist.
+  const gateway = await beginMeteredRequest(req, "ask", auth.user);
+  if (!gateway.ok) return gateway.response;
+  const { session } = gateway;
+  const key = session.key;
 
   const lang = detectLanguage(question);
 
@@ -66,6 +49,8 @@ export async function POST(req: Request) {
     });
 
     if (!result.ok) {
+      // Provider refused the call — the reserved credit goes straight back.
+      await session.settle("failure", { model: null });
       return json(
         { message: result.error.message, code: result.error.code },
         result.error.status,
@@ -83,6 +68,7 @@ export async function POST(req: Request) {
             `data: ${JSON.stringify({ t: "meta", lang, langLabel: langLabel(lang), model: result.model })}\n\n`,
           ),
         );
+        let outcome: "success" | "failure" | "aborted" = "failure";
         try {
           for (;;) {
             const { done, value } = await reader.read();
@@ -92,6 +78,7 @@ export async function POST(req: Request) {
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: "tok", s: piece })}\n\n`));
             }
           }
+          outcome = "success";
           controller.enqueue(
             enc.encode(`data: ${JSON.stringify({ t: "done", model: result.model })}\n\n`),
           );
@@ -103,8 +90,15 @@ export async function POST(req: Request) {
           );
         } finally {
           reader.releaseLock();
+          // Settle inside the stream so the credit is finalised after the last
+          // byte, not before the first one.
+          await session.settle(outcome, { model: result.model });
           controller.close();
         }
+      },
+      async cancel() {
+        // Client hung up mid-answer → refund, never charge for a partial reply.
+        await session.settle("aborted", { model: result.model });
       },
     });
 
@@ -117,6 +111,7 @@ export async function POST(req: Request) {
       },
     });
   } catch {
+    await session.settle("failure");
     return json({ message: "No internet. Try again", code: "network" }, 503);
   }
 }

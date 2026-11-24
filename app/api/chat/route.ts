@@ -47,32 +47,27 @@ import {
 } from "@/lib/search";
 import { buildExternalSearchContext, searchExternalWeb, type ExternalSearchResult } from "@/lib/search-providers";
 import { sanitizeTurns, buildGeminiContents } from "@/lib/history";
-import { hashIp, safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
-import { QuotaStore, supabaseQuotaHooks } from "@/lib/quota";
-import { EntitlementsStore, supabaseEntitlementHooks } from "@/lib/entitlements";
+import { safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
 import type { PlanId } from "@/lib/plans";
-import { sbSelect, sbUpsert } from "@/lib/supabase";
+
 import { recordChatExchange } from "@/lib/chat-record";
-import { clientIp, allowDistributed } from "@/lib/rate-limit";
-import { requireUser, type VerifiedUser } from "@/lib/session";
+import { allowDistributed } from "@/lib/rate-limit";
+import { requireUser } from "@/lib/session";
 import {
   ensureEntitlement,
   effectivePlan,
   reserveCredit,
-  refundCredit,
-  recordUsage,
+  settleCredit,
 } from "@/lib/credits";
 import { planById } from "@/lib/plans";
 import { logRouteEvent } from "@/lib/observability";
+import { accountBlockedResponse, readAccountStanding } from "@/lib/account-status";
 
 export const maxDuration = 60;
 
 const validModes = new Set<string>(modes.map(({ id }) => id));
 const MIN_SPACING_MS = 2_000;
 const PER_MINUTE = 60;
-
-const quota = new QuotaStore(supabaseQuotaHooks(sbSelect, sbUpsert));
-const entitlements = new EntitlementsStore(supabaseEntitlementHooks(sbSelect, (rows) => sbUpsert("entitlements", rows)));
 
 const modeInstructions: Record<ModeId, string> = {
   fast: "Keep answers concise and prioritize the quickest useful response.",
@@ -103,53 +98,43 @@ function sseFrame(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-type Reservation =
-  | { kind: "free"; key: string }
-  | { kind: "entitlement"; deviceId: string }
-  | { kind: "user"; userId: string; source: "daily" | "pack"; reference: string };
+/**
+ * There is exactly one reservation kind now: a verified account's credit.
+ *
+ * The free per-IP quota and the device entitlement branches were only reachable
+ * for anonymous callers, which this route no longer serves.
+ */
+type Reservation = { userId: string; reference: string };
 
-function cancelReservation(reservation: Reservation | undefined): void {
-  if (!reservation) return;
-  if (reservation.kind === "free") quota.cancel(reservation.key);
-  else if (reservation.kind === "entitlement") entitlements.cancel(reservation.deviceId);
-  else void refundCredit(reservation.userId, reservation.source, reservation.reference).catch(() => undefined);
-}
+/**
+ * Close a reservation exactly once, on every exit path.
+ *
+ * The previous code called `recordUsage` on success and `refundCredit` on
+ * failure as two separate best-effort RPCs and swallowed both errors, so a
+ * stream killed between them left the credit spent forever. `settle_credit`
+ * confirms-or-refunds under a row lock and is idempotent per reference; the
+ * every-10-minutes sweeper catches whatever still slips through.
+ */
+type ReservationOutcome = "success" | "failure" | "aborted";
 
-async function confirmReservation(
+async function settleReservation(
   reservation: Reservation | undefined,
+  outcome: ReservationOutcome,
   model: string,
   feature: string,
 ): Promise<void> {
   if (!reservation) return;
-  if (reservation.kind === "free") {
-    try {
-      await quota.confirm(reservation.key);
-    } catch {
-      // keep going even if persistence fails
-    }
-    return;
-  }
-  if (reservation.kind === "entitlement") {
-    try {
-      await entitlements.confirm(reservation.deviceId);
-    } catch {
-      // keep going even if persistence fails
-    }
-    return;
-  }
   try {
-    await recordUsage(
-      reservation.userId,
-      reservation.source,
-      reservation.reference,
+    await settleCredit({
+      userId: reservation.userId,
+      reference: reservation.reference,
+      outcome,
       model,
       feature,
-      null,
-      null,
-      "success",
-    );
+    });
   } catch {
-    // keep going even if persistence fails
+    // Persistence is best-effort by contract — the answer already streamed.
+    // A missing settlement is recovered by reclaim_stale_reservations().
   }
 }
 
@@ -203,7 +188,14 @@ export async function POST(request: Request) {
     content: stripSecrets(turn.content).text,
   }));
 
-  // 4. Key resolution — the user's own key wins unconditionally.
+  // 4. Verify the Supabase user BEFORE resolving the server key. The old order
+  //    answered a guest with `no_server_key` when the deployment had no key,
+  //    which both leaked a configuration fact and made the client render the
+  //    wrong error ("connect your own key") instead of "sign in".
+  const auth = await requireUser(request);
+  if ("response" in auth) return auth.response;
+
+  // 5. Key resolution — the user's own key wins unconditionally.
   const suppliedClientKey = request.headers.get("x-google-generative-ai-api-key")?.trim();
   if (suppliedClientKey && !isValidGeminiKeyFormat(suppliedClientKey)) {
     return Response.json(
@@ -227,16 +219,15 @@ export async function POST(request: Request) {
     console.warn(`chat using ${safeKeyLog(key)}`);
   }
 
-  // 5. Verify the Supabase user before rate limits, credit reservations, or model calls.
-  const auth = await requireUser(request);
-  if ("response" in auth) return auth.response;
+  // 6. Account standing — a suspended or closed account is refused before it
+  //    can spend a credit (the status column used to be decorative).
+  const standing = await readAccountStanding(auth.user.id);
+  if (!standing.allowed) return accountBlockedResponse(standing);
 
-  // 6. Distributed rate limit — keyed only by this verified user id.
+  // 7. Distributed rate limit — keyed only by this verified user id.
   // Never trusts client-supplied identity headers (audit: H-1/H-8).
-  const ip = clientIp(request);
-  const verifiedUserForLimit = auth.user;
   const pace = await allowDistributed(request, "chat", PER_MINUTE, 0, {
-    verifiedUserId: verifiedUserForLimit?.id ?? null,
+    verifiedUserId: auth.user.id,
     spacingMs: MIN_SPACING_MS,
   });
   if (!pace.allowed) {
@@ -258,84 +249,44 @@ export async function POST(request: Request) {
     );
   }
 
-  // 7. Plan entitlement — server key only. Own keys are unlimited by design.
-  // Verified accounts using the server key are governed by the existing
-  // per-user credit system (atomic RPC, IST-day reset, pack fallback, and
-  // idempotency by request reference).
-  const rawDeviceId = (request.headers.get("x-anvik-device") ?? "").trim().slice(0, 128);
-  const deviceId = rawDeviceId || "anonymous";
+  // 8. Credit reservation — server key only. Own keys are unlimited by design
+  //    (the user is paying Google directly).
+  //
+  //    Auth is mandatory on this route, so there is exactly one money path:
+  //    the verified account's credit ledger, reserved atomically and settled
+  //    atomically. The old anonymous branch (device entitlements, free per-IP
+  //    quota, `anonymous` as a user id) could never be reached after identity
+  //    became required, and a device id must never be an identity anyway.
   let reservation: Reservation | undefined;
   let paidPlan: PlanId | null = null;
-  let verifiedUser: VerifiedUser | null = null;
 
   if (!validClientKey) {
-    // Reuse the verified identity resolved for the rate limiter — one
-    // Supabase round-trip per request, never a second one.
-    verifiedUser = verifiedUserForLimit;
-    if (verifiedUser) {
-      // --- per-user credit path (the multi-user system) ---
-      const reference = (request.headers.get("x-anvik-request-id") ?? "").trim().slice(0, 160) || crypto.randomUUID();
-      const entitlement = await ensureEntitlement(verifiedUser.id).catch(() => null);
-      const effective = effectivePlan(entitlement);
-      const dailyLimit = effective.limit;
-      const result = await reserveCredit(verifiedUser.id, dailyLimit, reference);
-      if (!result.ok) {
-        const isDuplicate = result.reason === "duplicate_request";
-        return Response.json(
-          {
-            error: isDuplicate
-              ? "This request was already answered. Ask again to continue."
-              : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
-            detail: isDuplicate
-              ? "This request was already answered."
-              : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
-            code: isDuplicate ? "duplicate_request" : (effective.plan === "free" ? "free_limit_reached" : "plan_limit_reached"),
-            plan: effective.plan,
-            remaining: 0,
-          },
-          { status: 429 },
-        );
-      }
-      reservation = {
-        kind: "user",
-        userId: verifiedUser.id,
-        source: result.source === "pack" ? "pack" : "daily",
-        reference,
-      };
-      const spec = planById(effective.plan);
-      paidPlan = effective.active && spec.priceInr > 0 ? spec.id : null;
-    } else {
-      // --- anonymous path (unchanged) ---
-      const outcome = rawDeviceId ? await entitlements.reserve(rawDeviceId) : ({ kind: "free" } as const);
-      if (outcome.kind === "reserved") {
-        reservation = { kind: "entitlement", deviceId: rawDeviceId };
-        paidPlan = outcome.plan;
-      } else {
-        // No usable entitlement — none, expired, or exhausted. Fall back to
-        // the free per-IP quota so a paid user never ends below Free's
-        // allowance: the paid plan is the top-up, Free is the floor.
-        const ipHash = hashIp(ip);
-        const check = await quota.checkAndReserve(ipHash);
-        if (!check.ok) {
-          const exhaustedPaid = outcome.kind === "blocked";
-          return Response.json(
-            {
-              error: exhaustedPaid
-                ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
-                : "Free limit reached. Connect your own key to continue unlimited.",
-              detail: exhaustedPaid
-                ? "You've reached your plan limit. Connect your own key to continue unlimited, or upgrade at ANVIK pricing."
-                : "Free limit reached. Connect your own key to continue unlimited.",
-              code: exhaustedPaid ? "plan_limit_reached" : "free_limit_reached",
-              ...(outcome.kind === "blocked" ? { plan: outcome.plan } : {}),
-              remaining: 0,
-            },
-            { status: 429 },
-          );
-        }
-        reservation = { kind: "free", key: check.reservationKey };
-      }
+    const reference = (request.headers.get("x-anvik-request-id") ?? "").trim().slice(0, 160) || crypto.randomUUID();
+    const entitlement = await ensureEntitlement(auth.user.id).catch(() => null);
+    const effective = effectivePlan(entitlement);
+    const result = await reserveCredit(auth.user.id, effective.limit, reference);
+
+    if (!result.ok) {
+      const isDuplicate = result.reason === "duplicate_request";
+      return Response.json(
+        {
+          error: isDuplicate
+            ? "This request was already answered. Ask again to continue."
+            : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
+          detail: isDuplicate
+            ? "This request was already answered."
+            : "You've reached your allowance. Connect your own key for unlimited, or upgrade at ANVIK pricing.",
+          code: isDuplicate ? "duplicate_request" : (effective.plan === "free" ? "free_limit_reached" : "plan_limit_reached"),
+          plan: effective.plan,
+          remaining: 0,
+        },
+        { status: 429 },
+      );
     }
+
+    reservation = { userId: auth.user.id, reference };
+    const spec = planById(effective.plan);
+    paidPlan = effective.active && spec.priceInr > 0 ? spec.id : null;
   }
 
   const selectedMode = (validModes.has(String(mode)) ? mode : "smart") as ModeId;
@@ -387,7 +338,7 @@ export async function POST(request: Request) {
     candidate.error.code === "invalid_key" || candidate.error.code === "bad_format" ||
     candidate.error.status === 400 || candidate.error.status === 401 || candidate.error.status === 403;
   const returnTerminalError = (candidate: {error:{message:string;code:string;status:number}}) => {
-    cancelReservation(reservation);
+    void settleReservation(reservation, "failure", "", "chat");
     return Response.json({error:candidate.error.message,detail:candidate.error.message,code:candidate.error.code},{status:candidate.error.status});
   };
   if (searchNeeded && hasExternalSources && externalSearchResult) {
@@ -427,7 +378,7 @@ export async function POST(request: Request) {
 
   try {
     if (!result.ok) {
-      cancelReservation(reservation);
+      await settleReservation(reservation, "failure", "", "chat");
       logRouteEvent({
         route: "chat",
         outcome: "error",
@@ -508,8 +459,9 @@ export async function POST(request: Request) {
           }
           completed = true;
 
-          // 8. Count quota only after a full, successful stream.
-          await confirmReservation(reservation, model, "chat");
+          // 8. Settle only after a full, successful stream: one atomic
+          //    confirm-or-refund, so an interrupted answer never eats a credit.
+          await settleReservation(reservation, "success", model, "chat");
 
           // Persist every exchange (user message + answer + model). Best-effort:
           // a Supabase outage must never break the answer, so failures are
@@ -519,7 +471,16 @@ export async function POST(request: Request) {
           if (completed && answer.trim() && finalUser) {
             try {
               await recordChatExchange({
-                userId: verifiedUser ? verifiedUser.id : deviceId,
+                // ownership: always the VERIFIED account id.
+                //
+                // This used to write either the verified user id OR the
+                // client-supplied x-anvik-device value into chats.user_id. The
+                // RLS read policy is `user_id = auth.uid()::text`, so rows
+                // written with a device id were invisible to their own owner —
+                // and a caller could forge the device header to plant rows in
+                // someone else's history. Every AI route now requires a
+                // verified user, so the device id is never an identity.
+                userId: auth.user.id,
                 userMessage: finalUser.content,
                 answer,
                 model,
@@ -530,15 +491,16 @@ export async function POST(request: Request) {
           }
           controller.close();
         } catch (error) {
-          cancelReservation(reservation);
+          await settleReservation(reservation, "failure", model, "chat");
           controller.error(error);
         } finally {
           upstreamReader.releaseLock();
         }
       },
-      cancel(reason) {
+      async cancel(reason) {
         void upstreamReader.cancel(reason);
-        cancelReservation(reservation);
+        // Client hung up → the user should not pay for a partial answer.
+        await settleReservation(reservation, "aborted", model, "chat");
       },
     });
 
@@ -555,7 +517,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    cancelReservation(reservation);
+    await settleReservation(reservation, err instanceof Error && err.name === "AbortError" ? "aborted" : "failure", "", "chat");
     if (err instanceof Error && err.name === "AbortError") {
       return new Response(null, { status: 499 });
     }

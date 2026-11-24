@@ -51,7 +51,7 @@ async function ensureProfile(user: { id: string; email: string; name: string; pr
     ai_improvement_consent: false,
     ai_improvement_consent_at: null,
   };
-  const ok = await sbUpsert("user_profiles", [row]);
+  const ok = await sbUpsert("user_profiles", [row], "user_id");
   return ok ? ({ ...row, created_at: new Date().toISOString() } as ProfileRow) : null;
 }
 
@@ -63,7 +63,16 @@ export async function GET(request: Request) {
   const profile = await ensureProfile({ ...user, provider: user.provider });
   const entitlement = await ensureEntitlement(user.id).catch(() => null);
   const credits = await readCredits(user.id).catch(() => null);
-  const consent = await readConsent(user.id).catch(() => null);
+  // null means "could not read", which the client must render as retryable —
+  // NOT as "has not consented" (that would re-prompt for acceptance already
+  // given). `consentReadable` makes the distinction explicit on the wire.
+  let consent = null as Awaited<ReturnType<typeof readConsent>> | null;
+  let consentReadable = true;
+  try {
+    consent = await readConsent(user.id);
+  } catch {
+    consentReadable = false;
+  }
   const usage = await readUsageHistory(user.id, 6).catch(() => []);
   const ledger = await readLedger(user.id, 6).catch(() => []);
 
@@ -97,6 +106,7 @@ export async function GET(request: Request) {
           }
         : null,
       consent: consent ?? null,
+      consentReadable,
       usage: usage.map((u) => ({
         id: u.id,
         model: u.model,

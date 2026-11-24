@@ -1,9 +1,5 @@
-import { serverKey } from "@/lib/provider";
-import { allowDistributed, LIMIT_MESSAGE } from "@/lib/rate-limit";
-import { requireUser } from "@/lib/session";
 import {
   IMAGE_MODEL_FALLBACK_CHAIN,
-  KEY_FORMAT_ERROR,
   NETWORK_ERROR,
   classifyGeminiError,
   generateGeminiTextWithFallback,
@@ -11,6 +7,8 @@ import {
   isValidGeminiKeyFormat,
   type ClassifiedError,
 } from "@/lib/gemini";
+import { requireUser } from "@/lib/session";
+import { beginMeteredRequest } from "@/lib/ai-gateway";
 
 const styles = new Set(["Cinematic", "Anime", "3D", "Photoreal", "Cyberpunk"]);
 
@@ -109,6 +107,7 @@ async function renderWithFluxPrompt(prompt: string, model: string): Promise<Gene
 }
 
 export async function POST(request: Request) {
+  // Identity first: a guest must be refused before anything else happens.
   const auth = await requireUser(request);
   if ("response" in auth) return auth.response;
   let body: unknown;
@@ -129,25 +128,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "Write a prompt between 3 and 1,600 characters." }, { status: 400 });
   }
 
-  const supplied = request.headers.get("x-google-generative-ai-api-key")?.trim();
-  if (supplied && !isValidGeminiKeyFormat(supplied)) {
-    return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 400 });
-  }
-
-  const key = supplied || serverKey();
-  if (!key || !isValidGeminiKeyFormat(key)) {
-    return Response.json({ error: KEY_FORMAT_ERROR, code: "bad_format" }, { status: 401 });
-  }
-
-  const verified = auth.user;
-  const rate = await allowDistributed(request, "image", 6, 40, { verifiedUserId: verified?.id ?? null });
-  if (!rate.allowed) {
-    const retryAfter = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
-    return Response.json(
-      { error: LIMIT_MESSAGE, code: "rate" },
-      { status: 429, headers: { "Retry-After": String(retryAfter) } },
-    );
-  }
+  // Identity → key → rate limit → one reserved credit, shared with every
+  // other AI surface. Image generation is the most expensive call in the
+  // product, and it used to be the least guarded one.
+  const gateway = await beginMeteredRequest(request, "image", auth.user);
+  if (!gateway.ok) return gateway.response;
+  const { session } = gateway;
+  const key = session.key;
 
   const selectedStyle = typeof style === "string" && styles.has(style) ? style : "Cinematic";
   const userPrompt = prompt.trim();
@@ -164,6 +151,7 @@ export async function POST(request: Request) {
   });
 
   if (!promptResult.ok) {
+    await session.settle("failure", { model: null });
     return Response.json(
       { error: promptResult.error.message, code: promptResult.error.code },
       { status: promptResult.error.status },
@@ -175,6 +163,7 @@ export async function POST(request: Request) {
   // 2. Try native Gemini image generation first
   const native = await tryGeminiNativeImage(enhancedPrompt, key);
   if (native.ok) {
+    await session.settle("success", { model: native.data.model });
     return Response.json(
       {
         image: native.data.url,
@@ -195,6 +184,7 @@ export async function POST(request: Request) {
     native.error.code === "quota_exceeded" ||
     native.error.code === "network"
   ) {
+    await session.settle("failure", { model: null });
     return Response.json(
       { error: native.error.message, code: native.error.code },
       { status: native.error.status },
@@ -205,6 +195,7 @@ export async function POST(request: Request) {
   // render the Gemini-crafted prompt via Flux.
   try {
     const rendered = await renderWithFluxPrompt(enhancedPrompt, promptResult.model);
+    await session.settle("success", { model: rendered.model });
     return Response.json(
       {
         image: rendered.url,
@@ -218,6 +209,7 @@ export async function POST(request: Request) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {
+    await session.settle("failure", { model: null });
     return Response.json(
       { error: "Image rendering failed right now. Please try again shortly." },
       { status: 502 },

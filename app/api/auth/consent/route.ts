@@ -17,6 +17,7 @@
 
 import { requireUser } from "@/lib/session";
 import {
+  ConsentReadError,
   readConsent,
   recordConsent,
   withdrawConsent,
@@ -51,8 +52,19 @@ export async function GET(request: Request) {
       versions: { terms: TERMS_VERSION, privacy: PRIVACY_VERSION },
     });
   } catch (e) {
-    consentLog("read", { outcome: "read_error" });
-    return json({ error: "Could not load your consent state.", code: "consent_read_failed" }, 500);
+    // Distinguish "cannot read" from "has not consented". A 503 with a
+    // retryable code makes the client retry instead of re-prompting for
+    // acceptance the user already gave.
+    const category = e instanceof ConsentReadError ? e.category : "unknown";
+    consentLog("read", { outcome: "read_error", category });
+    return json(
+      {
+        error: "We could not check your consent right now. Please retry in a moment.",
+        code: "consent_read_failed",
+        retryable: true,
+      },
+      503,
+    );
   }
 }
 

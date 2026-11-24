@@ -123,7 +123,17 @@ test("blocks key/prompt exfiltration before the model is called", async () => {
   assert.equal(called, false, "no model call may happen for a blocked request");
 });
 
+/** Auth-only fetch stub: identity verifies, nothing else is allowed to fire. */
+function mockAuthOnly() {
+  return mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/auth/v1/user")) return verifiedAuthResponse(init);
+    throw new Error(`unexpected network call: ${url}`);
+  });
+}
+
 test("rejects a client key that does not look like a Google key with a 400", async () => {
+  mockAuthOnly();
   const response = await POST(
     makeRequest(
       { messages: [{ role: "user", content: "hi" }] },
@@ -135,10 +145,28 @@ test("rejects a client key that does not look like a Google key with a 400", asy
   assert.equal(body.code, "bad_format");
 });
 
+test("a guest is refused before the server key is even resolved", async () => {
+  // Regression: key resolution used to run first, so a keyless deployment
+  // answered a guest with `no_server_key` — leaking configuration and telling
+  // a signed-out visitor to "connect your own key" instead of "sign in".
+  delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  const response = await POST(
+    makeRequest(
+      { messages: [{ role: "user", content: "hi" }] },
+      { Authorization: "" },
+    ),
+  );
+  assert.equal(response.status, 401);
+  const body = await response.json();
+  assert.equal(body.code, "unauthenticated");
+});
+
 test("returns 401 no_server_key with no user key and no server key", async () => {
   const previousKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   delete process.env.GEMINI_API_KEY;
+  mockAuthOnly();
   try {
     const response = await POST(makeRequest({ messages: [{ role: "user", content: "hi" }] }));
     assert.equal(response.status, 401);

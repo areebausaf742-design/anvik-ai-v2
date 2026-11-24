@@ -133,10 +133,62 @@ export async function sbUpdateByIdDetailed(table: string, id: string, patch: Rec
   }
 }
 
+/**
+ * Insert rows — a plain INSERT, no merge semantics.
+ *
+ * `Prefer: resolution=merge-duplicates` was previously sent here, which made
+ * every "insert" an upsert resolved against the PRIMARY KEY. That silently
+ * broke two different things:
+ *   - a duplicate `(ip_hash, date)` quota row raised 23505 instead of
+ *     incrementing the counter, so the free daily cap never advanced; and
+ *   - "append-only history" rows could be overwritten by an id collision.
+ * A real INSERT is what the callers of this function actually want.
+ */
 export async function sbInsertDetailed(table: string, rows: Record<string, unknown>[]): Promise<SbWriteResult> {
   if (!supabaseEnabled() || rows.length === 0) return { ok: false, error: { category: "bad_response", detail: "supabase not configured or no rows" } };
   try {
     const response = await fetch(`${base()}/rest/v1/${table}`, {
+      method: "POST",
+      headers: { ...headers(), Prefer: "return=minimal" },
+      body: JSON.stringify(rows),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (response.ok) return { ok: true };
+    const body = await response.json().catch(() => null);
+    return { ok: false, error: await sbReject(response, body) };
+  } catch (e) {
+    const isAbort = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    return { ok: false, error: { category: isAbort ? "timeout" : "network_error" } };
+  }
+}
+
+/**
+ * Upsert rows by an EXPLICIT conflict target.
+ *
+ * PostgREST resolves `merge-duplicates` against the primary key unless
+ * `on_conflict=<cols>` names the unique constraint to arbitrate on. Omitting it
+ * was the root cause of the dead free-tier counter (see P1-2): `quota_usage`
+ * is keyed by `id` (a random uuid) with a separate unique `(ip_hash, date)`,
+ * so every second write for the same visitor/date raised 23505 and the count
+ * froze at 1 forever.
+ *
+ * `conflict` is required — there is no safe default, and a silent fallback to
+ * the primary key is exactly the bug this replaces.
+ */
+export async function sbUpsertDetailed(
+  table: string,
+  rows: Record<string, unknown>[],
+  conflict: string,
+): Promise<SbWriteResult> {
+  const target = conflict.trim();
+  if (!target) {
+    return { ok: false, error: { category: "bad_response", detail: "upsert requires an explicit conflict target" } };
+  }
+  if (!supabaseEnabled() || rows.length === 0) {
+    return { ok: false, error: { category: "bad_response", detail: "supabase not configured or no rows" } };
+  }
+  try {
+    const response = await fetch(`${base()}/rest/v1/${table}?on_conflict=${encodeURIComponent(target)}`, {
       method: "POST",
       headers: { ...headers(), Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(rows),
@@ -151,8 +203,43 @@ export async function sbInsertDetailed(table: string, rows: Record<string, unkno
   }
 }
 
-export async function sbUpsertDetailed(table: string, rows: Record<string, unknown>[]): Promise<SbWriteResult> {
-  return sbInsertDetailed(table, rows);
+/**
+ * PATCH rows selected by a PostgREST filter — a column-scoped UPDATE.
+ *
+ * Why this exists: the daily/yearly grant path needed to reset `daily_usage`
+ * and `daily_limit` for one user. It did that with a JS read-modify-write
+ * upsert that rewrote the whole row, and wrote `available_pack_credits: 0` —
+ * silently deleting credits the user had paid for.
+ *
+ * A filtered UPDATE that names only the columns being changed cannot do that:
+ * Postgres leaves every unmentioned column untouched, so there is no read to
+ * race and no field to lose.
+ */
+export async function sbUpdateWhereDetailed(
+  table: string,
+  filter: string,
+  patch: Record<string, unknown>,
+): Promise<SbWriteResult> {
+  if (!supabaseEnabled()) return { ok: false, error: { category: "bad_response", detail: "supabase not configured" } };
+  if (!filter.trim()) {
+    // Refuse an unfiltered UPDATE outright: this helper must never be able to
+    // rewrite an entire table.
+    return { ok: false, error: { category: "bad_response", detail: "update requires a filter" } };
+  }
+  try {
+    const response = await fetch(`${base()}/rest/v1/${table}?${filter}`, {
+      method: "PATCH",
+      headers: { ...headers(), Prefer: "return=minimal" },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (response.ok) return { ok: true };
+    const body = await response.json().catch(() => null);
+    return { ok: false, error: await sbReject(response, body) };
+  } catch (e) {
+    const isAbort = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    return { ok: false, error: { category: isAbort ? "timeout" : "network_error" } };
+  }
 }
 
 export async function sbSelectDetailed<T>(table: string, query: string): Promise<SbReadResult<T>> {
@@ -183,10 +270,15 @@ export async function sbInsert(table: string, rows: Record<string, unknown>[]): 
 /**
  * Upsert rows by their conflict columns (PostgREST merge-duplicates).
  * Requires a unique constraint on the conflict columns — see the migration.
+ * `conflict` is mandatory: see sbUpsertDetailed for why a default is unsafe.
  * Never throws; returns false on any failure.
  */
-export async function sbUpsert(table: string, rows: Record<string, unknown>[]): Promise<boolean> {
-  return (await sbUpsertDetailed(table, rows)).ok;
+export async function sbUpsert(
+  table: string,
+  rows: Record<string, unknown>[],
+  conflict: string,
+): Promise<boolean> {
+  return (await sbUpsertDetailed(table, rows, conflict)).ok;
 }
 
 /**

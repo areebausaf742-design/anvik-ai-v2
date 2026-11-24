@@ -1,4 +1,5 @@
 import { FREE_DAILY_LIMIT } from "@/lib/plans";
+import type { SupabaseReadFn, SupabaseUpsertFn } from "@/lib/supabase-types";
 
 /**
  * Server-side free-tier quota — the promise every visitor gets.
@@ -11,14 +12,15 @@ import { FREE_DAILY_LIMIT } from "@/lib/plans";
  *   - a user-supplied own key is unlimited: there is no quota for it
  *   - the quota count may be cached briefly in-process; answers never are
  *
- * Implementation notes:
+ * Correctness notes:
  *   - The reservation map lives in-process so concurrent requests in one
  *     process cannot double-spend the same remaining slot.
- *   - Across processes (Vercel lambdas) two concurrent requests can both pass
- *     the check; the persisted count is best-effort read-modify-write, which
- *     only ever allows slightly MORE than the cap, never less. For a free
- *     daily limit on a hobby plan that is the right trade — a hard DB-level
- *     counter would need a Postgres function we cannot deploy from here.
+ *   - Across processes (Vercel lambdas) the persisted counter is incremented
+ *     by the `consume_quota` Postgres function (see
+ *     supabase/migrations/20261124000000_quota_and_usage_rpcs.sql): one row
+ *     lock, one increment, no read-modify-write race. The previous
+ *     read-then-upsert path was also using an upsert with no conflict target,
+ *     so the counter never advanced at all.
  *   - When Supabase is unreachable the check degrades to the in-process
  *     counter and never throws — the request still completes.
  */
@@ -39,17 +41,20 @@ export function istDay(now: Date = new Date()): string {
 /* ------------------------------------------------------------------ */
 
 export type QuotaReader = (ipHash: string, day: string) => Promise<number | null>;
+/** Atomic increment: returns the new count, or null when it could not persist. */
+export type QuotaIncrementer = (ipHash: string, day: string) => Promise<number | null>;
+/** Legacy read-modify-write writer, kept for tests and non-atomic fallbacks. */
 export type QuotaWriter = (ipHash: string, day: string, count: number) => Promise<boolean>;
 
 export type QuotaHooks = {
   read: QuotaReader;
   write: QuotaWriter;
+  /** Preferred path — a single atomic `consume_quota` round-trip. */
+  increment?: QuotaIncrementer;
   now?: () => Date;
   /** ms to cache the read for /api/quota display (chat path uses fresh reads) */
   cacheTtlMs?: number;
 };
-
-type ReservationEntry = { reserved: number; stored: number };
 
 /** In-process reservations so same-process concurrency can't double-spend. */
 const reservations = new Map<string, number>();
@@ -67,10 +72,6 @@ export class QuotaStore {
 
   private reservationKey(ipHash: string, day: string) {
     return `${ipHash}:${day}`;
-  }
-
-  private purgeReservation(key: string) {
-    reservations.delete(key);
   }
 
   /**
@@ -117,9 +118,11 @@ export class QuotaStore {
   }
 
   /**
-   * Consumed after a successful stream: decrement the reservation and persist
-   * the incremented count. Returns the new count, or null when the write
-   * could not be performed (Supabase down) — never throws.
+   * Consumed after a successful stream: release the in-process reservation and
+   * persist exactly one increment. Never throws.
+   *
+   * The atomic RPC path is preferred: it returns the authoritative post-
+   * increment count, so a lambda cold-start can never rewind the day's total.
    */
   async confirm(reservationKey: string): Promise<number | null> {
     const reserved = reservations.get(reservationKey);
@@ -127,6 +130,19 @@ export class QuotaStore {
     else reservations.delete(reservationKey);
 
     const [ipHash, day] = splitKey(reservationKey);
+
+    if (this.hooks.increment) {
+      try {
+        const next = await this.hooks.increment(ipHash, day);
+        if (next !== null) {
+          readCache.delete(reservationKey);
+          return next;
+        }
+      } catch {
+        /* fall through to the legacy path */
+      }
+    }
+
     const stored = await this.readQuotaCount(ipHash, day);
     // Nothing storable means nothing to persist — the request still counted
     // its own in-process reservation, so the day's total stays honest.
@@ -176,8 +192,9 @@ function splitKey(key: string): [string, string] {
  * Missing tables/keys → null/false — the caller degrades, never throws.
  */
 export function supabaseQuotaHooks(
-  select: <T = unknown>(table: string, query: string) => Promise<T[] | null>,
-  upsert: (table: string, rows: Record<string, unknown>[]) => Promise<boolean>,
+  select: SupabaseReadFn,
+  upsert: SupabaseUpsertFn,
+  increment?: QuotaIncrementer,
 ): QuotaHooks {
   return {
     read: async (ipHash, day) => {
@@ -188,9 +205,10 @@ export function supabaseQuotaHooks(
       const count = rows?.[0]?.count;
       return typeof count === "number" && Number.isFinite(count) ? count : 0;
     },
-    write: async (ipHash, day, count) => {
-      const ok = await upsert("quota_usage", [{ ip_hash: ipHash, date: day, count }]);
-      return ok;
-    },
+    // `quota_usage` is keyed by a random uuid `id` with a separate unique
+    // `(ip_hash, date)` — the conflict target must name that constraint.
+    write: async (ipHash, day, count) =>
+      upsert("quota_usage", [{ ip_hash: ipHash, date: day, count }], "ip_hash,date"),
+    increment,
   };
 }

@@ -78,7 +78,7 @@ export async function ensureEntitlement(userId: string, initialPlan: PlanId = "f
     entitlement_start: start.toISOString(),
     entitlement_expiry: expiry ? expiry.toISOString() : null,
   };
-  const ok = await sbUpsert("user_entitlements", [row]);
+  const ok = await sbUpsert("user_entitlements", [row], "user_id");
   if (!ok) return null;
   return row;
 }
@@ -134,6 +134,48 @@ export async function refundCredit(userId: string, source: "daily" | "pack", ref
     p_reference: reference,
   });
   return result === true;
+}
+
+/**
+ * Settle a reservation in ONE atomic round-trip.
+ *
+ * The old flow called `record_usage` (confirm) or `refund_credit` as separate
+ * best-effort RPCs, and the chat route swallowed both failures. A stream that
+ * died between reservation and confirmation therefore left the reservation in
+ * `reserved` — the credit was spent and never returned. `settle_credit`
+ * (migration 20261124000000) confirms-or-refunds under a row lock, and is
+ * idempotent per reference, so a retry can never double-charge or double-refund.
+ *
+ * Never throws. `ok: false` means the outcome is unknown and the sweeper
+ * (`reclaim_stale_reservations`, every 10 min) will refund it.
+ */
+export type SettleOutcome = "success" | "failure" | "aborted";
+
+export async function settleCredit(params: {
+  userId: string;
+  reference: string;
+  outcome: SettleOutcome;
+  model?: string | null;
+  feature?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+}): Promise<{ ok: boolean; status: "confirmed" | "refunded" | "no_reservation" | "unknown" }> {
+  if (!params.userId || !params.reference) return { ok: false, status: "unknown" };
+  const result = await sbRpc<Record<string, unknown>>("settle_credit", {
+    p_user_id: params.userId,
+    p_reference: params.reference,
+    p_outcome: params.outcome,
+    p_model: params.model ?? null,
+    p_feature: params.feature ?? null,
+    p_input_tokens: params.inputTokens ?? null,
+    p_output_tokens: params.outputTokens ?? null,
+  });
+  if (!result) return { ok: false, status: "unknown" };
+  const status = typeof result.status === "string" ? result.status : "";
+  if (status === "confirmed" || status === "refunded" || status === "no_reservation") {
+    return { ok: true, status };
+  }
+  return { ok: false, status: "unknown" };
 }
 
 export async function recordUsage(
