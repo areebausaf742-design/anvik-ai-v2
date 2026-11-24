@@ -19,7 +19,7 @@
  * failures are represented as data so the UI can show a clear message.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, isAuthPKCECodeVerifierMissingError } from "@supabase/supabase-js";
 
 // Read lazily on every call — an env var set at runtime (tests, SSR,
 // long-lived server processes) must be visible without a reload.
@@ -251,6 +251,45 @@ function clearPKCEVerifier(): void {
   try { localStorage.removeItem(PKCE_VERIFIER_KEY); } catch { /* unavailable */ }
 }
 
+/**
+ * The message a user sees when the browser that started the flow no longer
+ * holds its PKCE verifier.
+ *
+ * The old code surfaced the raw supabase-js error, which is written for
+ * integrators — it talks about @supabase/ssr, cookie storage and "the auth flow
+ * was initiated in a different browser". Told to an end user on a login screen,
+ * that is noise about our internals and it suggests nothing to do. This message
+ * says what happened in plain language and what to do next.
+ */
+export const OAUTH_VERIFIER_MISSING_MESSAGE =
+  "That Google sign-in link has expired or was opened on a different device. Please tap \u201cContinue with Google\u201d to sign in again.";
+
+/**
+ * The recovery step after a failed PKCE exchange: drop every pending verifier.
+ *
+ * When the verifier is gone, supabase-js throws BEFORE its cleanup call, so the
+ * flow index and the legacy fixed key are left behind. They are harmless on
+ * their own, but they bias the next exchange towards a stale slot. Clearing
+ * them makes the following attempt start from a clean state.
+ *
+ * Called when a verifier turns out to be missing, so it only ever touches
+ * pending-flow bookkeeping — never a session, never an access/refresh token.
+ */
+export function resetStalePkceState(): void {
+  try {
+    const removable: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.endsWith("-code-verifier") || key.endsWith("-flows-code-verifier")) removable.push(key);
+    }
+    for (const key of removable) localStorage.removeItem(key);
+  } catch {
+    /* storage unavailable — nothing to clean */
+  }
+  clearPKCEVerifier();
+}
+
 function generateCodeVerifier(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -271,6 +310,111 @@ function authLog(step: string, fields: Record<string, "present" | "absent" | "ne
     console.info(`[anvik-auth] ${step} (${summary})`);
   } catch {
     /* diagnostics must never break the flow */
+  }
+}
+
+/** The one callback URL this app uses. */
+export const OAUTH_CALLBACK_PATH = "/login";
+/** Where the post-login destination is stashed across the OAuth round-trip. */
+const OAUTH_DESTINATION_KEY = "anvik-oauth-next";
+
+/**
+ * Build the exact `redirect_to` handed to supabase-js.
+ *
+ * The value is ALWAYS `${origin}/login` — no query string, no fragment.
+ *
+ * That is deliberate. Supabase compares `redirect_to` against the project's
+ * Redirect URLs allow-list and, on a miss, silently substitutes the project's
+ * Site URL, landing the user on a page with no `?code=` to exchange. The
+ * allow-list entry configured for this app is the bare `/login`, so any
+ * decorated variant (`/login?next=%2Fchat`) is one dashboard edit away from
+ * breaking sign-in for everybody. A URL that cannot vary cannot drift out of
+ * sync with the dashboard.
+ *
+ * The destination therefore travels out of band (see
+ * `rememberOAuthDestination`) and is re-validated on return.
+ */
+export function buildOAuthRedirect(
+  origin: string,
+  destination?: string | null,
+): { ok: true; redirectTo: string; destination: string } | { ok: false; error: string } {
+  let base: URL;
+  try {
+    base = new URL(origin);
+  } catch {
+    return { ok: false, error: "Google sign-in is not available on this page." };
+  }
+  if (base.protocol !== "https:" && base.protocol !== "http:") {
+    return { ok: false, error: "Google sign-in is not available on this page." };
+  }
+  return {
+    ok: true,
+    redirectTo: new URL(OAUTH_CALLBACK_PATH, base).toString(),
+    destination: safeNextPath(destination) ?? "/chat",
+  };
+}
+
+/** Pick a storage object that works in the current environment, if any. */
+function destinationStorage(): Storage | null {
+  try {
+    if (typeof sessionStorage !== "undefined") return sessionStorage; // per-tab, survives the redirect
+  } catch {
+    /* blocked */
+  }
+  try {
+    if (typeof localStorage !== "undefined") return localStorage;
+  } catch {
+    /* blocked */
+  }
+  return null;
+}
+
+/**
+ * Remember where to land after Google sign-in.
+ *
+ * Out of band because `redirect_to` must stay exactly allow-listed. This is not
+ * a security boundary: whatever is read back goes through `safeNextPath()`
+ * before it is used as a navigation target.
+ */
+export function rememberOAuthDestination(destination: string): void {
+  try {
+    destinationStorage()?.setItem(OAUTH_DESTINATION_KEY, destination);
+  } catch {
+    /* storage unavailable — the caller falls back to /chat */
+  }
+}
+
+/** Read and clear the remembered destination, re-validating it. */
+export function takeOAuthDestination(): string | null {
+  try {
+    const store = destinationStorage();
+    if (!store) return null;
+    const raw = store.getItem(OAUTH_DESTINATION_KEY);
+    store.removeItem(OAUTH_DESTINATION_KEY);
+    return safeNextPath(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Accept only a same-origin, absolute-path destination. Anything that could
+ * leave the app — a scheme, a protocol-relative `//host`, a backslash trick, or
+ * a non-path value — degrades to null and the caller falls back to /chat.
+ */
+export function safeNextPath(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!raw || raw.length > 512) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return null;
+  if (/[\\\u0000-\u001f]/.test(raw)) return null;
+  try {
+    // Resolved against a throwaway origin: a value that escapes it is rejected.
+    const probe = new URL(raw, "https://anvik.invalid");
+    if (probe.origin !== "https://anvik.invalid") return null;
+    return `${probe.pathname}${probe.search}${probe.hash}`;
+  } catch {
+    return null;
   }
 }
 
@@ -344,10 +488,47 @@ export async function startGoogleOAuth(redirectTo: string, expectedOrigin?: stri
       authLog("authorize_started", { verifier: "absent" });
       return { ok: false, error: "Could not start Google sign-in." };
     }
+
+    // Do not navigate away unless the verifier is actually persisted.
+    //
+    // signInWithOAuth() writes the PKCE verifier to localStorage as a side
+    // effect. If that write silently failed — storage disabled, private-mode
+    // quota, a third-party-cookie-restricted webview — the browser is sent to
+    // Google with a challenge it can never answer, and the user comes back to a
+    // "verifier not found" error. Checking here turns that dead end into an
+    // immediate, honest failure on the page that caused it.
+    if (!hasStoredPkceVerifier()) {
+      authLog("authorize_started", { verifier: "absent" });
+      return {
+        ok: false,
+        error:
+          "Your browser is not allowing ANVIK to save the sign-in state. Allow storage for this site (or leave private browsing) and try again.",
+      };
+    }
+
     authLog("authorize_started", { verifier: "present" });
     return { ok: true, authorizeUrl: data.url };
   } catch {
     return { ok: false, error: "Could not start Google sign-in." };
+  }
+}
+
+/**
+ * Is a PKCE verifier present for a flow supabase-js just started?
+ *
+ * Deliberately reads storage rather than trusting that the write happened: the
+ * only thing that matters is what the callback will be able to find.
+ */
+export function hasStoredPkceVerifier(): boolean {
+  try {
+    if (readPKCEVerifier()) return true;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.endsWith("-code-verifier") && localStorage.getItem(key)) return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -372,6 +553,8 @@ export async function completeGoogleOAuth(code: string): Promise<AuthResult> {
   }
   authLog("exchange_started", { code: "present", verifier: "present" });
   if (typeof document === "undefined") {
+    // SSR/no-DOM path: we run the exchange ourselves, so OUR verifier key is the
+    // only one that matters here.
     const verifier = readPKCEVerifier();
     if (!verifier) {
       authLog("exchange_rejected", { code: "present", verifier: "absent" });
@@ -397,12 +580,43 @@ export async function completeGoogleOAuth(code: string): Promise<AuthResult> {
       return { ok: false, error: "Could not reach the sign-in service. Please try again." };
     }
   }
+  // Detect the "no verifier for this browser" case BEFORE calling the SDK.
+  //
+  // supabase-js throws AuthPKCECodeVerifierMissingError from inside
+  // exchangeCodeForSession() when storage has no verifier slot and no legacy
+  // key. We check the same two places ourselves so the user gets a deliberate
+  // message in every environment — the SDK's own text is written for
+  // integrators ("@supabase/ssr ... code verifier in cookies").
+  if (!hasStoredPkceVerifier()) {
+    authLog("exchange_rejected", { code: "present", verifier: "absent" });
+    resetStalePkceState();
+    return { ok: false, error: OAUTH_VERIFIER_MISSING_MESSAGE, code: "pkce_verifier_missing" };
+  }
+
   try {
     const supabase = browserSupabase();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    // Belt and braces: a verifier can disappear between the check above and the
+    // SDK's lookup (another tab finishing first, storage evicted mid-flight).
+    // A missing verifier is a distinct, recoverable situation — the user has to
+    // start again from this browser — and must never be reported with the raw
+    // SDK text (it talks about @supabase/ssr and cookie adapters).
+    if (error && isAuthPKCECodeVerifierMissingError(error)) {
+      authLog("exchange_rejected", { code: "present", verifier: "absent" });
+      resetStalePkceState();
+      return { ok: false, error: OAUTH_VERIFIER_MISSING_MESSAGE, code: "pkce_verifier_missing" };
+    }
+
     if (error || !data.session) {
       authLog("exchange_failed", { code: "present", reason: "invalid_response" });
-      return { ok: false, error: error?.message || "Google sign-in could not be completed.", code: "oauth_failed" };
+      // Any other auth error still describes our internals; keep the detail in
+      // diagnostics and give the user one actionable sentence.
+      return {
+        ok: false,
+        error: "Google sign-in could not be completed. Please tap \u201cContinue with Google\u201d to try again.",
+        code: "oauth_failed",
+      };
     }
     const accessToken = data.session.access_token;
     const authSession: AuthSession = {

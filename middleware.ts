@@ -19,7 +19,42 @@ function deviceId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/**
+ * Where Supabase sends an OAuth return when `redirect_to` is not allow-listed.
+ * Keep these in sync with `OAUTH_CALLBACK_PATH` in lib/auth.ts.
+ */
+const AUTH_CALLBACK_PATH = "/login";
+
+/**
+ * Rescue an authorization code that landed on the wrong page.
+ *
+ * Supabase replaces an unlisted `redirect_to` with the project's Site URL. On
+ * this project the Site URL is the root, so the `?code=` that Google produced
+ * arrives at `/`, where nothing exchanges it — the user sits at the homepage,
+ * unauthenticated, with no explanation. Rather than depend on the dashboard
+ * staying perfectly aligned with app code, forward any code-carrying request on
+ * a non-callback page to /login, which knows how to finish the flow.
+ *
+ * Only the presence of `code` is inspected here; the value is passed through
+ * untouched and is never logged. The PKCE verifier still decides whether the
+ * exchange can succeed.
+ */
+function redirectCallbackToLogin(req: NextRequest): NextResponse | null {
+  const { pathname, searchParams } = req.nextUrl;
+  if (pathname === AUTH_CALLBACK_PATH) return null;
+  if (!searchParams.has("code")) return null;
+  if (pathname.startsWith("/api/")) return null;
+  const target = req.nextUrl.clone();
+  target.pathname = AUTH_CALLBACK_PATH;
+  target.search = "";
+  for (const [key, value] of searchParams) target.searchParams.append(key, value);
+  return NextResponse.redirect(target);
+}
+
 export function middleware(req: NextRequest) {
+  const callbackRedirect = redirectCallbackToLogin(req);
+  if (callbackRedirect) return callbackRedirect;
+
   const existing = req.cookies.get("anvik_dev")?.value;
   if (existing) return NextResponse.next();
 
