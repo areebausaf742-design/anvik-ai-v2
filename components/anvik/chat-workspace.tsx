@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -32,8 +32,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useChatStore, selectActiveConversation, type ChatMessage } from "@/store/use-chat-store";
+import { useChatStore, selectActiveConversation, type ChatMessage, type Conversation } from "@/store/use-chat-store";
 import { ensureFreshChat } from "@/lib/fresh-chat";
+import { canSendMessage, composerBlockReason, COMPOSER_ERROR, COMPOSER_NOTICE } from "@/lib/composer";
+import { filterPaletteActions, filterPaletteChats, restorePaletteFocus } from "@/lib/palette";
+import { wrapIndex } from "@/lib/keyboard-nav";
 import DeepSearchToggle from "@/components/anvik/deep-search-toggle";
 import ModelSelector from "@/components/anvik/model-selector";
 import SourcesPanel from "@/components/anvik/sources-panel";
@@ -55,7 +58,6 @@ import { readMemory } from "@/lib/learning";
 import { greetingFirstName } from "@/lib/session";
 import { activateChatOwner, resolveChatOwner } from "@/lib/chat-owner";
 import { useSession } from "@/components/anvik/session-provider";
-import { useAppearance } from "@/components/anvik/appearance-provider";
 
 type SpeechInput = {
   lang: string;
@@ -66,6 +68,13 @@ type SpeechInput = {
 };
 type SpeechInputConstructor = new () => SpeechInput;
 
+type PaletteEntry = {
+  id: string;
+  label: string;
+  icon: typeof MessageSquarePlus;
+  run: () => void;
+};
+
 function makeId() {
   return crypto.randomUUID();
 }
@@ -74,14 +83,16 @@ function ChatWorkspaceInner() {
   const pathname = usePathname();
   const router = useRouter();
   const { profile, credits, session, loading: sessionLoading, bearerToken, signOut, refresh } = useSession();
-  const { resolvedTheme } = useAppearance();
   const conversations = useChatStore((state) => state.conversations);
   const activeId = useChatStore((state) => state.activeId);
   const mode = useChatStore((state) => state.mode);
   const temperature = useChatStore((state) => state.temperature);
   const activeChat = useChatStore(selectActiveConversation);
   const createConversation = useChatStore((state) => state.createConversation);
-  const deleteConversation = useChatStore((state) => state.deleteConversation);
+  const deleteConversationWithUndo = useChatStore((state) => state.deleteConversationWithUndo);
+  const undoDelete = useChatStore((state) => state.undoDelete);
+  const clearDeletedConversations = useChatStore((state) => state.clearDeletedConversations);
+  const deletedConversations = useChatStore((state) => state.deletedConversations);
   const setActive = useChatStore((state) => state.setActive);
   const setMode = useChatStore((state) => state.setMode);
   const addMessage = useChatStore((state) => state.addMessage);
@@ -105,6 +116,8 @@ function ChatWorkspaceInner() {
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
   const [searchMode, setSearchMode] = useState<"auto" | "on" | "off">("auto");
   const [showPalette, setShowPalette] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [paletteIndex, setPaletteIndex] = useState(0);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [quotaDisplay, setQuotaDisplay] = useState<{ plan: string; remaining: number; limit: number } | null>(null);
@@ -115,6 +128,35 @@ function ChatWorkspaceInner() {
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechInput | null>(null);
   const photoMenuRef = useRef<HTMLDivElement>(null);
+  const sendingRef = useRef(false);
+  const undoTimerRef = useRef<number | null>(null);
+  const paletteOpenerRef = useRef<HTMLElement | null>(null);
+  const paletteOpenRef = useRef(false);
+
+  const openPalette = useCallback((opener?: HTMLElement | null) => {
+    paletteOpenerRef.current =
+      opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    paletteOpenRef.current = true;
+    setShowPalette(true);
+  }, []);
+
+  const closePalette = useCallback((options?: { restoreFocus?: boolean }) => {
+    const opener = paletteOpenerRef.current;
+    paletteOpenerRef.current = null;
+    paletteOpenRef.current = false;
+    setShowPalette(false);
+    setPaletteQuery("");
+    setPaletteIndex(0);
+    if (options?.restoreFocus) restorePaletteFocus(opener);
+  }, []);
+
+  const composerReadiness = {
+    identityReady,
+    sessionLoading,
+    hasSession: Boolean(session),
+    hasProfile: Boolean(profile),
+  };
+  const composerBlock = composerBlockReason(composerReadiness);
 
   useEffect(() => {
     setHydrated(true);
@@ -210,17 +252,40 @@ function ChatWorkspaceInner() {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        setShowPalette((v) => !v);
+        if (paletteOpenRef.current) closePalette({ restoreFocus: true });
+        else openPalette();
       }
       if (e.key === "Escape") {
-        setShowPalette(false);
+        if (paletteOpenRef.current) closePalette({ restoreFocus: true });
         setShowPhotoMenu(false);
         setFocusMode(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [openPalette, closePalette]);
+
+  useEffect(() => {
+    if (!showPalette) return;
+    setPaletteQuery("");
+    setPaletteIndex(0);
+  }, [showPalette]);
+
+  useEffect(() => {
+    if (composerBlock) return;
+    setError((current) =>
+      current === COMPOSER_ERROR.preparing || current === COMPOSER_ERROR.verify_account
+        ? ""
+        : current,
+    );
+  }, [composerBlock]);
+
+  useEffect(
+    () => () => {
+      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+    },
+    [],
+  );
 
   async function runInlineKeyTest() {
     setTestingKey(true);
@@ -233,7 +298,15 @@ function ChatWorkspaceInner() {
 
   async function sendMessage(value = input, regeneration?: { assistantId: string; history: ChatMessage[] }) {
     const content = value.trim();
-    if (!content || pending || !identityReady || sessionLoading || (session && !profile)) return;
+    if (!content || sendingRef.current || pending) return;
+
+    // Never drop a message silently. While identity is resolving the composer
+    // stays typable, the draft is preserved, and this explains why Send waits.
+    if (composerBlock) {
+      setError(COMPOSER_ERROR[composerBlock]);
+      fieldRef.current?.focus();
+      return;
+    }
 
     const apiKey = readApiKey();
     const token = bearerToken();
@@ -245,9 +318,8 @@ function ChatWorkspaceInner() {
     // questions. The server now meters guests itself (lib/guest-quota.ts), so
     // the client sends the request with no token and lets the server decide.
     //
-    // Wait for identity to settle first: sending mid-resolution would race the
-    // token and could spend a guest question for a user who is in fact signed in.
-    if (!token && sessionLoading) return;
+    // Identity readiness is checked above through `composerBlock`, so a guest
+    // request can never race an account token that is still resolving.
 
     const requestId = crypto.randomUUID();
 
@@ -273,6 +345,7 @@ function ChatWorkspaceInner() {
       addMessage(conversationId, { id: assistantId, role: "assistant", content: "", createdAt: Date.now() });
       setInput("");
     }
+    sendingRef.current = true;
     setPending(true);
     setError("");
     setKeyTestStatus(null);
@@ -438,6 +511,7 @@ function ChatWorkspaceInner() {
       }
     } finally {
       abortRef.current = null;
+      sendingRef.current = false;
       setPending(false);
       fieldRef.current?.focus();
       // Refresh the displayed allowance after each request.
@@ -558,7 +632,43 @@ function ChatWorkspaceInner() {
     setRenameValue("");
   }
 
+  function clearUndoTimer() {
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  }
+
+  function removeConversation(chat: Conversation) {
+    clearUndoTimer();
+    deleteConversationWithUndo(chat.id);
+    undoTimerRef.current = window.setTimeout(() => {
+      clearDeletedConversations();
+      undoTimerRef.current = null;
+    }, 6000);
+  }
+
+  function undoRemove() {
+    if (deletedConversations.length === 0) return;
+    clearUndoTimer();
+    undoDelete();
+    // Give the next deletion in the stack its own full undo window.
+    if (deletedConversations.length > 1) {
+      undoTimerRef.current = window.setTimeout(() => {
+        clearDeletedConversations();
+        undoTimerRef.current = null;
+      }, 6000);
+    }
+    setError("");
+  }
+
+  function dismissUndo() {
+    clearUndoTimer();
+    clearDeletedConversations();
+  }
+
   const isEmptyInput = !input.trim();
+  const canSend = canSendMessage(composerReadiness, input, pending);
 
   const renderChatbar = (options: { className: string; showTooltip?: boolean }) => (
     <form onSubmit={submit} className={options.className}>
@@ -575,7 +685,7 @@ function ChatWorkspaceInner() {
                 placeholder="Ask ANVIK a question..."
                 aria-label="Ask ANVIK a question..."
                 rows={1}
-                disabled={pending || !identityReady || sessionLoading || Boolean(session && !profile)}
+                aria-busy={pending}
                 className="chatbar-input"
               />
               <span id="chat-composer-hint" className="sr-only">Press Enter to send. Press Shift and Enter for a new line.</span>
@@ -583,7 +693,7 @@ function ChatWorkspaceInner() {
             <button
               type="submit"
               aria-label="Send message"
-              disabled={!input.trim() || pending || !identityReady || sessionLoading || Boolean(session && !profile)}
+              disabled={!canSend}
               className="send-btn shrink-0"
             >
               <ArrowUp className="h-4 w-4" />
@@ -644,6 +754,23 @@ function ChatWorkspaceInner() {
           </div>
         </div>
       </div>
+      {composerBlock && hydrated && (
+        <div
+          role="status"
+          className="mx-auto mt-2 flex max-w-[720px] flex-wrap items-center justify-center gap-2 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-3 py-2 text-center text-xs text-[#666666]"
+        >
+          <span>{COMPOSER_NOTICE[composerBlock]}</span>
+          {composerBlock === "verify_account" && (
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
+            >
+              Retry connection
+            </button>
+          )}
+        </div>
+      )}
     </form>
   );
 
@@ -679,6 +806,96 @@ function ChatWorkspaceInner() {
     if (enableSearch) setSearchMode("on");
     fieldRef.current?.focus();
   }
+
+  const paletteActions: PaletteEntry[] = [
+    {
+      id: "palette-new-chat",
+      label: "New chat",
+      icon: MessageSquarePlus,
+      run: () => {
+        createConversation();
+        setError("");
+      },
+    },
+    { id: "palette-image-studio", label: "Image Studio", icon: ImageIcon, run: () => router.push("/image") },
+    { id: "palette-vision-studio", label: "Vision Studio", icon: Eye, run: () => router.push("/vision") },
+    { id: "palette-settings", label: "Settings", icon: KeyRound, run: () => router.push("/settings") },
+  ];
+
+  const paletteChatEntries: PaletteEntry[] = filterPaletteChats(safeConversations, paletteQuery).map(
+    (chat) => ({
+      id: `palette-chat-${chat.id}`,
+      label: chat.title,
+      icon: MessageSquarePlus,
+      run: () => {
+        setActive(chat.id);
+        setError("");
+      },
+    }),
+  );
+  const paletteActionEntries = filterPaletteActions(paletteActions, paletteQuery);
+  const paletteEntries: PaletteEntry[] = [...paletteChatEntries, ...paletteActionEntries];
+  const paletteActiveIndex =
+    paletteEntries.length === 0 ? -1 : Math.min(paletteIndex, paletteEntries.length - 1);
+
+  function activatePaletteEntry(entry: PaletteEntry | undefined) {
+    if (!entry) return;
+    closePalette();
+    entry.run();
+  }
+
+  function handlePaletteKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (paletteEntries.length === 0) return;
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      setPaletteIndex((current) => wrapIndex(current, delta, paletteEntries.length));
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      if (paletteEntries.length > 0) setPaletteIndex(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      if (paletteEntries.length > 0) setPaletteIndex(paletteEntries.length - 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      activatePaletteEntry(paletteEntries[paletteActiveIndex]);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closePalette({ restoreFocus: true });
+    }
+  }
+
+  function renderPaletteEntry(entry: PaletteEntry, index: number) {
+    const Icon = entry.icon;
+    const selected = paletteActiveIndex === index;
+    return (
+      <button
+        key={entry.id}
+        id={entry.id}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        tabIndex={-1}
+        onMouseEnter={() => setPaletteIndex(index)}
+        onClick={() => activatePaletteEntry(entry)}
+        className={"chat-item w-full " + (selected ? "is-active" : "")}
+      >
+        <Icon className="h-4 w-4 text-[#999999]" aria-hidden="true" />
+        <span className="truncate">{entry.label}</span>
+      </button>
+    );
+  }
+
+  const undoableDeletion = deletedConversations[deletedConversations.length - 1];
 
   return (
     <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
@@ -812,7 +1029,7 @@ function ChatWorkspaceInner() {
                         type="button"
                         aria-label={`Delete ${chat.title}`}
                         title="Delete"
-                        onClick={() => deleteConversation(chat.id)}
+                        onClick={() => removeConversation(chat)}
                         className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -911,7 +1128,7 @@ function ChatWorkspaceInner() {
           <div className="flex items-center gap-1">
             <button
   type="button"
-  onClick={() => setShowPalette(true)}
+  onClick={(event) => openPalette(event.currentTarget)}
   aria-label="Search conversations"
   className="flex items-center gap-1.5 rounded-lg border border-[#EDEDED] px-2.5 py-1.5 text-xs text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
             >
@@ -983,28 +1200,20 @@ function ChatWorkspaceInner() {
               <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[920px] flex-col items-center">
               <AnvikStar size="lg" className="mb-5" />
               <h1
-                className={"welcome-fade-in text-[clamp(2.6rem,7vw,5rem)] font-semibold leading-[1.02] tracking-[-0.065em] " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}
+                className="welcome-fade-in text-[clamp(2.6rem,7vw,5rem)] font-semibold leading-[1.02] tracking-[-0.065em] text-[#1A1A1A]"
                 style={{ letterSpacing: "-0.065em" }}
               >
                 ANVIK AI
               </h1>
 
-              <p className={"mt-4 max-w-2xl text-sm leading-7 sm:text-base " + (resolvedTheme === "dark" ? "text-white/75" : "text-[#666666]")}>
-                <span className={"font-semibold " + (resolvedTheme === "dark" ? "text-white" : "text-[#1A1A1A]")}>{welcomeGreeting}</span>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-[#666666] sm:text-base">
+                <span className="font-semibold text-[#1A1A1A]">{welcomeGreeting}</span>
                 {sessionLoading
                   ? " · Reconnecting securely. Your conversations will appear in a moment."
                   : session && !profile
                     ? " · Your secure session is active. Reconnect to restore your saved workspace."
                     : " · Build something amazing — just start typing below."}
               </p>
-              {session && !profile && !sessionLoading && (
-                <div role="status" className="mt-4 flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-3 text-xs text-white/75">
-                  <span>We couldn&apos;t load your account details. Your chats remain protected.</span>
-                  <button type="button" onClick={() => void refresh()} className="rounded-full border border-white/20 px-3 py-1.5 font-semibold text-white transition hover:bg-white/10">
-                    Retry connection
-                  </button>
-                </div>
-              )}
 
               {/* Glowing chatbar — welcome screen */}
               {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
@@ -1237,72 +1446,92 @@ function ChatWorkspaceInner() {
         )}
       </section>
 
+      {undoableDeletion && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 z-[90] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border border-[#30394d] bg-[#0d111b] px-4 py-3 text-sm text-slate-200 shadow-2xl"
+        >
+          <span className="min-w-0 truncate">Deleted “{undoableDeletion.conversation.title}”</span>
+          <button
+            type="button"
+            onClick={undoRemove}
+            className="shrink-0 font-semibold text-white underline underline-offset-2"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss undo"
+            onClick={dismissUndo}
+            className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-[#20283a] hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* ==================== Command Palette ==================== */}
       {showPalette && (
         <div
           className="palette-overlay fixed inset-0 z-[100] flex items-start justify-center bg-black/10 pt-[15vh] backdrop-blur-sm"
-          onClick={() => setShowPalette(false)}
+          onClick={() => closePalette()}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
             className="palette-panel w-full max-w-[560px] mx-4 rounded-2xl border border-[#EDEDED] bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 border-b border-[#EDEDED] px-4 py-3">
-              <Search className="h-4 w-4 text-[#999999]" />
+              <Search className="h-4 w-4 text-[#999999]" aria-hidden="true" />
               <input
                 autoFocus
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Ask ANVIK anything..."
-                className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setShowPalette(false);
-                    void sendMessage(search);
-                    setSearch("");
-                  }
+                role="combobox"
+                aria-expanded="true"
+                aria-controls="anvik-command-list"
+                aria-autocomplete="list"
+                aria-activedescendant={
+                  paletteActiveIndex >= 0 ? paletteEntries[paletteActiveIndex].id : undefined
+                }
+                aria-label="Search chats and commands"
+                value={paletteQuery}
+                onChange={(e) => {
+                  setPaletteQuery(e.target.value);
+                  setPaletteIndex(0);
                 }}
+                onKeyDown={handlePaletteKeyDown}
+                placeholder="Search chats or run a command..."
+                className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
               />
               <kbd className="rounded border border-[#EDEDED] px-1.5 py-0.5 text-[10px] text-[#999999]">ESC</kbd>
             </div>
-            <div className="max-h-[320px] overflow-y-auto p-2 thin-scroll">
-              {filteredChats.length > 0 && (
+            <div
+              id="anvik-command-list"
+              role="listbox"
+              aria-label="Chats and commands"
+              className="max-h-[320px] overflow-y-auto p-2 thin-scroll"
+            >
+              {paletteChatEntries.length > 0 && (
                 <>
-                  <div className="px-2 py-1.5 text-xs font-medium text-[#999999]">Chats</div>
-                  {filteredChats.slice(0, 6).map((chat) => (
-                    <button
-                      key={chat.id}
-                      type="button"
-                      className="chat-item w-full"
-                      onClick={() => {
-                        setActive(chat.id);
-                        setShowPalette(false);
-                        setSearch("");
-                      }}
-                    >
-                      <MessageSquarePlus className="h-4 w-4 text-[#999999]" />
-                      <span className="truncate">{chat.title}</span>
-                    </button>
-                  ))}
+                  <div className="px-2 py-1.5 text-xs font-medium text-[#999999]" role="presentation">Chats</div>
+                  {paletteChatEntries.map((entry, index) => renderPaletteEntry(entry, index))}
                 </>
               )}
-              <div className="px-2 py-1.5 text-xs font-medium text-[#999999]">Actions</div>
-              {[
-                { label: "New chat", icon: MessageSquarePlus, action: () => { createConversation(); setShowPalette(false); } },
-                { label: "Image Studio", icon: ImageIcon, href: "/image" },
-                { label: "Vision Studio", icon: Eye, href: "/vision" },
-                { label: "Settings", icon: KeyRound, href: "/settings" },
-              ].map((item) => (
-                <a
-                  key={item.label}
-                  href={item.href ?? "#"}
-                  onClick={item.action}
-                  className="chat-item w-full"
-                >
-                  <item.icon className="h-4 w-4 text-[#999999]" />
-                  <span>{item.label}</span>
-                </a>
-              ))}
+              {paletteActionEntries.length > 0 && (
+                <>
+                  <div className="px-2 py-1.5 text-xs font-medium text-[#999999]" role="presentation">Actions</div>
+                  {paletteActionEntries.map((entry, index) =>
+                    renderPaletteEntry(entry, paletteChatEntries.length + index),
+                  )}
+                </>
+              )}
+              {paletteEntries.length === 0 && (
+                <div role="status" className="px-3 py-8 text-center text-xs text-[#999999]">
+                  No chats or commands match “{paletteQuery.trim()}”.
+                </div>
+              )}
             </div>
           </div>
         </div>

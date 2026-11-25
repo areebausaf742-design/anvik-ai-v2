@@ -34,15 +34,31 @@ export type Conversation = {
   messages: ChatMessage[];
 };
 
+/** A conversation removed by the undoable delete flow, kept in LIFO order. */
+export type DeletedConversation = {
+  conversation: Conversation;
+  /** Whether it was the active conversation when it was deleted. */
+  wasActive: boolean;
+};
+
 type ChatStore = {
   conversations: Conversation[];
   activeId: string | null;
   mode: ModeId;
   temperature: number;
   storageWarning: string;
+  /** Runtime-only undo history. Never persisted. */
+  deletedConversations: DeletedConversation[];
   setTemperature: (temperature: number) => void;
   createConversation: () => string;
   deleteConversation: (id: string) => void;
+  /** Delete a conversation and push it onto the LIFO undo stack. */
+  deleteConversationWithUndo: (id: string) => void;
+  /** Restore the most recent undoable delete. Returns false when empty. */
+  undoDelete: () => boolean;
+  /** Forget all pending deletes, e.g. when the undo window expires. */
+  clearDeletedConversations: () => void;
+  restoreConversation: (conversation: Conversation, activate?: boolean) => void;
   setActive: (id: string) => void;
   setMode: (mode: ModeId) => void;
   addMessage: (id: string, message: ChatMessage) => void;
@@ -71,12 +87,13 @@ function trim(conversations: Conversation[]): Conversation[] {
 
 export const useChatStore = create<ChatStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       conversations: [],
       activeId: null,
       mode: "smart",
       temperature: 0.65,
       storageWarning: "",
+      deletedConversations: [],
       setTemperature: (temperature) => set({ temperature }),
       createConversation: () => {
         const id = crypto.randomUUID();
@@ -96,6 +113,48 @@ export const useChatStore = create<ChatStore>()(
             activeId: nextActive,
           };
         }),
+      deleteConversationWithUndo: (id) =>
+        set((state) => {
+          const conversation = state.conversations.find((chat) => chat.id === id);
+          if (!conversation) return state;
+          const remaining = state.conversations.filter((chat) => chat.id !== id);
+          const wasActive = state.activeId === id;
+          return {
+            conversations: remaining,
+            activeId: wasActive ? (remaining[0]?.id ?? null) : state.activeId,
+            deletedConversations: [...state.deletedConversations, { conversation, wasActive }],
+          };
+        }),
+      undoDelete: () => {
+        const stack = get().deletedConversations;
+        const pending = stack[stack.length - 1];
+        if (!pending) return false;
+        set((state) => ({
+          conversations: [
+            pending.conversation,
+            ...state.conversations.filter((chat) => chat.id !== pending.conversation.id),
+          ],
+          activeId:
+            pending.wasActive || state.activeId === null
+              ? pending.conversation.id
+              : state.activeId,
+          deletedConversations: state.deletedConversations.slice(0, -1),
+        }));
+        return true;
+      },
+      clearDeletedConversations: () => set({ deletedConversations: [] }),
+      restoreConversation: (conversation, activate = false) =>
+        set((state) => ({
+          conversations: [
+            conversation,
+            ...state.conversations.filter((chat) => chat.id !== conversation.id),
+          ],
+          activeId:
+            activate || state.activeId === null ? conversation.id : state.activeId,
+          deletedConversations: state.deletedConversations.filter(
+            (item) => item.conversation.id !== conversation.id,
+          ),
+        })),
       setActive: (activeId) => set({ activeId }),
       setMode: (mode) => set({ mode }),
       addMessage: (id, message) =>
@@ -140,7 +199,7 @@ export const useChatStore = create<ChatStore>()(
               : chat,
           ),
         })),
-      clearHistory: () => set({ conversations: [], activeId: null, storageWarning: "" }),
+      clearHistory: () => set({ conversations: [], activeId: null, storageWarning: "", deletedConversations: [] }),
     }),
     {
       name: "anvik-chat-history",
