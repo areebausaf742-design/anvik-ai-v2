@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -125,6 +125,7 @@ function ChatWorkspaceInner() {
   const [quotaDisplay, setQuotaDisplay] = useState<{ plan: string; remaining: number; limit: number } | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -225,9 +226,26 @@ function ChatWorkspaceInner() {
   }, [hydrated, identityReady, setActive]);
 
 
+  const [showScrollPill, setShowScrollPill] = useState(false);
+  const rafRef = useRef<number | null>(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+      if (atBottom) node.scrollTo({ top: node.scrollHeight, behavior: "auto" });
+      else setShowScrollPill(true);
+    });
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [activeChat?.messages, pending]);
+
+  const scrollToBottom = useCallback(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+    setShowScrollPill(false);
+  }, []);
 
   useEffect(() => {
     const field = fieldRef.current;
@@ -1185,7 +1203,7 @@ function ChatWorkspaceInner() {
         )}
 
         {/* Message area */}
-        <div className="flex-1 overflow-y-auto thin-scroll">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto thin-scroll scroll-container">
           {activeMessages.length === 0 ? (
             <div className="welcome-stage relative isolate flex min-h-[calc(100dvh-58px)] w-full flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">
               <div className="welcome-stage-overlay" aria-hidden="true" />
@@ -1380,6 +1398,15 @@ function ChatWorkspaceInner() {
                 </div>
               )}
 
+              {showScrollPill && (
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="fixed bottom-24 right-6 z-20 rounded-full bg-white px-3 py-1.5 text-xs shadow-md"
+                >
+                  Scroll to bottom
+                </button>
+              )}
               <div ref={endRef} />
             </div>
           )}
@@ -1536,6 +1563,10 @@ function ChatWorkspaceInner() {
     </div>
   );
 }
+
+export const MemoizedMessageItem = memo(function MemoizedMessageItem({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+});
 
 export default function ChatWorkspace() {
   return (
