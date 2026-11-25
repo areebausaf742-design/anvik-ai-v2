@@ -2129,3 +2129,9 @@ html[data-theme="dark"] .anvik-dark .welcome-shortcut:hover {
   .anvik-dark .welcome-3d-core,
   .anvik-dark .welcome-3d-ring { animation: none !important; }
 }
+
+/* perf: butter-smooth scrolling */
+.scroll-container { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; will-change: scroll-position; transform: translateZ(0); }
+.message-bubble { content-visibility: auto; contain-intrinsic-size: 0 80px; }
+.scroll-container .backdrop-filter { backdrop-filter: none !important; }
+
