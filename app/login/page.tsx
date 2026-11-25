@@ -543,14 +543,14 @@ export default function LoginPage() {
         </div>
 
         <div className="auth-divider">or keep it free</div>
-        <Link href="/chat" className="auth-btn-ghost" style={{ textDecoration: "none" }}>
+        <Link href="/chat" prefetch={false} className="auth-btn-ghost" style={{ textDecoration: "none" }}>
           Continue without an account <ArrowRight className="h-4 w-4" aria-hidden />
         </Link>
         <p className="auth-note" style={{ textAlign: "center", marginTop: "0.75rem" }}>
           <Mail aria-hidden className="inline h-3.5 w-3.5" /> Anonymous usage keeps the free ten-question daily limit and never stores your identity — an account adds history, credits and consent control.
         </p>
 
-        <Link className="auth-center" href="/" style={{ display: "block", marginTop: "1.4rem" }}>
+        <Link prefetch={false} className="auth-center" href="/" style={{ display: "block", marginTop: "1.4rem" }}>
           <span className="auth-link">Back to the beginning</span>
         </Link>
       </div>
