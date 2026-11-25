@@ -361,8 +361,12 @@ function SettingsScreenInner() {
                   setProviderModel(cfg.modelId || (p.modelPresets?.[0] || ""));
                   setProviderTest(null);
                 }} className={"flex items-center gap-2 rounded-xl border p-3 text-left transition " + (activeProviderId === p.id ? "border-[#1A1A1A] bg-[#F7F7F5]" : "border-[#EDEDED] bg-white hover:border-[#1A1A1A]")}>
-                  {badge.icon ? (
-                    <span className="text-xs font-bold text-[#1A1A1A]">{badge.icon}</span>
+                  {badge.icon === "google-gemini" ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true"><path fill="#4285F4" d="M21.8 10.2h-9.8v3.6h5.6c-.2 1.3-1.5 3.9-5.6 3.9-3.4 0-6.1-2.8-6.1-6.2s2.7-6.2 6.1-6.2c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.9 2.6 14.9 1.8 12 1.8 6.9 1.8 2.8 5.9 2.8 11s4.1 9.2 9.2 9.2c5.3 0 8.8-3.7 8.8-8.9 0-.6-.1-1.1-.2-1.1z"/></svg>
+                  ) : badge.icon === "openai" ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true"><path fill="#10A37F" d="M22.3 12.1c0-1.3-.5-2.5-1.3-3.4.2-.5.3-1 .3-1.6 0-2.3-1.9-4.2-4.2-4.2-.5 0-1 .1-1.4.3C14.9 2.4 13.5 2 12 2S9.1 2.4 8.3 3.2c-.4-.2-.9-.3-1.4-.3-2.3 0-4.2 1.9-4.2 4.2 0 .6.1 1.1.3 1.6-.8.9-1.3 2.1-1.3 3.4 0 1.3.5 2.5 1.3 3.4-.2.5-.3 1-.3 1.6 0 2.3 1.9 4.2 4.2 4.2.5 0 1-.1 1.4-.3.8.8 2.2 1.2 3.7 1.2s2.9-.4 3.7-1.2c.4.2.9.3 1.4.3 2.3 0 4.2-1.9 4.2-4.2 0-.6-.1-1.1-.3-1.6.8-.9 1.3-2.1 1.3-3.4zM12 20c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z"/></svg>
+                  ) : badge.icon === "anthropic" ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true"><path fill="#D97757" d="M13.9 4h-3.8L4 20h3.2l1.3-3.6h7l1.3 3.6H20L13.9 4zm-4.3 9.6 2.4-6.6 2.4 6.6h-4.8z"/></svg>
                   ) : (
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-xs font-bold text-[#1A1A1A]">{badge.monogram}</span>
                   )}
@@ -377,6 +381,17 @@ function SettingsScreenInner() {
               <h3 className="text-sm font-semibold text-[#1A1A1A]">{selectedProvider.name}</h3>
               <button type="button" onClick={() => setSelectedProvider(null)} className="text-xs text-[#666666] hover:text-[#1A1A1A]">Close</button>
             </div>
+            {selectedProvider.id === "anvik" ? (
+              <div className="rounded-lg border border-[#EDEDED] bg-white px-4 py-3 text-xs text-[#666666]">
+                Ready out of the box — no API key required
+                <div className="mt-3">
+                  <button type="button" onClick={() => { setActiveProviderId("anvik"); setActiveProviderIdState("anvik"); setProviderSaved(true); window.setTimeout(() => setProviderSaved(false), 2000); }} className="rounded-xl bg-[#1A1A1A] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#333]">
+                    {providerSaved ? "Activated" : "Activate ANVIK Built-in"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
             {selectedProvider.apiKeyUrl && (
               <a href={selectedProvider.apiKeyUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-[#D97757] hover:underline">
                 Get API Key <ExternalLink className="h-3.5 w-3.5" />
@@ -409,123 +424,10 @@ function SettingsScreenInner() {
               </button>
             </div>
             {providerTest && <p className="text-xs text-[#666666]">{providerTest.text}</p>}
+              </>
+            )}
           </div>
         )}
-      </div>
-
-      {/* Your Own Key */}
-      <div className="surface-card p-5 sm:p-6">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]">
-            <KeyRound className="h-5 w-5" />
-          </span>
-          <div>
-            <h2 className="text-base font-semibold text-[#1A1A1A]">Your Own Key (Optional)</h2>
-            <p className="text-xs text-[#666666]">
-              Paste an ANVIK key to use your own quota. Saved only in this browser.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-3">
-          {savedKey && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-xs text-[#666666]">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
-                <span>
-                  Saved: <code className="font-mono text-[#1A1A1A]">{maskKey(savedKey)}</code>
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleTestKey()}
-                  disabled={testingKey}
-                  className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A] disabled:opacity-40"
-                >
-                  {testingKey ? "Testing..." : "Test"}
-                </button>
-                <button
-                  type="button"
-                  onClick={removeKey}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-xs font-medium text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A]"
-                >
-                  <X className="h-3.5 w-3.5" /> Remove
-                </button>
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={saveGeminiKey} className="flex flex-col gap-2.5 sm:flex-row">
-            <div className="relative flex-1">
-              <label className="sr-only" htmlFor="anvik-api-key">
-                ANVIK API key
-              </label>
-              <input
-                id="anvik-api-key"
-                type={showKeyInput ? "text" : "password"}
-                autoComplete="off"
-                spellCheck={false}
-                value={geminiKey}
-                onChange={(event) => setGeminiKey(event.target.value)}
-                placeholder="Paste ANVIK Key"
-                className="w-full rounded-xl border border-[#EDEDED] bg-white py-2.5 pr-10 pl-4 font-mono text-xs text-[#1A1A1A] placeholder:text-[#999999] focus:border-[#1A1A1A] focus:outline-none"
-              />
-              <button
-                type="button"
-                aria-label={showKeyInput ? "Hide key" : "Show key"}
-                onClick={() => setShowKeyInput((v) => !v)}
-                className="absolute inset-y-0 right-2 flex items-center px-2 text-[#999999] hover:text-[#1A1A1A]"
-              >
-                {showKeyInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={!geminiKey.trim()}
-                className="rounded-xl bg-[#1A1A1A] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#333] disabled:opacity-30"
-              >
-                {keySaved ? "Saved!" : "Save"}
-              </button>
-              {!savedKey && (
-                <button
-                  type="button"
-                  onClick={() => void handleTestKey()}
-                  disabled={testingKey || !geminiKey.trim()}
-                  className="rounded-xl border border-[#EDEDED] bg-white px-4 py-2.5 text-xs font-semibold text-[#1A1A1A] hover:border-[#1A1A1A] disabled:opacity-40"
-                >
-                  {testingKey ? "Testing..." : "Test"}
-                </button>
-              )}
-            </div>
-          </form>
-
-          {keyError && (
-            <p className="flex items-center gap-2 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3.5 py-2 text-xs text-[#666666]" role="alert">
-              <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
-              <span>{keyError}</span>
-            </p>
-          )}
-
-          {testResult && (
-            <p
-              role="status"
-              className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs ${
-                testResult.ok
-                  ? "border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]"
-                  : "border-[#EDEDED] bg-[#F7F7F5] text-[#666666]"
-              }`}
-            >
-              {testResult.ok ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-[#1A1A1A]" />
-              ) : (
-                <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
-              )}
-              <span>{testResult.text}</span>
-            </p>
-          )}
-        </div>
       </div>
 
       {/* Quota */}
