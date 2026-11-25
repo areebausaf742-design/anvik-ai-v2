@@ -70,3 +70,15 @@ test("localStorage persistence", () => {
   assert.equal(cfg.apiKey, "sk-test");
   assert.equal(cfg.modelId, "gpt-4o");
 });
+
+test("cloud vs local routing", () => {
+  const { isLocalProvider } = require("../lib/providers");
+  assert.equal(isLocalProvider("ollama"), true);
+  assert.equal(isLocalProvider("openai"), false);
+});
+
+test("secret redaction", () => {
+  const { redactSecret } = require("../lib/providers");
+  const r = redactSecret("sk-secret123456");
+  assert.ok(!r.includes("secret123456"));
+});
