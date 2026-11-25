@@ -484,7 +484,6 @@ function CodeLab() {
   const [prompt, setPrompt] = useState("");
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState("Python");
-  const [modelUsed, setModelUsed] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -508,7 +507,6 @@ function CodeLab() {
     setCode("");
     setShowPreview(false);
     setCopied(false);
-    setModelUsed("");
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -523,8 +521,6 @@ function CodeLab() {
         const result = (await response.json().catch(() => null)) as { error?: string; detail?: string; code?: string } | null;
         throw new Error(mapHttpErrorMessage(response.status, result?.error ?? result?.detail, result?.code));
       }
-      const model = response.headers.get("x-anvik-model") ?? "gemini-2.0-flash";
-      setModelUsed(model);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -591,6 +587,12 @@ function CodeLab() {
 
   return (
     <main className="anvik-dark min-h-screen mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <Link
+        href="/chat"
+        className="mb-6 inline-flex items-center gap-1.5 text-xs font-medium text-[#666666] transition-colors hover:text-[#1A1A1A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D97757]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Back to Chat
+      </Link>
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#D97757]">
@@ -605,7 +607,7 @@ function CodeLab() {
           </p>
         </div>
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3 py-1.5 text-xs font-medium text-[#D97757]">
-          <Sparkles className="h-3.5 w-3.5" /> ANVIK{modelUsed ? ` · ${modelUsed}` : ""}
+          <Sparkles className="h-3.5 w-3.5" /> ANVIK · Coder
         </span>
       </div>
 
@@ -639,7 +641,6 @@ function CodeLab() {
                   setCode("");
                   setShowPreview(false);
                   setError("");
-                  setModelUsed("");
                   setCopied(false);
                 }}
                 className="mt-2 w-full rounded-xl border border-[#30394d] bg-[#090b12] px-3.5 py-2.5 text-sm text-slate-100 focus:border-[#9b8cff] focus:outline-none focus:ring-2 focus:ring-[#9b8cff]/20"
