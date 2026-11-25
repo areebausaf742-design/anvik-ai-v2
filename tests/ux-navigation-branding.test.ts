@@ -72,3 +72,11 @@ test("system prompt includes Areeb creator identity across all modes", () => {
     assert.match(route, new RegExp(mode));
   }
 });
+
+test("studio pages render Back to Chat link", () => {
+  for (const file of ["../components/anvik/creative-studio.tsx", "../components/anvik/vision-studio.tsx", "../components/anvik/artifacts-page.tsx"]) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.match(source, /Back to Chat/);
+    assert.match(source, /href="\/chat"/);
+  }
+});

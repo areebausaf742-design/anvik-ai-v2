@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowUp,
   Camera,
   Check,
@@ -230,6 +231,12 @@ function VisionStudioInner() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <Link
+        href="/chat"
+        className="mb-6 inline-flex items-center gap-1.5 text-xs font-medium text-[#666666] transition-colors hover:text-[#1A1A1A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D97757]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Back to Chat
+      </Link>
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#C65E3A]">
