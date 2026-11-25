@@ -43,6 +43,7 @@ type ChatStore = {
   setTemperature: (temperature: number) => void;
   createConversation: () => string;
   deleteConversation: (id: string) => void;
+  restoreConversation: (conversation: Conversation, activate?: boolean) => void;
   setActive: (id: string) => void;
   setMode: (mode: ModeId) => void;
   addMessage: (id: string, message: ChatMessage) => void;
@@ -96,6 +97,15 @@ export const useChatStore = create<ChatStore>()(
             activeId: nextActive,
           };
         }),
+      restoreConversation: (conversation, activate = false) =>
+        set((state) => ({
+          conversations: [
+            conversation,
+            ...state.conversations.filter((chat) => chat.id !== conversation.id),
+          ],
+          activeId:
+            activate || state.activeId === null ? conversation.id : state.activeId,
+        })),
       setActive: (activeId) => set({ activeId }),
       setMode: (mode) => set({ mode }),
       addMessage: (id, message) =>

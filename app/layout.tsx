@@ -7,6 +7,7 @@ import "./auth/auth.css";
 import { SessionProvider } from "@/components/anvik/session-provider";
 import { AppearanceProvider } from "@/components/anvik/appearance-provider";
 import { ShaderBackground } from "@/components/ui/main-shader-for-ai";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 // Vercel Web Analytics + Speed Insights — privacy-conscious, no cookies:
 // no identifiers, no content, no raw IPs; just geo/page/performance.
 import { Analytics } from "@vercel/analytics/next";
@@ -49,7 +50,11 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-appearance="dark" data-theme="dark">
+    <html lang="en" data-appearance="dark" data-theme="dark" suppressHydrationWarning>
+      <head>
+        {/* Runs before the body paints so a stored light theme never flashes dark. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="theme-shell min-h-dvh antialiased">
         <a className="skip-link" href="#main-content">
           Skip to content

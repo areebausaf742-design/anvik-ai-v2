@@ -38,6 +38,24 @@ function guestRequest(ip: string, deviceHeader?: string): Request {
   });
 }
 
+test("guest chat is intentional and limited to the chat feature", async () => {
+  const { ACCOUNT_ONLY_FEATURES, GUEST_LIMIT } = await import("../lib/guest-quota");
+
+  // Product decision: a visitor may ask questions without an account. The
+  // expensive studios stay account-only, and the server is the authority.
+  assert.equal(GUEST_LIMIT, 10);
+  assert.deepEqual(
+    [...ACCOUNT_ONLY_FEATURES].sort(),
+    ["code", "image", "vision", "voice"],
+    "chat must never be account-only",
+  );
+  assert.equal(
+    (ACCOUNT_ONLY_FEATURES as readonly string[]).includes("chat"),
+    false,
+    "guests are allowed to chat",
+  );
+});
+
 test("a guest identity is a salted IP hash, never the device header", async () => {
   const restore = withoutSupabase();
   try {
