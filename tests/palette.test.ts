@@ -55,3 +55,37 @@ test("the palette no longer sends chat or shares the sidebar search state", () =
   assert.match(source, /paletteQuery/);
   assert.doesNotMatch(source, /value=\{search\}\s*\n\s*onChange=\{\(e\) => setSearch/, "palette input must not use sidebar search");
 });
+
+test("palette focus is restored only to a connected opener", async () => {
+  const { restorePaletteFocus } = await import("../lib/palette");
+
+  let focused = 0;
+  assert.equal(
+    restorePaletteFocus({ isConnected: true, focus: () => { focused += 1; } }),
+    true,
+  );
+  assert.equal(focused, 1);
+
+  assert.equal(
+    restorePaletteFocus({
+      isConnected: false,
+      focus: () => { throw new Error("a detached opener must never be focused"); },
+    }),
+    false,
+  );
+  assert.equal(restorePaletteFocus(null), false);
+});
+
+test("Escape returns focus to the element that opened the palette", () => {
+  const source = readFileSync(
+    new URL("../components/anvik/chat-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /paletteOpenerRef/, "the opener is captured when the palette opens");
+  assert.match(source, /document\.activeElement instanceof HTMLElement/);
+  assert.match(source, /onClick=\{\(event\) => openPalette\(event\.currentTarget\)\}/);
+  assert.match(source, /closePalette\(\{ restoreFocus: true \}\)/);
+  assert.match(source, /restorePaletteFocus\(opener\)/);
+  assert.match(source, /event\.stopPropagation\(\)/, "the palette handles Escape before the global shortcut handler");
+});

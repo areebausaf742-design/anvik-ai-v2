@@ -41,7 +41,7 @@ test.before(async () => {
 
 test.beforeEach(() => {
   localStorageShim.clear();
-  store.setState({ conversations: [], activeId: null, storageWarning: "" });
+  store.setState({ conversations: [], activeId: null, storageWarning: "", deletedConversations: [] });
 });
 
 const chat = (id: string, title: string) => ({
@@ -95,4 +95,55 @@ test("restoring is idempotent and activates when nothing else is active", () => 
 
   store.getState().restoreConversation(only, false);
   assert.equal(store.getState().conversations.length, 1, "double undo cannot duplicate the chat");
+});
+
+test("consecutive deletes undo one by one in LIFO order", () => {
+  const first = chat("first", "First");
+  const second = chat("second", "Second");
+  const third = chat("third", "Third");
+  store.setState({ conversations: [first, second, third], activeId: third.id });
+
+  store.getState().deleteConversationWithUndo(third.id);
+  store.getState().deleteConversationWithUndo(second.id);
+
+  assert.deepEqual(store.getState().conversations.map((item) => item.id), ["first"]);
+  assert.deepEqual(
+    store.getState().deletedConversations.map((item) => item.conversation.id),
+    ["third", "second"],
+    "the newest deletion sits on top of the stack",
+  );
+  assert.equal(store.getState().deletedConversations[0].wasActive, true);
+  assert.equal(store.getState().deletedConversations[1].wasActive, false);
+
+  assert.equal(store.getState().undoDelete(), true);
+  assert.deepEqual(store.getState().conversations.map((item) => item.id), ["second", "first"]);
+  assert.equal(store.getState().activeId, first.id, "a background delete does not steal the active chat");
+  assert.deepEqual(store.getState().deletedConversations.map((item) => item.conversation.id), ["third"]);
+
+  assert.equal(store.getState().undoDelete(), true);
+  assert.deepEqual(store.getState().conversations.map((item) => item.id), ["third", "second", "first"]);
+  assert.equal(store.getState().activeId, third.id, "the originally active chat is reactivated");
+  assert.equal(store.getState().deletedConversations.length, 0);
+  assert.equal(store.getState().undoDelete(), false, "an empty stack is a no-op");
+});
+
+test("expiring the undo window clears every pending deletion", () => {
+  const only = chat("only", "Only");
+  store.setState({ conversations: [only], activeId: only.id, deletedConversations: [] });
+
+  store.getState().deleteConversationWithUndo(only.id);
+  assert.equal(store.getState().deletedConversations.length, 1);
+
+  store.getState().clearDeletedConversations();
+  assert.equal(store.getState().undoDelete(), false, "a late undo cannot resurrect an expired delete");
+  assert.deepEqual(store.getState().conversations, []);
+});
+
+test("a plain delete stays outside the undo stack", () => {
+  const only = chat("only", "Only");
+  store.setState({ conversations: [only], activeId: only.id, deletedConversations: [] });
+
+  store.getState().deleteConversation(only.id);
+  assert.equal(store.getState().deletedConversations.length, 0);
+  assert.equal(store.getState().undoDelete(), false);
 });

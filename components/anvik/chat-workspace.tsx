@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -35,7 +35,7 @@ import {
 import { useChatStore, selectActiveConversation, type ChatMessage, type Conversation } from "@/store/use-chat-store";
 import { ensureFreshChat } from "@/lib/fresh-chat";
 import { canSendMessage, composerBlockReason, COMPOSER_ERROR, COMPOSER_NOTICE } from "@/lib/composer";
-import { filterPaletteActions, filterPaletteChats } from "@/lib/palette";
+import { filterPaletteActions, filterPaletteChats, restorePaletteFocus } from "@/lib/palette";
 import { wrapIndex } from "@/lib/keyboard-nav";
 import DeepSearchToggle from "@/components/anvik/deep-search-toggle";
 import ModelSelector from "@/components/anvik/model-selector";
@@ -89,8 +89,10 @@ function ChatWorkspaceInner() {
   const temperature = useChatStore((state) => state.temperature);
   const activeChat = useChatStore(selectActiveConversation);
   const createConversation = useChatStore((state) => state.createConversation);
-  const deleteConversation = useChatStore((state) => state.deleteConversation);
-  const restoreConversation = useChatStore((state) => state.restoreConversation);
+  const deleteConversationWithUndo = useChatStore((state) => state.deleteConversationWithUndo);
+  const undoDelete = useChatStore((state) => state.undoDelete);
+  const clearDeletedConversations = useChatStore((state) => state.clearDeletedConversations);
+  const deletedConversations = useChatStore((state) => state.deletedConversations);
   const setActive = useChatStore((state) => state.setActive);
   const setMode = useChatStore((state) => state.setMode);
   const addMessage = useChatStore((state) => state.addMessage);
@@ -119,7 +121,6 @@ function ChatWorkspaceInner() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [quotaDisplay, setQuotaDisplay] = useState<{ plan: string; remaining: number; limit: number } | null>(null);
-  const [pendingUndo, setPendingUndo] = useState<{ conversation: Conversation; wasActive: boolean } | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
@@ -129,6 +130,25 @@ function ChatWorkspaceInner() {
   const photoMenuRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const undoTimerRef = useRef<number | null>(null);
+  const paletteOpenerRef = useRef<HTMLElement | null>(null);
+  const paletteOpenRef = useRef(false);
+
+  const openPalette = useCallback((opener?: HTMLElement | null) => {
+    paletteOpenerRef.current =
+      opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    paletteOpenRef.current = true;
+    setShowPalette(true);
+  }, []);
+
+  const closePalette = useCallback((options?: { restoreFocus?: boolean }) => {
+    const opener = paletteOpenerRef.current;
+    paletteOpenerRef.current = null;
+    paletteOpenRef.current = false;
+    setShowPalette(false);
+    setPaletteQuery("");
+    setPaletteIndex(0);
+    if (options?.restoreFocus) restorePaletteFocus(opener);
+  }, []);
 
   const composerReadiness = {
     identityReady,
@@ -232,17 +252,18 @@ function ChatWorkspaceInner() {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        setShowPalette((v) => !v);
+        if (paletteOpenRef.current) closePalette({ restoreFocus: true });
+        else openPalette();
       }
       if (e.key === "Escape") {
-        setShowPalette(false);
+        if (paletteOpenRef.current) closePalette({ restoreFocus: true });
         setShowPhotoMenu(false);
         setFocusMode(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [openPalette, closePalette]);
 
   useEffect(() => {
     if (!showPalette) return;
@@ -620,26 +641,30 @@ function ChatWorkspaceInner() {
 
   function removeConversation(chat: Conversation) {
     clearUndoTimer();
-    const wasActive = activeId === chat.id;
-    deleteConversation(chat.id);
-    setPendingUndo({ conversation: chat, wasActive });
+    deleteConversationWithUndo(chat.id);
     undoTimerRef.current = window.setTimeout(() => {
-      setPendingUndo(null);
+      clearDeletedConversations();
       undoTimerRef.current = null;
     }, 6000);
   }
 
   function undoRemove() {
-    if (!pendingUndo) return;
+    if (deletedConversations.length === 0) return;
     clearUndoTimer();
-    restoreConversation(pendingUndo.conversation, pendingUndo.wasActive);
-    setPendingUndo(null);
+    undoDelete();
+    // Give the next deletion in the stack its own full undo window.
+    if (deletedConversations.length > 1) {
+      undoTimerRef.current = window.setTimeout(() => {
+        clearDeletedConversations();
+        undoTimerRef.current = null;
+      }, 6000);
+    }
     setError("");
   }
 
   function dismissUndo() {
     clearUndoTimer();
-    setPendingUndo(null);
+    clearDeletedConversations();
   }
 
   const isEmptyInput = !input.trim();
@@ -813,12 +838,6 @@ function ChatWorkspaceInner() {
   const paletteActiveIndex =
     paletteEntries.length === 0 ? -1 : Math.min(paletteIndex, paletteEntries.length - 1);
 
-  function closePalette() {
-    setShowPalette(false);
-    setPaletteQuery("");
-    setPaletteIndex(0);
-  }
-
   function activatePaletteEntry(entry: PaletteEntry | undefined) {
     if (!entry) return;
     closePalette();
@@ -850,7 +869,8 @@ function ChatWorkspaceInner() {
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      closePalette();
+      event.stopPropagation();
+      closePalette({ restoreFocus: true });
     }
   }
 
@@ -874,6 +894,8 @@ function ChatWorkspaceInner() {
       </button>
     );
   }
+
+  const undoableDeletion = deletedConversations[deletedConversations.length - 1];
 
   return (
     <div className="anvik-dark relative flex h-[100dvh] w-full overflow-hidden bg-white">
@@ -1106,7 +1128,7 @@ function ChatWorkspaceInner() {
           <div className="flex items-center gap-1">
             <button
   type="button"
-  onClick={() => setShowPalette(true)}
+  onClick={(event) => openPalette(event.currentTarget)}
   aria-label="Search conversations"
   className="flex items-center gap-1.5 rounded-lg border border-[#EDEDED] px-2.5 py-1.5 text-xs text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
             >
@@ -1424,13 +1446,13 @@ function ChatWorkspaceInner() {
         )}
       </section>
 
-      {pendingUndo && (
+      {undoableDeletion && (
         <div
           role="status"
           aria-live="polite"
           className="fixed bottom-6 left-1/2 z-[90] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border border-[#30394d] bg-[#0d111b] px-4 py-3 text-sm text-slate-200 shadow-2xl"
         >
-          <span className="min-w-0 truncate">Deleted “{pendingUndo.conversation.title}”</span>
+          <span className="min-w-0 truncate">Deleted “{undoableDeletion.conversation.title}”</span>
           <button
             type="button"
             onClick={undoRemove}
@@ -1453,7 +1475,7 @@ function ChatWorkspaceInner() {
       {showPalette && (
         <div
           className="palette-overlay fixed inset-0 z-[100] flex items-start justify-center bg-black/10 pt-[15vh] backdrop-blur-sm"
-          onClick={closePalette}
+          onClick={() => closePalette()}
         >
           <div
             role="dialog"

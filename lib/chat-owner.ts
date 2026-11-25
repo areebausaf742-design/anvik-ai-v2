@@ -61,6 +61,7 @@ export async function activateChatOwner(owner: string): Promise<void> {
       conversations: [],
       activeId: null,
       storageWarning: "",
+      deletedConversations: [],
     });
     // persist() may have just written the empty state over the new key; put the
     // owner's saved value back before rehydrating it.
@@ -69,7 +70,7 @@ export async function activateChatOwner(owner: string): Promise<void> {
   } catch {
     // Storage unavailable (private mode, quota): an in-memory session is still
     // usable, so fall back to an empty store rather than throwing at the caller.
-    useChatStore.setState({ conversations: [], activeId: null });
+    useChatStore.setState({ conversations: [], activeId: null, deletedConversations: [] });
   }
 }
 

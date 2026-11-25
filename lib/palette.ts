@@ -26,3 +26,17 @@ export function filterPaletteActions<T extends { label: string }>(
   if (!needle) return actions;
   return actions.filter((action) => action.label.toLowerCase().includes(needle));
 }
+
+/**
+ * Return focus to the element that opened the palette.
+ *
+ * The opener can unmount while the palette is open (for example a chat row
+ * that was deleted), so detached elements are ignored instead of throwing.
+ */
+export function restorePaletteFocus(
+  target: { isConnected: boolean; focus: () => void } | null,
+): boolean {
+  if (!target?.isConnected) return false;
+  target.focus();
+  return true;
+}
