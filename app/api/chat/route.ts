@@ -44,6 +44,7 @@ import {
   shouldAutoSearch,
   type SearchStatus,
 } from "@/lib/search";
+import { buildSearchFreshnessInstruction } from "@/lib/search-grounding";
 import { buildExternalSearchContext, searchExternalWeb, type ExternalSearchResult } from "@/lib/search-providers";
 import { sanitizeTurns, buildGeminiContents } from "@/lib/history";
 import { safeKeyLog, scanHistory, stripSecrets } from "@/lib/security";
@@ -172,6 +173,7 @@ export async function POST(request: Request) {
     SYSTEM,
     modeInstructions[selectedMode],
     remembered ? memoryInstruction(remembered) : "",
+    buildSearchFreshnessInstruction(),
   ]
     .filter(Boolean)
     .join(" ");
