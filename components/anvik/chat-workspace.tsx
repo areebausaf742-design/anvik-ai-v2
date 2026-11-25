@@ -697,7 +697,7 @@ function ChatWorkspaceInner() {
         <div className="chatbar-inner">
           <div className="chatbar-prompt-row">
             <Link href="/settings" className="inline-flex items-center gap-1.5 mr-2 text-xs font-bold text-[#1A1A1A]" title="Switch provider">
-              {(() => { const b = getProviderBadge(getActiveProviderId()); return b.icon ? b.icon : b.monogram; })()}
+              {(() => { const b = getProviderBadge(getActiveProviderId()); if (b.icon === "google-gemini") return "G"; if (b.icon === "openai") return "O"; if (b.icon === "anthropic") return "A"; return b.monogram; })()}
             </Link>
             <div className="chatbar-input-wrap">
               <textarea
