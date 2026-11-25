@@ -36,6 +36,11 @@ export type ModeId = (typeof modes)[number]["id"];
 
 export const CREATOR_IDENTITY = "ANVIK AI was created and engineered by Areeb, an AI Engineer.";
 
+export function liveDateContext(): string {
+  const now = new Date();
+  return `Current date/time: ${now.toISOString()} (IST ${new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata" }).format(now)}).`;
+}
+
 /** Product-facing label for a response mode. Never expose a provider model id. */
 export function modeLabel(id: ModeId): string {
   return modes.find((mode) => mode.id === id)?.label ?? "ANVIK";
