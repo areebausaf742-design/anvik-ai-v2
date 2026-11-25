@@ -64,3 +64,11 @@ test("SessionProvider caches the last verified account and revalidates in the ba
   assert.match(source, /if \(!background\) \{/);
   assert.match(source, /background && memoryAccountCache/);
 });
+
+test("system prompt includes Areeb creator identity across all modes", () => {
+  const route = readFileSync(new URL("../app/api/chat/route.ts", import.meta.url), "utf8");
+  assert.match(route, /created and engineered by Areeb, an AI Engineer/);
+  for (const mode of ["fast", "smart", "creative", "coder"]) {
+    assert.match(route, new RegExp(mode));
+  }
+});
