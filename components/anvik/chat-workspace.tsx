@@ -1119,12 +1119,7 @@ function ChatWorkspaceInner() {
                 <PanelLeftOpen className="h-4 w-4" />
               </button>
             )}
-            <span className="text-xs text-[#999999]">
-              {quotaDisplay || credits
-                ? `${quotaDisplay?.plan ?? credits?.planName ?? "Free"} · ${quotaDisplay?.remaining ?? credits?.dailyRemaining ?? 0} left`
-                : "Free plan"}{" "}
-              <a href="/pricing" className="text-[#666666] hover:text-[#1A1A1A] underline">Upgrade</a>
-            </span>
+            {/* top-left quota badge removed for clean minimal header */}
           </div>
 
           <div className="flex items-center gap-1">
