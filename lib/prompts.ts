@@ -33,3 +33,18 @@ export const modes = [
 ] as const;
 
 export type ModeId = (typeof modes)[number]["id"];
+
+/** Product-facing label for a response mode. Never expose a provider model id. */
+export function modeLabel(id: ModeId): string {
+  return modes.find((mode) => mode.id === id)?.label ?? "ANVIK";
+}
+
+/**
+ * Sanitize a stored footer label. Older messages persisted raw provider ids
+ * such as "gemini-2.5-flash"; those must never surface in the product UI.
+ */
+export function brandedModelLabel(model: string | undefined, mode: ModeId): string {
+  const label = model?.trim();
+  if (label && /^ANVIK\b/i.test(label) && !/gemini|gpt|claude|llama/i.test(label)) return label;
+  return `ANVIK · ${modeLabel(mode)}`;
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import {
   AlertCircle,
@@ -37,6 +38,7 @@ import { ensureFreshChat } from "@/lib/fresh-chat";
 import { canSendMessage, composerBlockReason, COMPOSER_ERROR, COMPOSER_NOTICE } from "@/lib/composer";
 import { filterPaletteActions, filterPaletteChats, restorePaletteFocus } from "@/lib/palette";
 import { wrapIndex } from "@/lib/keyboard-nav";
+import { brandedModelLabel, modeLabel } from "@/lib/prompts";
 import DeepSearchToggle from "@/components/anvik/deep-search-toggle";
 import ModelSelector from "@/components/anvik/model-selector";
 import SourcesPanel from "@/components/anvik/sources-panel";
@@ -324,6 +326,7 @@ function ChatWorkspaceInner() {
     const requestId = crypto.randomUUID();
 
     const conversationId = activeId ?? createConversation();
+    const assistantModelLabel = `ANVIK · ${modeLabel(mode)}`;
     const current = useChatStore.getState().conversations.find((item) => item.id === conversationId);
     const userMessage: ChatMessage | null = regeneration
       ? null
@@ -333,7 +336,7 @@ function ChatWorkspaceInner() {
       updateMessage(conversationId, assistantId, "");
       setMessageMeta(conversationId, assistantId, {
         source: "gemini",
-        model: "",
+        model: assistantModelLabel,
         verdict: undefined,
         isError: false,
         searchStatus: "off",
@@ -405,7 +408,6 @@ function ChatWorkspaceInner() {
         throw new Error(mapHttpErrorMessage(response.status, issue?.error ?? issue?.detail, issue?.code));
       }
 
-      const modelUsed = response.headers.get("x-anvik-model") ?? "anvik-1.0";
       const isSSE = (response.headers.get("content-type") ?? "").includes("text/event-stream");
 
       let answer = "";
@@ -434,7 +436,7 @@ function ChatWorkspaceInner() {
           if (parsed.t === "meta") {
             setMessageMeta(conversationId, assistantId, {
               source: "gemini",
-              model: parsed.model ?? modelUsed,
+              model: assistantModelLabel,
               searchStatus: parsed.search === "on" || parsed.search === "unavailable" ? parsed.search : "off",
             });
           } else if (parsed.t === "tok" && typeof parsed.s === "string" && parsed.s) {
@@ -493,7 +495,7 @@ function ChatWorkspaceInner() {
         updateMessage(conversationId, assistantId, answer);
         setMessageMeta(conversationId, assistantId, {
           source: "gemini",
-          model: modelUsed,
+          model: assistantModelLabel,
           isError: false,
           searchStatus: finalSearchStatus,
           sources: finalSources,
@@ -943,7 +945,7 @@ function ChatWorkspaceInner() {
               { href: "/code", label: "Code", icon: Code2 },
               { href: "/vision", label: "Vision", icon: Eye },
             ].map((item, i) => (
-              <a
+              <Link
                 key={`${item.label}-${i}`}
                 href={item.href}
                 className={`chat-item ${item.label === "Chat" ? pathname === "/" || pathname === "/chat" ? "active" : "" : pathname.startsWith(item.href) ? "active" : ""}`}
@@ -951,7 +953,7 @@ function ChatWorkspaceInner() {
               >
                 <item.icon className="h-4 w-4 shrink-0 text-[#999999]" />
                 <span>{item.label}</span>
-              </a>
+              </Link>
             ))}
           </nav>
 
@@ -1294,7 +1296,7 @@ function ChatWorkspaceInner() {
                           </div>
                         )}
 
-                        <div className="mt-1 text-xs text-[#999999]">{message.model || "ANVIK"}</div>
+                        <div className="mt-1 text-xs text-[#999999]">{brandedModelLabel(message.model, mode)}</div>
 
                         {!isStreaming && message.searchStatus && message.searchStatus !== "off" && (
                           <SourcesPanel
