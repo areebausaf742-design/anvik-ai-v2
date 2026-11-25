@@ -81,6 +81,75 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 type JsonFetchResult = { data: Record<string, unknown> | null; status: number };
 
+/**
+ * Last verified account state, kept in memory for route changes and in
+ * sessionStorage for hard reloads. This is a display cache only: every API
+ * call still sends the bearer token and the server re-verifies it.
+ */
+type CachedAccount = {
+  session: AuthSession;
+  user: SupabaseUser | null;
+  profile: AccountProfile;
+  credits: AccountCredits | null;
+  consent: AccountConsent | null;
+};
+
+const ACCOUNT_CACHE_KEY = "anvik-account-cache-v1";
+let memoryAccountCache: CachedAccount | null = null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
+}
+
+function readAccountCache(): CachedAccount | null {
+  if (memoryAccountCache) return memoryAccountCache;
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(ACCOUNT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+    const session = parsed.session as Partial<AuthSession> | undefined;
+    const profile = parsed.profile as Partial<AccountProfile> | undefined;
+    if (!session || typeof session.access_token !== "string" || !session.access_token) return null;
+    if (!profile || typeof profile.id !== "string" || !profile.id) return null;
+    // A cache from a different local session must never be shown.
+    const stored = readStoredSession();
+    if (!stored || stored.access_token !== session.access_token) return null;
+    const cache: CachedAccount = {
+      session: stored,
+      user: isRecord(parsed.user) ? (parsed.user as SupabaseUser) : null,
+      profile: profile as AccountProfile,
+      credits: isRecord(parsed.credits) ? (parsed.credits as AccountCredits) : null,
+      consent: isRecord(parsed.consent) ? (parsed.consent as AccountConsent) : null,
+    };
+    memoryAccountCache = cache;
+    return cache;
+  } catch {
+    return null;
+  }
+}
+
+function writeAccountCache(cache: CachedAccount): void {
+  memoryAccountCache = cache;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(ACCOUNT_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    /* The cache is an optimization; the verified fetch still owns the state. */
+  }
+}
+
+function clearAccountCache(): void {
+  memoryAccountCache = null;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(ACCOUNT_CACHE_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<JsonFetchResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -109,18 +178,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return !loading && session && isSessionUsable(session) ? session.access_token : null;
   }, [loading, session]);
 
-  const refresh = useCallback(async () => {
+  const hydrateFromCache = useCallback(() => {
+    const cached = readAccountCache();
+    if (!cached) return false;
+    setLearningOwner(cached.profile.id);
+    setSession(cached.session);
+    setUser(cached.user);
+    setProfile(cached.profile);
+    setCredits(cached.credits);
+    setConsent(cached.consent);
+    setLoading(false);
+    return true;
+  }, []);
+
+  const refresh = useCallback(async (options?: { background?: boolean }) => {
+    const background = options?.background === true;
     const generation = ++refreshGeneration.current;
     const isCurrent = () => refreshGeneration.current === generation;
-    setLoading(true);
-    setLearningOwner("guest");
-    setSession(null);
-    setUser(null);
-    setProfile(null);
-    setCredits(null);
-    setConsent(null);
+
+    // A background pass keeps the cached identity on screen while the server
+    // revalidates it. A user-initiated refresh is authoritative and may clear.
+    if (!background) {
+      setLoading(true);
+      setLearningOwner("guest");
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setCredits(null);
+      setConsent(null);
+    }
+
     const stored = readStoredSession();
     if (!stored) {
+      clearAccountCache();
       setLearningOwner("guest");
       setSession(null);
       setUser(null);
@@ -139,6 +229,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         active = refreshed.session;
         setSession(active);
       } else {
+        clearAccountCache();
         setLearningOwner("guest");
         clearStoredSession();
         setSession(null);
@@ -152,6 +243,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     if (!isSessionUsable(active)) {
       // A usable session is the only one we trust; leftover refresh races.
+      clearAccountCache();
       setLearningOwner("guest");
       clearStoredSession();
       setSession(null);
@@ -176,22 +268,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     if (me && me.user && typeof me.user === "object") {
       const u = me.user as Record<string, unknown>;
-      setLearningOwner(String(u.id ?? "guest"));
-      if (u) {
-        setUser({ id: String(u.id ?? ""), email: typeof u.email === "string" ? u.email : undefined, user_metadata: null });
-        setProfile({
-          id: String(u.id ?? ""),
-          email: typeof u.email === "string" ? u.email : "",
-          name: typeof u.name === "string" && u.name ? u.name : emailFallbackName(typeof u.email === "string" ? u.email : ""),
-          provider: (typeof u.provider === "string" ? u.provider : "unknown") as "google" | "email" | "unknown",
-          avatarUrl: typeof u.avatarUrl === "string" ? u.avatarUrl : null,
-          createdAt: typeof u.createdAt === "string" ? u.createdAt : null,
-          accountStatus: typeof u.accountStatus === "string" ? u.accountStatus : "active",
-        });
-      }
+      const nextUser: SupabaseUser = {
+        id: String(u.id ?? ""),
+        email: typeof u.email === "string" ? u.email : undefined,
+        user_metadata: null,
+      };
+      const nextProfile: AccountProfile = {
+        id: String(u.id ?? ""),
+        email: typeof u.email === "string" ? u.email : "",
+        name: typeof u.name === "string" && u.name ? u.name : emailFallbackName(typeof u.email === "string" ? u.email : ""),
+        provider: (typeof u.provider === "string" ? u.provider : "unknown") as "google" | "email" | "unknown",
+        avatarUrl: typeof u.avatarUrl === "string" ? u.avatarUrl : null,
+        createdAt: typeof u.createdAt === "string" ? u.createdAt : null,
+        accountStatus: typeof u.accountStatus === "string" ? u.accountStatus : "active",
+      };
       const c = (me.credits ?? null) as Record<string, unknown> | null;
       const entitlement = (me.entitlement ?? null) as Record<string, unknown> | null;
-      setCredits({
+      const nextCredits: AccountCredits = {
         planId: typeof entitlement?.planId === "string" ? entitlement.planId : "free",
         planName: typeof entitlement?.planName === "string" ? entitlement.planName : "Free",
         status: typeof entitlement?.status === "string" ? entitlement.status : "active",
@@ -202,23 +295,37 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         packRemaining: typeof c?.packRemaining === "number" ? c.packRemaining : null,
         packExpiry: typeof c?.packExpiry === "string" ? c.packExpiry : null,
         totalRemaining: typeof c?.totalRemaining === "number" ? c.totalRemaining : null,
-      });
+      };
       const cons = (me.consent ?? null) as Record<string, unknown> | null;
-      if (cons) {
-        setConsent({
-          hasAccepted: cons.hasAccepted === true,
-          aiImprovementConsent: cons.aiImprovementConsent === true,
-          withdrawnAt: typeof cons.withdrawnAt === "string" ? cons.withdrawnAt : null,
-          termsAcceptedAt: typeof cons.termsAcceptedAt === "string" ? cons.termsAcceptedAt : null,
-          privacyAcceptedAt: typeof cons.privacyAcceptedAt === "string" ? cons.privacyAcceptedAt : null,
-          agreementVersion: typeof cons.agreementVersion === "string" ? cons.agreementVersion : null,
-          privacyVersion: typeof cons.privacyVersion === "string" ? cons.privacyVersion : null,
-          aiImprovementConsentAt: typeof cons.aiImprovementConsentAt === "string" ? cons.aiImprovementConsentAt : null,
-        });
-      }
+      const nextConsent: AccountConsent | null = cons
+        ? {
+            hasAccepted: cons.hasAccepted === true,
+            aiImprovementConsent: cons.aiImprovementConsent === true,
+            withdrawnAt: typeof cons.withdrawnAt === "string" ? cons.withdrawnAt : null,
+            termsAcceptedAt: typeof cons.termsAcceptedAt === "string" ? cons.termsAcceptedAt : null,
+            privacyAcceptedAt: typeof cons.privacyAcceptedAt === "string" ? cons.privacyAcceptedAt : null,
+            agreementVersion: typeof cons.agreementVersion === "string" ? cons.agreementVersion : null,
+            privacyVersion: typeof cons.privacyVersion === "string" ? cons.privacyVersion : null,
+            aiImprovementConsentAt: typeof cons.aiImprovementConsentAt === "string" ? cons.aiImprovementConsentAt : null,
+          }
+        : null;
+
+      setLearningOwner(nextProfile.id || "guest");
+      setUser(nextUser);
+      setProfile(nextProfile);
+      setCredits(nextCredits);
+      setConsent(nextConsent);
+      writeAccountCache({
+        session: active,
+        user: nextUser,
+        profile: nextProfile,
+        credits: nextCredits,
+        consent: nextConsent,
+      });
     } else if (meResult.status === 401 || meResult.status === 403 || (me && !me.user)) {
       // Only an explicit auth rejection clears the local session. Temporary
       // network and server failures must not destroy a refreshable session.
+      clearAccountCache();
       setLearningOwner("guest");
       clearStoredSession();
       setSession(null);
@@ -226,6 +333,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setProfile(null);
       setCredits(null);
       setConsent(null);
+    } else if (background && memoryAccountCache) {
+      // Revalidation is best-effort while cached: keep the last verified
+      // identity visible and let the next pass recover.
     } else {
       // Hide profile data while the server is unavailable, but retain the
       // refreshable session. The next refresh can recover it safely.
@@ -265,6 +375,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     refreshGeneration.current += 1;
+    clearAccountCache();
     setLoading(true);
     setLearningOwner("guest");
     setSession(null);
@@ -277,8 +388,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    const hydrated = hydrateFromCache();
+    void refresh({ background: hydrated });
+  }, [hydrateFromCache, refresh]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
