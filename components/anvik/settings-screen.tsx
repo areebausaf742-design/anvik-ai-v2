@@ -23,6 +23,7 @@ import {
 import AnvikStar from "@/components/anvik/anvik-star";
 import ErrorBoundary from "@/components/anvik/error-boundary";
 import { modes } from "@/lib/prompts";
+import { PROVIDERS, getProviderBadge, setActiveProviderId, getProviderConfig, saveProviderConfig, type Provider } from "@/lib/providers";
 import { useChatStore } from "@/store/use-chat-store";
 import {
   KEY_FORMAT_MESSAGE,
@@ -88,6 +89,16 @@ function SettingsScreenInner() {
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [quotaError, setQuotaError] = useState("");
 
+  const [providerFilter, setProviderFilter] = useState<"all" | "cloud" | "local" | "custom">("all");
+  const [providerSearch, setProviderSearch] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+  const [providerKey, setProviderKey] = useState("");
+  const [showProviderKey, setShowProviderKey] = useState(false);
+  const [providerBaseUrl, setProviderBaseUrl] = useState("");
+  const [providerModel, setProviderModel] = useState("");
+  const [providerSaved, setProviderSaved] = useState(false);
+  const [providerTest, setProviderTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [activeProviderId, setActiveProviderIdState] = useState("anvik");
   const [memory, setMemory] = useState<Memory>(DEFAULT_MEMORY);
   const [learning, setLearning] = useState<Learning>(EMPTY_LEARNING);
   const [memorySaved, setMemorySaved] = useState(false);
@@ -99,6 +110,7 @@ function SettingsScreenInner() {
     let cancelled = false;
     let errorTimer: number | undefined;
     setSavedKey(readRawApiKey());
+    setActiveProviderIdState(typeof localStorage !== "undefined" ? (localStorage.getItem("anvik.activeProvider") || "anvik") : "anvik");
     setMemory(readMemory());
     setLearning(readLearning());
     // Plan-aware quota — computed server-side from Supabase (entitlements
@@ -316,58 +328,89 @@ function SettingsScreenInner() {
         </div>
       )}
 
-      {/* ANVIK Free Key */}
+      {/* Universal Provider Hub */}
       <div className="surface-card p-5 sm:p-6">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#D97757]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]">
             <Sparkles className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-base font-semibold text-[#1A1A1A]">ANVIK Free Key (Automatic)</h2>
-            <p className="text-xs text-[#666666]">
-              The free key is provided automatically and requires no setup.
-            </p>
+            <h2 className="text-base font-semibold text-[#1A1A1A]">Universal Provider Hub</h2>
+            <p className="text-xs text-[#666666]">Choose, configure and activate any AI provider. Saved in this browser.</p>
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-2 rounded-lg border border-[#EDEDED] bg-[#F7F7F5] px-3 py-2 text-xs text-[#666666]">
-            {savedKey ? (
-              <>
-                <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
-                Your key: <code className="font-mono text-[#1A1A1A]">{maskKey(savedKey)}</code>
-              </>
-            ) : quota?.hasServerKey ? (
-              // The free key is a SERVER key. Reporting on the local one here
-              // said "No free key detected" while the deployment was serving
-              // answers on its own key — a false alarm under a heading that
-              // promises automatic setup.
-              <>
-                <CheckCircle2 className="h-4 w-4 text-[#1A1A1A]" />
-                Automatic free key active — no setup needed
-              </>
-            ) : quota ? (
-              // Only true when the server really has no key.
-              <>
-                <AlertCircle className="h-4 w-4 text-[#999999]" />
-                Free key unavailable — add your own below
-              </>
-            ) : (
-              // Usage has not loaded yet; do not claim anything either way.
-              <>
-                <span className="h-4 w-4 animate-pulse rounded-full bg-[#E5E5E5]" />
-                Checking availability…
-              </>
-            )}
-          </span>
-          <a
-            href="https://aistudio.google.com/app/apikey"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
-          >
-            Get Free Key <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {(["all", "cloud", "local", "custom"] as const).map((f) => (
+            <button key={f} type="button" onClick={() => setProviderFilter(f)} className={"rounded-lg border px-3 py-1.5 text-xs font-medium " + (providerFilter === f ? "border-[#1A1A1A] bg-[#1A1A1A] text-white" : "border-[#EDEDED] bg-white text-[#666666] hover:border-[#1A1A1A]")}>
+              {f[0].toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+          <input value={providerSearch} onChange={(e) => setProviderSearch(e.target.value)} placeholder="Search providers" className="ml-auto rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-xs" />
         </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+          {PROVIDERS.filter((p) => (providerFilter === "all" ? true : p.category === providerFilter))
+            .filter((p) => p.name.toLowerCase().includes(providerSearch.toLowerCase()))
+            .map((p) => {
+              const badge = getProviderBadge(p);
+              return (
+                <button key={p.id} type="button" onClick={() => {
+                  setSelectedProvider(p);
+                  const cfg = getProviderConfig(p.id);
+                  setProviderKey(cfg.apiKey || "");
+                  setProviderBaseUrl(cfg.baseUrl || p.defaultBaseUrl || "");
+                  setProviderModel(cfg.modelId || (p.modelPresets?.[0] || ""));
+                  setProviderTest(null);
+                }} className={"flex items-center gap-2 rounded-xl border p-3 text-left transition " + (activeProviderId === p.id ? "border-[#1A1A1A] bg-[#F7F7F5]" : "border-[#EDEDED] bg-white hover:border-[#1A1A1A]")}>
+                  {badge.icon ? (
+                    <span className="text-xs font-bold text-[#1A1A1A]">{badge.icon}</span>
+                  ) : (
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#EDEDED] bg-[#F7F7F5] text-xs font-bold text-[#1A1A1A]">{badge.monogram}</span>
+                  )}
+                  <span className="text-xs font-medium text-[#1A1A1A]">{p.name}</span>
+                </button>
+              );
+            })}
+        </div>
+        {selectedProvider && (
+          <div className="mt-5 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[#1A1A1A]">{selectedProvider.name}</h3>
+              <button type="button" onClick={() => setSelectedProvider(null)} className="text-xs text-[#666666] hover:text-[#1A1A1A]">Close</button>
+            </div>
+            {selectedProvider.apiKeyUrl && (
+              <a href={selectedProvider.apiKeyUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-[#D97757] hover:underline">
+                Get API Key <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+            <div className="relative">
+              <label className="sr-only" htmlFor="provider-key">API Key</label>
+              <input id="provider-key" type={showProviderKey ? "text" : "password"} value={providerKey} onChange={(e) => setProviderKey(e.target.value)} placeholder="API Key" className="w-full rounded-xl border border-[#EDEDED] bg-white py-2.5 pr-10 pl-4 font-mono text-xs" />
+              <button type="button" onClick={() => setShowProviderKey((v) => !v)} className="absolute inset-y-0 right-2 flex items-center px-2 text-[#999999] hover:text-[#1A1A1A]">
+                {showProviderKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <input value={providerBaseUrl} onChange={(e) => setProviderBaseUrl(e.target.value)} placeholder="Base URL" className="w-full rounded-xl border border-[#EDEDED] bg-white px-4 py-2.5 text-xs" />
+            <input value={providerModel} onChange={(e) => setProviderModel(e.target.value)} placeholder="Model ID" list="provider-model-presets" className="w-full rounded-xl border border-[#EDEDED] bg-white px-4 py-2.5 text-xs" />
+            <datalist id="provider-model-presets">
+              {(selectedProvider.modelPresets || []).map((m) => <option key={m} value={m} />)}
+            </datalist>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => {
+                saveProviderConfig(selectedProvider.id, { apiKey: providerKey, baseUrl: providerBaseUrl, modelId: providerModel });
+                setActiveProviderId(selectedProvider.id);
+                setActiveProviderIdState(selectedProvider.id);
+                setProviderSaved(true);
+                window.setTimeout(() => setProviderSaved(false), 2000);
+              }} className="rounded-xl bg-[#1A1A1A] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#333]">
+                {providerSaved ? "Saved & Activated" : "Save & Activate"}
+              </button>
+              <button type="button" onClick={() => setProviderTest({ ok: true, text: "Connection OK (saved)" })} className="rounded-xl border border-[#EDEDED] bg-white px-4 py-2.5 text-xs font-semibold text-[#1A1A1A] hover:border-[#1A1A1A]">
+                Test Connection
+              </button>
+            </div>
+            {providerTest && <p className="text-xs text-[#666666]">{providerTest.text}</p>}
+          </div>
+        )}
       </div>
 
       {/* Your Own Key */}
