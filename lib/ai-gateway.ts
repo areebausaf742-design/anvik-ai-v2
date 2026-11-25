@@ -418,3 +418,90 @@ export function meteredStream(
     },
   });
 }
+
+/* ------------------------------------------------------------------ */
+/* Smart multi-provider failover with jittered retry                    */
+/* ------------------------------------------------------------------ */
+
+export type FailoverOptions = {
+  retries?: number;
+  delaysMs?: number[];
+  jitter?: boolean;
+  shouldRetry?: (err: unknown) => boolean;
+};
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableError(err: unknown): boolean {
+  if (!err) return false;
+  const anyErr = err as { status?: number; code?: string; message?: string; name?: string };
+  const status = anyErr.status;
+  if (status === 429 || status === 500 || status === 502 || status === 503) return true;
+  const code = String(anyErr.code ?? anyErr.name ?? "").toLowerCase();
+  if (code.includes("timeout") || code.includes("abort") || code.includes("network")) return true;
+  const msg = String(anyErr.message ?? err).toLowerCase();
+  if (msg.includes("timeout") || msg.includes("network") || msg.includes("fetch failed")) return true;
+  return false;
+}
+
+function jitter(ms: number): number {
+  // +/- 25% jitter
+  const delta = ms * 0.25;
+  return Math.max(0, Math.round(ms + (Math.random() * 2 - 1) * delta));
+}
+
+export async function retryWithJitter<T>(
+  fn: () => Promise<T>,
+  options: FailoverOptions = {},
+): Promise<T> {
+  const retries = options.retries ?? 2;
+  const baseDelays = options.delaysMs ?? [250, 500];
+  const shouldRetry = options.shouldRetry ?? isRetryableError;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt >= retries || !shouldRetry(err)) throw err;
+      const base = baseDelays[Math.min(attempt, baseDelays.length - 1)] ?? 250;
+      const delay = options.jitter === false ? base : jitter(base);
+      await sleepMs(delay);
+    }
+  }
+  throw lastError;
+}
+
+export async function runWithFailover<T>(
+  providers: Array<() => Promise<T>>,
+  options: FailoverOptions = {},
+): Promise<T> {
+  let lastError: unknown;
+  for (const provider of providers) {
+    try {
+      return await retryWithJitter(provider, options);
+    } catch (err) {
+      lastError = err;
+      continue;
+    }
+  }
+  throw lastError ?? new Error("All providers failed");
+}
+
+export async function withFailover<T>(
+  input: (() => Promise<T>) | Array<() => Promise<T>>,
+  options: FailoverOptions = {},
+): Promise<T> {
+  if (Array.isArray(input)) return runWithFailover(input as Array<() => Promise<T>>, options);
+  return retryWithJitter(input as () => Promise<T>, options);
+}
+
+export const failover = withFailover;
+export const smartFailover = withFailover;
+export const callWithFailover = withFailover;
+export const retryWithBackoff = retryWithJitter;
+export function jitteredDelay(baseMs: number): number {
+  return jitter(baseMs);
+}
