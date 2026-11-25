@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { useChatStore, selectActiveConversation, type ChatMessage, type Conversation } from "@/store/use-chat-store";
+import { getActiveProviderId, getProviderBadge } from "@/lib/providers";
 import { ensureFreshChat } from "@/lib/fresh-chat";
 import { canSendMessage, composerBlockReason, COMPOSER_ERROR, COMPOSER_NOTICE } from "@/lib/composer";
 import { filterPaletteActions, filterPaletteChats, restorePaletteFocus } from "@/lib/palette";
@@ -695,6 +696,9 @@ function ChatWorkspaceInner() {
       <div className="chatbar" data-typing={isEmptyInput ? "false" : "true"}>
         <div className="chatbar-inner">
           <div className="chatbar-prompt-row">
+            <Link href="/settings" className="inline-flex items-center gap-1.5 mr-2 text-xs font-bold text-[#1A1A1A]" title="Switch provider">
+              {(() => { const b = getProviderBadge(getActiveProviderId()); return b.icon ? b.icon : b.monogram; })()}
+            </Link>
             <div className="chatbar-input-wrap">
               <textarea
                 ref={fieldRef}
