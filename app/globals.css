@@ -2135,3 +2135,393 @@ html[data-theme="dark"] .anvik-dark .welcome-shortcut:hover {
 .message-bubble { content-visibility: auto; contain-intrinsic-size: 0 80px; }
 .scroll-container .backdrop-filter { backdrop-filter: none !important; }
 
+/* ==========================================================================
+   ANVIK 3.0 — graphite glass workspace
+   A focused layer over the existing tokens: deeper graphite surfaces, a
+   calmer cinematic field, a real top-bar search affordance, a roomier
+   composer, and readable thinking/error states. No new framework.
+   ========================================================================== */
+
+.anvik-dark {
+  --canvas: #08090d;
+  --surface-1: #0b0d12;
+  --surface-2: #11141b;
+  --surface-glass: rgba(13, 16, 22, 0.74);
+  --text-primary: #f2f4f8;
+  --text-secondary: #aab2c0;
+  --text-muted: #7d8696;
+  --bg: #08090d;
+  --bg-sidebar: #0a0c11;
+  --border: #232833;
+  --border-soft: #2d3440;
+  --ink: #f2f4f8;
+  --ink-secondary: #aab2c0;
+  --ink-muted: #7d8696;
+}
+
+.anvik-dark > aside {
+  background: linear-gradient(180deg, rgba(15, 17, 23, 0.94) 0%, rgba(8, 9, 13, 0.98) 100%);
+  border-right-color: rgba(226, 234, 245, 0.07);
+  box-shadow: 24px 0 70px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(22px);
+}
+
+html[data-theme="dark"] .anvik-dark > section {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% -8%, rgba(96, 120, 152, 0.16), transparent 62%),
+    radial-gradient(ellipse 55% 45% at 88% 100%, rgba(150, 98, 74, 0.07), transparent 70%),
+    #08090d;
+}
+html[data-theme="dark"] .anvik-dark > section::before {
+  opacity: 0.38;
+}
+
+html[data-theme="dark"] .anvik-dark > section > div:first-child.anvik-topbar {
+  min-height: 64px;
+  background: rgba(9, 11, 15, 0.72);
+  border-color: rgba(226, 234, 245, 0.07);
+  backdrop-filter: blur(20px) saturate(1.1);
+}
+html[data-theme="light"] .anvik-dark > section > div:first-child.anvik-topbar {
+  min-height: 64px;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(25, 35, 50, 0.08);
+  backdrop-filter: blur(20px) saturate(1.05);
+}
+
+/* Visibility comes from the `hidden sm:flex` utilities; only the layout here. */
+.anvik-topbar-heading { flex-direction: column; gap: 1px; line-height: 1.15; }
+.anvik-topbar-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(190, 202, 220, 0.55);
+}
+.anvik-topbar-title { font-size: 13px; font-weight: 600; color: #e8ecf3; }
+
+.anvik-searchbar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 560px);
+  height: 40px;
+  margin-inline: auto;
+  padding: 0 12px;
+  border: 1px solid rgba(218, 228, 242, 0.10);
+  border-radius: 12px;
+  background: rgba(18, 21, 28, 0.58);
+  color: #8d97a8;
+  backdrop-filter: blur(16px);
+  transition: border-color 0.18s var(--ease), background 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+.anvik-searchbar:focus-within {
+  border-color: rgba(218, 228, 242, 0.26);
+  background: rgba(22, 26, 34, 0.82);
+  box-shadow: 0 0 0 3px rgba(160, 177, 202, 0.08);
+}
+.anvik-searchbar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #eef1f6;
+  font-size: 13px;
+}
+.anvik-searchbar input::placeholder { color: #7d8696; }
+.anvik-searchbar kbd {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(218, 228, 242, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: #9aa4b4;
+  font-size: 10px;
+  font-weight: 600;
+}
+.anvik-search-mobile { display: none; }
+
+@media (max-width: 767px) {
+  .anvik-searchbar { display: none; }
+  .anvik-search-mobile { display: inline-flex; }
+  html[data-theme="dark"] .anvik-dark > section > div:first-child.anvik-topbar,
+  html[data-theme="light"] .anvik-dark > section > div:first-child.anvik-topbar {
+    min-height: 58px;
+  }
+}
+
+.anvik-dark .chatbar-inner {
+  gap: 12px;
+  border: 1px solid rgba(218, 228, 242, 0.09);
+  background: linear-gradient(155deg, rgba(24, 27, 34, 0.96), rgba(12, 14, 19, 0.98));
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px);
+}
+html[data-theme="dark"] .anvik-dark .chatbar-inner { padding: 16px 18px; }
+.anvik-dark .chatbar-prompt-row { gap: 14px; }
+.anvik-dark .chatbar-prompt-row .chatbar-input {
+  min-height: 64px;
+  max-height: 200px;
+  padding: 17px 6px;
+  font-size: 15.5px;
+  line-height: 1.7;
+}
+html[data-theme="dark"] .anvik-dark .chatbar-prompt-row .chatbar-input {
+  font-size: 15.5px;
+  line-height: 1.7;
+}
+.anvik-dark .chatbar-toolbar {
+  padding-top: 12px;
+  border-top-color: rgba(218, 228, 242, 0.09);
+  gap: 9px;
+}
+.anvik-dark .chatbar-prompt-row .send-btn {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.anvik-dark .chatbar-icon-btn { width: 38px; height: 38px; }
+.anvik-dark .chatbar::before {
+  inset: -4px;
+  opacity: 0.22;
+  filter: blur(20px);
+}
+.anvik-dark .chatbar:hover::before,
+.anvik-dark .chatbar:focus-within::before,
+.anvik-dark .chatbar[data-typing="true"]::before {
+  opacity: 0.38;
+  filter: blur(24px);
+}
+
+html[data-theme="dark"] .anvik-dark .welcome-stage {
+  border: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 42%, rgba(34, 45, 62, 0.24), transparent 70%),
+    transparent;
+}
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::before { opacity: 0.55; }
+html[data-theme="dark"] .anvik-dark .welcome-stage-overlay::after { opacity: 0.44; }
+.anvik-dark .welcome-content { max-width: 920px; }
+.anvik-dark .welcome-content .chatbar { max-width: 760px; margin-inline: auto; }
+.anvik-dark .welcome-fade-in { text-shadow: 0 18px 70px rgba(0, 0, 0, 0.5); }
+.anvik-dark .welcome-content > p { margin-top: 18px; }
+
+.welcome-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 6px 12px;
+  border: 1px solid rgba(218, 228, 242, 0.12);
+  border-radius: 999px;
+  background: rgba(18, 22, 30, 0.5);
+  color: #aeb8c8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  backdrop-filter: blur(12px);
+}
+
+html[data-theme="dark"] .anvik-dark .welcome-shortcut {
+  min-height: 44px;
+  border-color: rgba(190, 204, 224, 0.14);
+  background: rgba(18, 22, 30, 0.6);
+  color: #d8dfeb;
+  backdrop-filter: blur(12px);
+}
+html[data-theme="dark"] .anvik-dark .welcome-shortcut:hover {
+  border-color: rgba(180, 200, 226, 0.4);
+  background: rgba(42, 53, 70, 0.62);
+}
+
+.anvik-dark .user-message {
+  border-color: rgba(205, 217, 235, 0.1);
+  background: linear-gradient(145deg, rgba(38, 45, 58, 0.92), rgba(25, 30, 40, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 34px rgba(0, 0, 0, 0.18);
+}
+.anvik-dark .msg-row > .md { color: #e7ebf2; font-size: 15.5px; line-height: 1.82; }
+.anvik-dark .msg-row > div.mt-1 { color: #8792a5; }
+
+.thinking-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 520px;
+  padding: 14px 16px;
+  border: 1px solid rgba(218, 228, 242, 0.09);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(22, 26, 34, 0.7), rgba(12, 14, 19, 0.62));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(14px);
+}
+.thinking-orb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid rgba(217, 119, 87, 0.24);
+  border-radius: 12px;
+  background: rgba(217, 119, 87, 0.08);
+  box-shadow: 0 0 24px rgba(217, 119, 87, 0.12);
+  animation: anvik-thinking-pulse 2.4s ease-in-out infinite;
+}
+@keyframes anvik-thinking-pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(217, 119, 87, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(217, 119, 87, 0.24); }
+}
+.thinking-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.thinking-title { color: #e7ebf2; font-size: 13px; font-weight: 600; }
+.thinking-sub { color: #8792a5; font-size: 11px; }
+.thinking-card .typing-dots { margin-left: auto; }
+.thinking-card .typing-dots span { background: #aab6c8; }
+
+.anvik-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(217, 119, 87, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(42, 28, 24, 0.62), rgba(20, 16, 16, 0.72));
+  color: #f0c8b8;
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: left;
+  backdrop-filter: blur(14px);
+}
+.anvik-alert svg { flex: 0 0 auto; margin-top: 1px; color: #e9a58b; }
+.anvik-alert-dismiss {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #c99c8d;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+.anvik-alert-dismiss:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.anvik-alert-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f6e4dc;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.anvik-alert-action:hover { background: rgba(255, 255, 255, 0.12); }
+
+.composer-dock { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+.anvik-message-list { max-width: 760px; padding: 30px 20px 22px; }
+
+@media (max-width: 767px) {
+  .anvik-dark .chatbar-inner { padding: 12px; gap: 10px; border-radius: 20px; }
+  .anvik-dark .chatbar-prompt-row { gap: 10px; }
+  .anvik-dark .chatbar-prompt-row .chatbar-input { min-height: 56px; padding: 14px 4px; font-size: 16px; }
+  .anvik-dark .chatbar-prompt-row .send-btn { width: 44px; height: 44px; flex-basis: 44px; }
+  .anvik-dark .chatbar-icon-btn { width: 36px; height: 36px; }
+  .anvik-dark .chatbar-toolbar { padding-top: 10px; gap: 8px; }
+  .anvik-dark .welcome-content .chatbar { max-width: 100%; }
+  .anvik-message-list { padding: 22px 14px 18px; }
+  .anvik-dark .msg-row > .md { font-size: 15px; line-height: 1.78; }
+  .thinking-card { padding: 12px 14px; }
+}
+
+@media (max-width: 380px) {
+  .anvik-dark .chatbar-toolbar .deep-search-option { padding-inline: 6px; }
+  .anvik-dark .chatbar-toolbar .model-selector-trigger { font-size: 11px; }
+}
+
+html[data-theme="light"] .anvik-dark > aside {
+  background: rgba(255, 255, 255, 0.9);
+  border-right-color: rgba(25, 35, 50, 0.08);
+}
+html[data-theme="light"] .anvik-dark > section {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% -8%, rgba(120, 140, 165, 0.12), transparent 62%),
+    #f7f7f5;
+}
+html[data-theme="light"] .anvik-topbar-eyebrow { color: rgba(40, 48, 60, 0.55); }
+html[data-theme="light"] .anvik-topbar-title { color: #191b20; }
+html[data-theme="light"] .anvik-searchbar {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(25, 35, 50, 0.12);
+  color: #6a7280;
+}
+html[data-theme="light"] .anvik-searchbar input { color: #191b20; }
+html[data-theme="light"] .anvik-searchbar input::placeholder { color: #8a919c; }
+html[data-theme="light"] .anvik-searchbar kbd {
+  border-color: rgba(25, 35, 50, 0.12);
+  background: rgba(25, 35, 50, 0.04);
+  color: #6a7280;
+}
+html[data-theme="light"] .anvik-dark .chatbar-inner {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(25, 35, 50, 0.1);
+  box-shadow: 0 20px 64px rgba(20, 24, 32, 0.1), inset 0 1px 0 #fff;
+}
+html[data-theme="light"] .anvik-dark .chatbar-input { color: #191b20; }
+html[data-theme="light"] .anvik-dark .welcome-stage {
+  background: radial-gradient(ellipse 60% 50% at 50% 42%, rgba(255, 255, 255, 0.5), transparent 70%);
+}
+html[data-theme="light"] .welcome-eyebrow {
+  border-color: rgba(25, 35, 50, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  color: #626a76;
+}
+html[data-theme="light"] .anvik-dark .welcome-shortcut {
+  border-color: rgba(25, 35, 50, 0.12);
+  background: rgba(255, 255, 255, 0.82);
+  color: #424852;
+}
+html[data-theme="light"] .anvik-dark .welcome-shortcut:hover {
+  border-color: rgba(25, 35, 50, 0.26);
+  background: #fff;
+}
+html[data-theme="light"] .anvik-dark .user-message {
+  border-color: rgba(25, 35, 50, 0.09);
+  background: linear-gradient(145deg, #f1f3f6, #e9edf2);
+  box-shadow: inset 0 1px 0 #fff;
+}
+html[data-theme="light"] .anvik-dark .user-message p { color: #191b20; }
+html[data-theme="light"] .thinking-card {
+  border-color: rgba(25, 35, 50, 0.1);
+  background: rgba(255, 255, 255, 0.8);
+}
+html[data-theme="light"] .thinking-title { color: #191b20; }
+html[data-theme="light"] .thinking-sub { color: #656b75; }
+html[data-theme="light"] .anvik-alert {
+  border-color: rgba(185, 110, 85, 0.25);
+  background: rgba(255, 248, 245, 0.92);
+  color: #8a4a36;
+}
+html[data-theme="light"] .anvik-alert svg { color: #b96e55; }
+html[data-theme="light"] .anvik-alert-action {
+  border-color: rgba(138, 74, 54, 0.18);
+  background: rgba(185, 110, 85, 0.08);
+  color: #8a4a36;
+}
+html[data-theme="light"] .anvik-alert-dismiss { color: #a06a58; }
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-orb { animation: none !important; }
+}
+
+

@@ -60,6 +60,7 @@ export const maxDuration = 60;
 const validModes = new Set<string>(modes.map(({ id }) => id));
 const MIN_SPACING_MS = 2_000;
 const PER_MINUTE = 60;
+const STREAM_ERROR_MESSAGE = "ANVIK lost the connection before finishing. Please try again.";
 
 const modeInstructions: Record<ModeId, string> = {
   fast: "Keep answers concise and prioritize the quickest useful response.",
@@ -212,6 +213,19 @@ export async function POST(request: Request) {
   let searchMetaCapture: SearchMetaCapture | undefined;
   let searchStatus: SearchStatus = "off";
   let externalSearchUsed = false;
+  let streamInterrupted = false;
+  let streamHadText = false;
+  const baseStreamOptions = {
+    apiKey: key,
+    contents,
+    temperature: safeTemperature,
+    maxOutputTokens: tokenCap,
+    signal: request.signal,
+    onStreamInterrupted: (emittedText: boolean) => {
+      streamInterrupted = true;
+      streamHadText = emittedText;
+    },
+  };
   let result;
   const isTerminalProviderError = (candidate: {error:{code:string;status:number}}) =>
     candidate.error.code === "invalid_key" || candidate.error.code === "bad_format" ||
@@ -222,36 +236,32 @@ export async function POST(request: Request) {
   };
   if (searchNeeded && hasExternalSources && externalSearchResult) {
     const evidenceInstruction = [systemInstruction,buildExternalSearchContext(externalSearchResult.sources)].join("\n\n");
-    result = await openGeminiStreamWithFallback({apiKey:key,systemInstruction:evidenceInstruction,contents,
-      temperature:safeTemperature,maxOutputTokens:tokenCap,signal:request.signal});
+    result = await openGeminiStreamWithFallback({...baseStreamOptions,systemInstruction:evidenceInstruction});
     if (result.ok) { searchStatus="on"; externalSearchUsed=true; }
     else {
       if (isTerminalProviderError(result)) return returnTerminalError(result);
       searchMetaCapture={queries:[],sources:[],sawGrounding:false};
-      const grounded=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
-        maxOutputTokens:tokenCap,signal:request.signal,googleSearch:true,searchMetaCapture});
+      const grounded=await openGeminiStreamWithFallback({...baseStreamOptions,systemInstruction,
+        googleSearch:true,searchMetaCapture});
       if (grounded.ok) { result=grounded; searchStatus="on"; }
       else {
         if (isTerminalProviderError(grounded)) return returnTerminalError(grounded);
-        result=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
-          maxOutputTokens:tokenCap,signal:request.signal});
+        result=await openGeminiStreamWithFallback({...baseStreamOptions,systemInstruction});
         searchStatus="unavailable";
       }
     }
   } else if (searchNeeded) {
     searchMetaCapture={queries:[],sources:[],sawGrounding:false};
-    const grounded=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
-      maxOutputTokens:tokenCap,signal:request.signal,googleSearch:true,searchMetaCapture});
+    const grounded=await openGeminiStreamWithFallback({...baseStreamOptions,systemInstruction,
+      googleSearch:true,searchMetaCapture});
     if (grounded.ok) { result=grounded; searchStatus="on"; }
     else {
       if (isTerminalProviderError(grounded)) return returnTerminalError(grounded);
-      result=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
-        maxOutputTokens:tokenCap,signal:request.signal});
+      result=await openGeminiStreamWithFallback({...baseStreamOptions,systemInstruction});
       searchStatus="unavailable";
     }
   } else {
-    result=await openGeminiStreamWithFallback({apiKey:key,systemInstruction,contents,temperature:safeTemperature,
-      maxOutputTokens:tokenCap,signal:request.signal});
+    result=await openGeminiStreamWithFallback({...baseStreamOptions,systemInstruction});
     searchStatus="off";
   }
 
@@ -307,11 +317,41 @@ export async function POST(request: Request) {
           }
           // Flush any trailing multi-byte sequences.
           const rest = decoder.decode();
-          if (wantSSE) {
-            if (rest) {
-              answer += rest;
+          if (rest) {
+            answer += rest;
+            if (wantSSE) {
               controller.enqueue(encoder.encode(sseFrame({ t: "tok", s: rest })));
+            } else {
+              controller.enqueue(encoder.encode(rest));
             }
+          }
+
+          // The upstream body can fail after headers were accepted. Refund the
+          // reservation and give SSE clients one friendly terminal frame —
+          // never a raw reader error or a silent truncation.
+          if (streamInterrupted) {
+            await settleSession("failure", { model });
+            if (wantSSE) {
+              try {
+                controller.enqueue(
+                  encoder.encode(sseFrame({ t: "err", message: STREAM_ERROR_MESSAGE })),
+                );
+              } catch {
+                /* client already disconnected */
+              }
+            } else if (streamHadText && answer.trim()) {
+              try {
+                controller.enqueue(encoder.encode(`\n\n_${STREAM_ERROR_MESSAGE}_`));
+              } catch {
+                /* client already disconnected */
+              }
+            }
+            completed = false;
+            controller.close();
+            return;
+          }
+
+          if (wantSSE) {
             // Done frame carries the honest search result: the queries the
             // model ran and the sources it cited — only what Gemini actually
             // returned, never fabricated.
@@ -333,8 +373,6 @@ export async function POST(request: Request) {
                 sseFrame({ t: "done", model, search: finalSearchStatus, sources, queries }),
               ),
             );
-          } else {
-            answer += rest;
           }
           completed = true;
 
@@ -374,7 +412,25 @@ export async function POST(request: Request) {
           controller.close();
         } catch (error) {
           await settleSession("failure", { model });
-          controller.error(error);
+          if (wantSSE && !(error instanceof Error && error.name === "AbortError")) {
+            // Give the client a terminal frame it can render as a friendly
+            // message. If the client is already gone, fall back to erroring
+            // the controller so the stream is not left open.
+            try {
+              controller.enqueue(
+                encoder.encode(sseFrame({ t: "err", message: STREAM_ERROR_MESSAGE })),
+              );
+              controller.close();
+            } catch {
+              try {
+                controller.error(error);
+              } catch {
+                /* already closed */
+              }
+            }
+          } else {
+            controller.error(error);
+          }
         } finally {
           upstreamReader.releaseLock();
         }
@@ -404,7 +460,11 @@ export async function POST(request: Request) {
       return new Response(null, { status: 499 });
     }
     return Response.json(
-      { error: "No internet. Try again", detail: "No internet. Try again", code: "network" },
+      {
+        error: "ANVIK couldn't start that answer. Please try again.",
+        detail: "ANVIK couldn't start that answer. Please try again.",
+        code: "network",
+      },
       { status: 503 },
     );
   }

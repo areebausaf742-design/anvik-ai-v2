@@ -112,6 +112,7 @@ function ChatWorkspaceInner() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [search, setSearch] = useState("");
+  const [headerSearch, setHeaderSearch] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
   const [listening, setListening] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -130,6 +131,7 @@ function ChatWorkspaceInner() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const headerSearchRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechInput | null>(null);
   const photoMenuRef = useRef<HTMLDivElement>(null);
@@ -138,10 +140,12 @@ function ChatWorkspaceInner() {
   const paletteOpenerRef = useRef<HTMLElement | null>(null);
   const paletteOpenRef = useRef(false);
 
-  const openPalette = useCallback((opener?: HTMLElement | null) => {
+  const openPalette = useCallback((opener?: HTMLElement | null, initialQuery = "") => {
     paletteOpenerRef.current =
       opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     paletteOpenRef.current = true;
+    setPaletteQuery(initialQuery);
+    setPaletteIndex(0);
     setShowPalette(true);
   }, []);
 
@@ -289,7 +293,6 @@ function ChatWorkspaceInner() {
 
   useEffect(() => {
     if (!showPalette) return;
-    setPaletteQuery("");
     setPaletteIndex(0);
   }, [showPalette]);
 
@@ -376,6 +379,8 @@ function ChatWorkspaceInner() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    let answer = "";
+
     try {
       const historyMessages = regeneration?.history ?? [...(current?.messages ?? []), userMessage!];
       const history = historyMessages
@@ -430,13 +435,13 @@ function ChatWorkspaceInner() {
 
       const isSSE = (response.headers.get("content-type") ?? "").includes("text/event-stream");
 
-      let answer = "";
       // The done frame is authoritative. The header is only an advisory
       // promise set before the stream starts — never used to claim a verified
       // search.
       let finalSearchStatus: "on" | "off" | "unavailable" = "off";
       let finalSources: SearchSource[] = [];
       let finalQueries: string[] = [];
+      let streamError = "";
 
       if (isSSE) {
         // Frame protocol: meta (first packet) -> tok(s) -> done (sources + queries).
@@ -447,7 +452,7 @@ function ChatWorkspaceInner() {
         const handleFrame = (raw: string) => {
           const frame = raw.trim();
           if (!frame.startsWith("data:")) return;
-          let parsed: { t?: string; s?: string; model?: string; search?: string; sources?: Array<{ title?: string; uri?: string; domain?: string; provider?: string; snippet?: string }>; queries?: string[] };
+          let parsed: { t?: string; s?: string; message?: string; model?: string; search?: string; sources?: Array<{ title?: string; uri?: string; domain?: string; provider?: string; snippet?: string }>; queries?: string[] };
           try {
             parsed = JSON.parse(frame.slice(5).trim());
           } catch {
@@ -462,6 +467,14 @@ function ChatWorkspaceInner() {
           } else if (parsed.t === "tok" && typeof parsed.s === "string" && parsed.s) {
             answer += parsed.s;
             updateMessage(conversationId, assistantId, answer);
+          } else if (parsed.t === "err") {
+            // A terminal frame from the server. Keep whatever text already
+            // arrived and surface one friendly message instead of letting the
+            // reader throw a raw network/stream error at the user.
+            streamError =
+              typeof parsed.message === "string" && parsed.message.trim()
+                ? parsed.message.trim()
+                : "ANVIK lost the connection before finishing. Please try again.";
           } else if (parsed.t === "done") {
             if (parsed.search === "on" || parsed.search === "unavailable" || parsed.search === "off") {
               finalSearchStatus = parsed.search;
@@ -506,7 +519,25 @@ function ChatWorkspaceInner() {
         answer += decoder.decode();
       }
 
-      if (!answer.trim()) {
+      if (streamError) {
+        if (answer.trim()) {
+          // Keep the partial answer the user already watched arrive; the
+          // banner explains why it stopped.
+          updateMessage(conversationId, assistantId, answer);
+          setMessageMeta(conversationId, assistantId, {
+            source: "gemini",
+            model: assistantModelLabel,
+            isError: true,
+            searchStatus: finalSearchStatus,
+            sources: finalSources,
+            queries: finalQueries,
+          });
+        } else {
+          updateMessage(conversationId, assistantId, streamError);
+          setMessageMeta(conversationId, assistantId, { isError: true });
+        }
+        setError(streamError);
+      } else if (!answer.trim()) {
         const emptyMsg = "ANVIK could not answer. Check key or try again.";
         updateMessage(conversationId, assistantId, emptyMsg);
         setMessageMeta(conversationId, assistantId, { isError: true });
@@ -527,8 +558,13 @@ function ChatWorkspaceInner() {
         updateMessage(conversationId, assistantId, "_(stopped — ask again to continue)_");
       } else {
         const message = mapClientFetchError(cause);
-        updateMessage(conversationId, assistantId, message);
-        setMessageMeta(conversationId, assistantId, { isError: true });
+        if (answer.trim()) {
+          updateMessage(conversationId, assistantId, answer);
+          setMessageMeta(conversationId, assistantId, { isError: true });
+        } else {
+          updateMessage(conversationId, assistantId, message);
+          setMessageMeta(conversationId, assistantId, { isError: true });
+        }
         setError(message);
       }
     } finally {
@@ -927,6 +963,7 @@ function ChatWorkspaceInner() {
       {/* ==================== Sidebar ==================== */}
       {!focusMode && (
         <aside
+          id="anvik-sidebar"
           aria-label="Sidebar"
           className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[#EDEDED] bg-[#F7F7F5] sidebar-slide md:static md:z-auto md:translate-x-0 ${
             sidebarOpen ? "visible translate-x-0" : "invisible -translate-x-full md:visible"
@@ -1120,14 +1157,16 @@ function ChatWorkspaceInner() {
       {/* ==================== Main Area ==================== */}
       <section className="flex min-w-0 flex-1 flex-col bg-white">
         {/* Top bar */}
-        <div className="flex shrink-0 items-center justify-between gap-2 px-4 py-2.5 border-b border-[#EDEDED]">
-          <div className="flex items-center gap-2">
+        <div className="anvik-topbar flex shrink-0 items-center justify-between gap-3 border-b border-[#EDEDED] px-4 py-2.5">
+          <div className="flex min-w-0 items-center gap-2">
             {!focusMode && (
               <button
                 type="button"
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5] md:hidden"
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Open sidebar"
+                aria-expanded={sidebarOpen}
+                aria-controls="anvik-sidebar"
               >
                 <Menu className="h-4 w-4" />
               </button>
@@ -1142,24 +1181,49 @@ function ChatWorkspaceInner() {
                 <PanelLeftOpen className="h-4 w-4" />
               </button>
             )}
-            {/* top-left quota badge removed for clean minimal header */}
+            <div className="anvik-topbar-heading hidden sm:flex">
+              <span className="anvik-topbar-eyebrow">ANVIK</span>
+              <span className="anvik-topbar-title max-w-[220px] truncate">
+                {activeMessages.length > 0 ? activeChat?.title || "Conversation" : "New conversation"}
+              </span>
+            </div>
           </div>
+
+          <form
+            role="search"
+            className="anvik-searchbar"
+            onSubmit={(event) => {
+              event.preventDefault();
+              openPalette(headerSearchRef.current, headerSearch);
+              setHeaderSearch("");
+            }}
+          >
+            <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <input
+              ref={headerSearchRef}
+              value={headerSearch}
+              onChange={(event) => setHeaderSearch(event.target.value)}
+              aria-label="Search chats and commands"
+              placeholder="Search chats and commands…"
+              autoComplete="off"
+            />
+            <kbd aria-hidden="true">Ctrl K</kbd>
+          </form>
 
           <div className="flex items-center gap-1">
             <button
-  type="button"
-  onClick={(event) => openPalette(event.currentTarget)}
-  aria-label="Search conversations"
-  className="flex items-center gap-1.5 rounded-lg border border-[#EDEDED] px-2.5 py-1.5 text-xs text-[#666666] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
+              type="button"
+              onClick={(event) => openPalette(event.currentTarget)}
+              aria-label="Search conversations"
+              className="anvik-search-mobile flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5]"
             >
-              <Search className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Search</span>
-              <kbd className="hidden sm:inline ml-1 rounded border border-[#EDEDED] px-1 text-[10px] text-[#999999]">Ctrl K</kbd>
+              <Search className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={() => setFocusMode((v) => !v)}
               aria-label="Toggle focus mode"
+              aria-pressed={focusMode}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
                 focusMode ? "bg-[#1A1A1A] text-white" : "text-[#666666] hover:bg-[#F7F7F5]"
               }`}
@@ -1168,6 +1232,11 @@ function ChatWorkspaceInner() {
             </button>
             {/* Notifications bell hidden until backend push notifications are added. */}
           </div>
+        </div>
+
+        {/* Screen-reader-only progress announcement; the visual state stays calm. */}
+        <div className="sr-only" role="status" aria-live="polite">
+          {pending ? "ANVIK is responding." : ""}
         </div>
 
         {/* Message area */}
@@ -1182,6 +1251,10 @@ function ChatWorkspaceInner() {
               </div>
               <div className="welcome-content relative z-10 mx-auto flex w-full max-w-[920px] flex-col items-center">
               <AnvikStar size="lg" className="mb-5" />
+              <span className="welcome-eyebrow">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#D97757]" aria-hidden="true" />
+                Your intelligence companion
+              </span>
               <h1
                 className="welcome-fade-in text-[clamp(2.6rem,7vw,5rem)] font-semibold leading-[1.02] tracking-[-0.065em] text-[#1A1A1A]"
                 style={{ letterSpacing: "-0.065em" }}
@@ -1199,8 +1272,8 @@ function ChatWorkspaceInner() {
               </p>
 
               {/* Glowing chatbar — welcome screen */}
-              {renderChatbar({ className: "mt-8 w-full", showTooltip: true })}
-              <div className="mt-6 flex w-full max-w-[920px] flex-wrap items-center justify-center gap-2.5" aria-label="Quick starts">
+              {renderChatbar({ className: "mt-10 w-full", showTooltip: true })}
+              <div className="mt-7 flex w-full max-w-[920px] flex-wrap items-center justify-center gap-3" aria-label="Quick starts">
                 {quickStarts.map(({ label, icon: Icon, prompt, search: enableSearch }) => (
                   <button key={label} type="button" onClick={() => chooseQuickStart(prompt, Boolean(enableSearch))} className="welcome-shortcut">
                     <Icon className="h-4 w-4" aria-hidden="true" />
@@ -1210,19 +1283,28 @@ function ChatWorkspaceInner() {
               </div>
 
               {error && (
-                <div role="alert" className="mt-6 flex max-w-md flex-wrap items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/35 px-4 py-3 text-xs text-white/80">
-                  <span>{error}</span>
+                <div role="alert" aria-live="assertive" className="anvik-alert mt-6 max-w-md">
+                  <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">{error}</span>
                   {showConnectButton && (
-                    <a href="/settings" className="rounded-lg bg-[#1A1A1A] px-2.5 py-1.5 font-medium text-white hover:bg-[#333]">
+                    <a href="/settings" className="anvik-alert-action">
                       Connect
                     </a>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setError("")}
+                    aria-label="Dismiss error"
+                    className="anvik-alert-dismiss"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               )}
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-[720px] px-4 py-6">
+            <div className="anvik-message-list mx-auto w-full">
               {activeMessages.map((message, index) => {
                 const isUser = message.role === "user";
                 const isLastAssistant = !isUser && index === activeMessages.length - 1;
@@ -1234,35 +1316,39 @@ function ChatWorkspaceInner() {
 
                 if (isUser) {
                   return (
-                    <article key={message.id} className="user-message msg-enter mb-6">
+                    <article key={message.id} className="user-message msg-enter mb-7">
                       <p className="whitespace-pre-wrap text-[15px] leading-[1.7] text-[#1A1A1A]">{message.content}</p>
                     </article>
                   );
                 }
 
                 return (
-                  <article key={message.id} className="msg-row msg-enter mb-8">
+                  <article key={message.id} className="msg-row msg-enter mb-9">
                     {isThinking ? (
-                      <div className="flex items-center gap-3 py-2 text-sm text-[#999999]">
-                        {message.searchStatus === "on" ? (
-                          <>
-                            <span className="search-pulse-dot" aria-hidden="true" />
-                            <span>Searching the web…</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="typing-dots" aria-hidden="true">
-                              <span />
-                              <span />
-                              <span />
-                            </span>
-                            <span>ANVIK is thinking</span>
-                          </>
-                        )}
+                      <div className="thinking-card" role="status" aria-live="polite">
+                        <span className="thinking-orb" aria-hidden="true">
+                          <AnvikStar size="sm" spin />
+                        </span>
+                        <div className="thinking-copy">
+                          <span className="thinking-title">
+                            {message.searchStatus === "on" ? "Searching the web" : "ANVIK is thinking"}
+                          </span>
+                          <span className="thinking-sub">
+                            {message.searchStatus === "on"
+                              ? "Checking live sources for a grounded answer…"
+                              : "Composing a clear, careful answer…"}
+                          </span>
+                        </div>
+                        <span className="typing-dots" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </span>
                       </div>
                     ) : message.isError ? (
-                      <div className="rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-sm text-[#666666]">
-                        {message.content}
+                      <div className="anvik-alert max-w-[720px]">
+                        <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                        <span className="min-w-0 flex-1 whitespace-pre-wrap">{message.content}</span>
                       </div>
                     ) : (
                       <>
@@ -1382,43 +1468,47 @@ function ChatWorkspaceInner() {
 
         {/* Bottom composer (when in conversation) */}
         {activeMessages.length > 0 && (
-          <div className="shrink-0 px-3 py-3 sm:px-6 sm:py-4">
+          <div className="composer-dock shrink-0 px-3 py-3 sm:px-6 sm:py-4">
             {error && (
               <div
                 role="alert"
-                className="mx-auto mb-2.5 flex max-w-[720px] flex-wrap items-center justify-between gap-2 rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-3.5 py-2 text-xs text-[#666666]"
+                aria-live="assertive"
+                className="anvik-alert mx-auto mb-3 max-w-[760px]"
               >
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0 text-[#999999]" />
-                  <span>{error}</span>
-                </div>
-                {showKeyHelper && (
-                  <div className="flex items-center gap-2">
-                    {!showConnectButton && (
-                      <button
-                        type="button"
-                        onClick={() => void runInlineKeyTest()}
-                        disabled={testingKey}
-                        className="rounded-lg border border-[#EDEDED] bg-white px-2.5 py-1 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]"
-                      >
-                        {testingKey ? "Testing..." : "Test Key"}
-                      </button>
-                    )}
-                    <a
-                      href="/settings"
-                      className="rounded-lg bg-[#1A1A1A] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#333]"
+                <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  {showKeyHelper && !showConnectButton && (
+                    <button
+                      type="button"
+                      onClick={() => void runInlineKeyTest()}
+                      disabled={testingKey}
+                      className="anvik-alert-action"
                     >
+                      {testingKey ? "Testing..." : "Test Key"}
+                    </button>
+                  )}
+                  {showKeyHelper && (
+                    <a href="/settings" className="anvik-alert-action">
                       {showConnectButton ? "Connect" : "Settings"}
                     </a>
-                  </div>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setError("")}
+                    aria-label="Dismiss error"
+                    className="anvik-alert-dismiss"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             )}
 
             {keyTestStatus && (
               <div
                 role="status"
-                className={`mx-auto mb-2.5 flex max-w-[720px] items-center gap-2 rounded-xl border px-3.5 py-2 text-xs ${
+                className={`mx-auto mb-3 flex max-w-[760px] items-center gap-2 rounded-xl border px-3.5 py-2 text-xs ${
                   keyTestStatus.ok
                     ? "border-[#EDEDED] bg-[#F7F7F5] text-[#1A1A1A]"
                     : "border-[#EDEDED] bg-[#F7F7F5] text-[#666666]"
@@ -1433,7 +1523,7 @@ function ChatWorkspaceInner() {
               </div>
             )}
 
-            {renderChatbar({ className: "mx-auto w-full max-w-[720px]" })}
+            {renderChatbar({ className: "mx-auto w-full max-w-[760px]" })}
           </div>
         )}
       </section>

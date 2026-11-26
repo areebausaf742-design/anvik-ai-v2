@@ -1,13 +1,14 @@
 export default function Loading() {
   return (
     <div
-      className="flex min-h-[calc(100dvh-64px)] flex-col items-center justify-center bg-[#050508] px-6 py-12 text-slate-200"
+      className="flex min-h-[calc(100dvh-64px)] flex-col items-center justify-center bg-[#08090d] px-6 py-12 text-slate-200"
       role="status"
       aria-label="Loading ANVIK"
     >
       <div className="relative flex h-20 w-20 items-center justify-center">
-        <div className="h-16 w-16 animate-pulse rounded-full bg-gradient-to-tr from-[#7C3AED]/40 to-[#22D3EE]/40 blur-md" />
-        <div className="absolute h-12 w-12 rounded-full border border-white/15 bg-gradient-to-tr from-[#7C3AED] to-[#22D3EE] opacity-80" />
+        <div className="absolute h-16 w-16 rounded-full border border-[#D97757]/25" />
+        <div className="absolute h-12 w-12 animate-pulse rounded-full bg-[#D97757]/20 blur-md" />
+        <div className="h-9 w-9 rounded-full border border-white/15 bg-white/[0.06]" />
       </div>
       <div className="mt-6 w-full max-w-md space-y-3">
         <div className="mx-auto h-4 w-40 animate-pulse rounded-lg bg-white/10" />
