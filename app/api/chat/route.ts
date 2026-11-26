@@ -151,6 +151,12 @@ export async function POST(request: Request) {
   const caller = await getVerifiedUserIfPresent(request).catch(() => null);
   const auth = caller ? { user: caller } : null;
 
+  // Build Gemini contents BEFORE metering so an empty/invalid conversation never consumes a credit or guest answer.
+  const contents: GeminiTurn[] = buildGeminiContents(redactedMessages);
+  if (contents.length === 0) {
+    return Response.json({ error: "Prompt cannot be empty. Write a message and try again." }, { status: 400 });
+  }
+
   // 5. The single metered entrance: key choice → account standing → rate limit
   //    → exactly one reservation (account credit, or one of the ten free guest
   //    answers). This route used to duplicate that chain inline, which is how
@@ -184,15 +190,6 @@ export async function POST(request: Request) {
   const tokenCap = paidPlan ? PAID_MAX_TOKENS : selectedMode === "coder" ? CODE_MAX_TOKENS : CHAT_MAX_TOKENS;
   const requested = typeof temperature === "number" ? temperature : 0.65;
   const safeTemperature = Math.max(0, Math.min(MAX_TEMPERATURE, requested));
-
-  // 7. History → Gemini contents.
-  const contents: GeminiTurn[] = buildGeminiContents(redactedMessages);
-  if (contents.length === 0) {
-    return Response.json(
-      { error: "Prompt cannot be empty. Write a message and try again." },
-      { status: 400 },
-    );
-  }
 
   const wantSSE = (request.headers.get("accept") ?? "").includes("text/event-stream");
 

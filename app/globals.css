@@ -1078,8 +1078,8 @@ body {
   --text-secondary: #a5afc3;
   --text-muted: #78839a;
   --line-subtle: rgba(210, 220, 234, 0.14);
-  --accent-cool: #a6ccf3;
-  --accent-warm: #e9b18e;
+  --accent-cool: #4f9cff;
+  --accent-warm: #ffb054;
   --bg: #090b12;
   --bg-sidebar: #0d111b;
   --border: #252c3b;
@@ -2525,3 +2525,7 @@ html[data-theme="light"] .anvik-alert-dismiss { color: #a06a58; }
 }
 
 
+
+/* ANVIK chrome-atmosphere host uses ChromeArcs instead of the legacy ring fallback. */
+.ambient-ring-host.chrome-arcs-host::before,
+.ambient-ring-host.chrome-arcs-host::after { display: none !important; }
