@@ -26,7 +26,6 @@
  * only weaker (per instance, not global) during that outage.
  */
 
-import { createHash } from "node:crypto";
 import { sbRpc } from "@/lib/supabase";
 
 const hits = new Map<string, number[]>();
@@ -134,10 +133,12 @@ type RpcConsumeResult = {
   retry_after_seconds?: number;
 };
 
-function bucketKey(scope: string, kind: string, seed: string, window: "minute" | "hour" | "spacing"): string {
-  return createHash("sha256")
-    .update(`${scope}::${kind}::${seed}::${window}`, "utf8")
-    .digest("hex");
+async function bucketKey(scope: string, kind: string, seed: string, window: "minute" | "hour" | "spacing"): Promise<string> {
+  const data = new TextEncoder().encode(`${scope}::${kind}::${seed}::${window}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** The verified-or-IP identity for a request — never a client-supplied header. */
@@ -191,11 +192,12 @@ export async function allowDistributed(
   const seed = identity.seed || "unknown";
   const inMemoryKey = `${scope}:${identity.kind}:${seed}`;
 
-  const minuteKey = bucketKey(scope, identity.kind, seed, "minute");
-  const hourKey = perHour > 0 ? bucketKey(scope, identity.kind, seed, "hour") : null;
+  const minuteKey = await bucketKey(scope, identity.kind, seed, "minute");
+  const hourKey =
+    perHour > 0 ? await bucketKey(scope, identity.kind, seed, "hour") : null;
   const spacingKey =
     options.spacingMs && options.spacingMs > 0
-      ? bucketKey(scope, identity.kind, seed, "spacing")
+      ? await bucketKey(scope, identity.kind, seed, "spacing")
       : null;
 
   const [minuteRes, hourRes, spacingRes] = await Promise.all([

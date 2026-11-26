@@ -2520,3 +2520,31 @@ html[data-theme="light"] .anvik-alert-dismiss { color: #a06a58; }
 /* ANVIK chrome-atmosphere host uses ChromeArcs instead of the legacy ring fallback. */
 .ambient-ring-host.chrome-arcs-host::before,
 .ambient-ring-host.chrome-arcs-host::after { display: none !important; }
+/* ------------------------------------------------------------------ */
+/* Performance: reduce paint cost on long lists and glass surfaces.     */
+/* ------------------------------------------------------------------ */
+.msg-row,
+.user-message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+  contain: layout paint style;
+}
+
+.scroll-container {
+  contain: strict;
+}
+
+/* Promote only the elements that actually animate, avoiding whole-tree paints. */
+.anvik-message-list,
+.thinking-card,
+.search-live-badge {
+  will-change: transform;
+}
+
+/* Softer, cheaper blur on frequently repainted glass surfaces. */
+.anvik-dark > section > div:first-child,
+.anvik-dark .welcome-content .chatbar-inner,
+.model-selector-menu,
+.anvik-searchbar {
+  backdrop-filter: blur(12px);
+}

@@ -95,7 +95,7 @@ function guestStore(): QuotaStore {
 }
 
 /** Visible for tests: the guest identity for a request, or null if unusable. */
-export function guestIpHash(request: Request): string | null {
+export async function guestIpHash(request: Request): Promise<string | null> {
   const ip = clientIp(request);
   // `clientIp` returns "local" when no forwarding header is present (unit
   // tests, `next dev` on a socket). Hashing that would put every such caller in
@@ -117,7 +117,7 @@ export async function reserveGuestRequest(
   feature: GuestFeature,
 ): Promise<GuestMeterResult> {
   void feature; // only "chat" is a guest feature today; kept for signature symmetry
-  const ipHash = guestIpHash(request);
+  const ipHash = await guestIpHash(request);
   if (!ipHash) {
     return {
       ok: false,
@@ -155,7 +155,7 @@ export type GuestStatus = {
 
 /** Read-only view for `/api/quota` when the caller is a guest. */
 export async function readGuestAllowance(request: Request): Promise<GuestStatus> {
-  const ipHash = guestIpHash(request);
+  const ipHash = await guestIpHash(request);
   if (!ipHash) return { remaining: GUEST_LIMIT, limit: GUEST_LIMIT, day: istDay() };
   const remaining = await guestStore().remaining(ipHash);
   return { remaining, limit: GUEST_LIMIT, day: istDay() };

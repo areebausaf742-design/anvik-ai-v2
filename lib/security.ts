@@ -9,7 +9,6 @@
  *      call is made.
  */
 
-import { createHash } from "node:crypto";
 import { redact } from "./learning";
 
 /* ------------------------------------------------------------------ */
@@ -52,8 +51,12 @@ function ipSalt(): string {
 }
 
 /** Deterministic, salted hash of an IP so raw addresses never reach the DB. */
-export function hashIp(ip: string): string {
-  return createHash("sha256").update(`${ipSalt()}:${ip}`).digest("hex");
+export async function hashIp(ip: string): Promise<string> {
+  const data = new TextEncoder().encode(`${ipSalt()}:${ip}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,8 +1,6 @@
 "use client";
 
-import React from "react";
-
-import { useState } from "react";
+import React, { memo, useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, Globe } from "lucide-react";
 import type { SearchSource, SearchStatus } from "@/lib/search";
 
@@ -15,7 +13,7 @@ import type { SearchSource, SearchStatus } from "@/lib/search";
  * inventing sources. Publication dates are not available in grounding
  * metadata, so they are deliberately not shown.
  */
-export default function SourcesPanel({
+export default memo(function SourcesPanel({
   sources,
   queries,
   searchStatus,
@@ -146,4 +144,4 @@ export default function SourcesPanel({
       )}
     </div>
   );
-}
+});

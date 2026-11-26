@@ -17,10 +17,10 @@ test("keys are masked to their last four characters and nothing more", () => {
   assert.equal(safeKeyLog(""), "anvik-key:(none)");
 });
 
-test("IP hashing is deterministic, salted and never returns the raw IP", () => {
-  const a = hashIp("203.0.113.7");
-  const b = hashIp("203.0.113.7");
-  const c = hashIp("203.0.113.8");
+test("IP hashing is deterministic, salted and never returns the raw IP", async () => {
+  const a = await hashIp("203.0.113.7");
+  const b = await hashIp("203.0.113.7");
+  const c = await hashIp("203.0.113.8");
   assert.equal(a, b);
   assert.notEqual(a, c);
   assert.match(a, /^[0-9a-f]{64}$/);

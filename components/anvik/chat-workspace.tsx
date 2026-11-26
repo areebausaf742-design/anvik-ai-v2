@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -43,6 +44,7 @@ import { brandedModelLabel, modeLabel } from "@/lib/prompts";
 import DeepSearchToggle from "@/components/anvik/deep-search-toggle";
 import ChatbarLight from "@/components/anvik/chatbar-light";
 import { motion } from "motion/react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import ModelSelector from "@/components/anvik/model-selector";
 import SourcesPanel from "@/components/anvik/sources-panel";
 import type { SearchSource } from "@/lib/search";
@@ -83,6 +85,11 @@ type PaletteEntry = {
 function makeId() {
   return crypto.randomUUID();
 }
+
+const VirtuosoList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function VirtuosoList(props, ref) {
+  return <div {...props} ref={ref} className="anvik-message-list mx-auto w-full" />;
+});
+VirtuosoList.displayName = "VirtuosoList";
 
 function ChatWorkspaceInner() {
   const pathname = usePathname();
@@ -240,6 +247,11 @@ function ChatWorkspaceInner() {
 
 
   const [showScrollPill, setShowScrollPill] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  // Auto-scroll is now handled by Virtuoso's followOutput; the legacy rAF
+  // scroller is intentionally disabled to avoid fighting the virtualizer.
   const rafRef = useRef<number | null>(null);
   useEffect(() => {
     const node = scrollContainerRef.current;
@@ -254,9 +266,7 @@ function ChatWorkspaceInner() {
   }, [activeChat?.messages, pending]);
 
   const scrollToBottom = useCallback(() => {
-    const node = scrollContainerRef.current;
-    if (!node) return;
-    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "smooth" });
     setShowScrollPill(false);
   }, []);
 
@@ -911,10 +921,13 @@ function ChatWorkspaceInner() {
   const currentIdentity = profile?.id || "guest";
   const namespaceReady = hydrated && identityReady && !sessionLoading && !(session && !profile)
     && identityRef.current === currentIdentity;
-  const safeConversations = namespaceReady ? conversations : [];
-  const activeMessages = namespaceReady ? (activeChat?.messages ?? []) : [];
-  const filteredChats = safeConversations.filter((chat) =>
-    chat.title.toLowerCase().includes(search.toLowerCase()),
+  const safeConversations = useMemo(() => (namespaceReady ? conversations : []), [namespaceReady, conversations]);
+  const activeMessages = useMemo(() => (namespaceReady ? (activeChat?.messages ?? []) : []), [namespaceReady, activeChat]);
+  const filteredChats = useMemo(
+    () => safeConversations.filter((chat) =>
+      chat.title.toLowerCase().includes(search.toLowerCase()),
+    ),
+    [safeConversations, search],
   );
   const showConnectButton = error.includes("Connect your own key");
   const showKeyHelper = showConnectButton || /key invalid|invalid or expired/i.test(error);
@@ -1316,8 +1329,8 @@ function ChatWorkspaceInner() {
         </div>
 
         {/* Message area */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto thin-scroll scroll-container">
-          {activeMessages.length === 0 ? (
+        {activeMessages.length === 0 ? (
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto thin-scroll scroll-container">
             <div className="welcome-stage relative isolate flex min-h-[calc(100dvh-58px)] w-full flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">
               <div className="welcome-stage-overlay" aria-hidden="true" />
               <div className="welcome-3d-object" aria-hidden="true">
@@ -1379,9 +1392,37 @@ function ChatWorkspaceInner() {
               )}
               </div>
             </div>
-          ) : (
-            <div className="anvik-message-list mx-auto w-full">
-              {activeMessages.map((message, index) => {
+          </div>
+        ) : (
+          <>
+            <Virtuoso
+              ref={virtuosoRef}
+              scrollerRef={(ref) => { scrollContainerRef.current = ref as HTMLDivElement | null; }}
+              className="flex-1 thin-scroll scroll-container"
+              data={activeMessages}
+              computeItemKey={(_, message) => message.id}
+              defaultItemHeight={120}
+              increaseViewportBy={{ top: 200, bottom: 400 }}
+              followOutput={() => (pending || atBottom) ? "smooth" : false}
+              atBottomStateChange={(bottom) => {
+                setAtBottom(bottom);
+                setShowScrollPill(!bottom);
+              }}
+              atBottomThreshold={80}
+              components={{
+                List: VirtuosoList,
+                Footer: () =>
+                  pending && activeMessages[activeMessages.length - 1]?.content ? (
+                    <div className="flex items-center gap-2 pl-1 text-xs text-[#999999]">
+                      <span className="typing-dots" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    </div>
+                  ) : null,
+              }}
+              itemContent={(index, message) => {
                 const isUser = message.role === "user";
                 const isLastAssistant = !isUser && index === activeMessages.length - 1;
                 const isThinking = !isUser && !message.content && pending && isLastAssistant;
@@ -1450,7 +1491,6 @@ function ChatWorkspaceInner() {
                           />
                         )}
 
-                        {/* Message toolbar */}
                         <div className="msg-toolbar mt-3 flex items-center gap-1">
                           <button
                             type="button"
@@ -1516,31 +1556,19 @@ function ChatWorkspaceInner() {
                     )}
                   </article>
                 );
-              })}
-
-              {pending && activeMessages[activeMessages.length - 1]?.content && (
-                <div className="flex items-center gap-2 pl-1 text-xs text-[#999999]">
-                  <span className="typing-dots" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </div>
-              )}
-
-              {showScrollPill && (
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  className="fixed bottom-24 right-6 z-20 rounded-full bg-white px-3 py-1.5 text-xs shadow-md"
-                >
-                  Scroll to bottom
-                </button>
-              )}
-              <div ref={endRef} />
-            </div>
-          )}
-        </div>
+              }}
+            />
+            {showScrollPill && (
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                className="fixed bottom-24 right-6 z-20 rounded-full bg-white px-3 py-1.5 text-xs shadow-md"
+              >
+                Scroll to bottom
+              </button>
+            )}
+          </>
+        )}
 
         {/* Bottom composer (when in conversation) */}
         {activeMessages.length > 0 && (

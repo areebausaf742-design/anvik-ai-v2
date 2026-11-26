@@ -60,12 +60,12 @@ test("a guest identity is a salted IP hash, never the device header", async () =
   const restore = withoutSupabase();
   try {
     const { guestIpHash } = await import("../lib/guest-quota");
-    const a = guestIpHash(guestRequest("203.0.113.7", "device-alpha"));
-    const b = guestIpHash(guestRequest("203.0.113.7", "device-beta"));
+    const a = await guestIpHash(guestRequest("203.0.113.7", "device-alpha"));
+    const b = await guestIpHash(guestRequest("203.0.113.7", "device-beta"));
     assert.ok(a, "an IP yields an identity");
     assert.equal(a, b, "rotating the device header must not mint a new guest identity");
 
-    const other = guestIpHash(guestRequest("198.51.100.9"));
+    const other = await guestIpHash(guestRequest("198.51.100.9"));
     assert.notEqual(a, other, "different IPs are different guests");
     assert.doesNotMatch(String(a), /203\.0\.113\.7/, "the raw IP is never the key");
     assert.match(String(a), /^[0-9a-f]{64}$/, "the key is a sha-256 digest");

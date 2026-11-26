@@ -30,8 +30,22 @@ function connectSrc() {
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  compress: true,
+  experimental: {
+    optimizePackageImports: [
+      "lucide-react",
+      "motion",
+      "motion/react",
+      "@react-three/fiber",
+      "@react-three/drei",
+      "three",
+      "react-markdown",
+      "katex",
+    ],
+  },
   distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   images: {
+    formats: ["image/avif", "image/webp"],
     // Generated images are served by the free Flux endpoint as absolute URLs.
     remotePatterns: [
       { protocol: "https", hostname: "image.pollinations.ai" },

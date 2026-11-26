@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Children, Fragment, isValidElement, useState, type ReactNode } from "react";
+import React, { Children, Fragment, isValidElement, memo, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -176,7 +176,7 @@ const markdownComponents: Components = {
   },
 };
 
-export default function Markdown({ text, className = "md" }: { text: string; className?: string }) {
+export default memo(function Markdown({ text, className = "md" }: { text: string; className?: string }) {
   if (!text) return null;
 
   return (
@@ -190,7 +190,7 @@ export default function Markdown({ text, className = "md" }: { text: string; cla
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 export function PlainText({ text }: { text: string }) {
   return <>{text.split("\n").map((line, i) => (

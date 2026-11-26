@@ -55,7 +55,8 @@ import { getVerifiedUserIfPresent } from "@/lib/session";
 import { beginMeteredRequest } from "@/lib/ai-gateway";
 import { logRouteEvent } from "@/lib/observability";
 
-export const maxDuration = 60;
+export const runtime = "edge";
+export const maxDuration = 30;
 
 const validModes = new Set<string>(modes.map(({ id }) => id));
 const MIN_SPACING_MS = 2_000;

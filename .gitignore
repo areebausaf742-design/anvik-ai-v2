@@ -8,6 +8,9 @@ tmp/
 .DS_Store
 next-env.d.ts
 
+# OpenCode local MCP config (may contain tokens)
+opencode.json
+
 # Local env files — only .env.example is committed
 .env
 .env.local
