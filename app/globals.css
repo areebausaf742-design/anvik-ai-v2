@@ -2548,3 +2548,117 @@ html[data-theme="light"] .anvik-alert-dismiss { color: #a06a58; }
 .anvik-searchbar {
   backdrop-filter: blur(12px);
 }
+
+/* ------------------------------------------------------------------ */
+/* Stunning redesign: colourful, large, clear chat surface.            */
+/* ------------------------------------------------------------------ */
+html[data-theme="dark"] .anvik-dark > section {
+  background:
+    radial-gradient(ellipse 80% 60% at 15% -10%, rgba(124, 58, 237, 0.32), transparent 60%),
+    radial-gradient(ellipse 70% 55% at 85% 0%, rgba(59, 130, 246, 0.28), transparent 62%),
+    radial-gradient(ellipse 60% 50% at 50% 110%, rgba(236, 72, 153, 0.22), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 100% 60%, rgba(34, 211, 238, 0.18), transparent 60%),
+    #05060d;
+}
+
+.anvik-dark .chatbar-inner {
+  min-height: 84px;
+  border-radius: 28px;
+  border: 1.5px solid rgba(139, 92, 246, 0.45);
+  background: linear-gradient(155deg, rgba(18, 20, 34, 0.92), rgba(8, 9, 18, 0.96));
+  box-shadow:
+    0 0 0 1px rgba(59, 130, 246, 0.18),
+    0 24px 80px rgba(124, 58, 237, 0.35),
+    0 0 60px rgba(236, 72, 153, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px) saturate(1.2);
+}
+
+.anvik-dark .chatbar-prompt-row .chatbar-input {
+  min-height: 72px;
+  font-size: 18px;
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+.anvik-dark .user-message {
+  padding: 16px 20px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.85), rgba(59, 130, 246, 0.85), rgba(236, 72, 153, 0.75));
+  color: #ffffff;
+  box-shadow: 0 12px 40px rgba(124, 58, 237, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.anvik-dark .user-message p {
+  color: #ffffff;
+  font-size: 17px;
+  line-height: 1.7;
+  font-weight: 500;
+}
+
+.anvik-dark .msg-row > .md {
+  font-size: 17px;
+  line-height: 1.85;
+}
+
+.anvik-dark .msg-row {
+  padding: 18px 20px;
+  border-radius: 22px;
+  background: rgba(12, 14, 24, 0.62);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+}
+
+.anvik-dark .anvik-message-list {
+  max-width: 880px;
+  padding: 40px 24px 32px;
+}
+
+.anvik-dark .welcome-eyebrow {
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  color: rgba(196, 181, 253, 0.9);
+}
+
+.anvik-dark h1.welcome-fade-in {
+  background: linear-gradient(135deg, #c4b5fd 0%, #93c5fd 40%, #f9a8d4 80%, #67e8f9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: clamp(3rem, 8vw, 5.5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.anvik-dark .welcome-shortcut {
+  border-radius: 16px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background: rgba(18, 20, 34, 0.7);
+  color: #e8e6ff;
+  padding: 10px 16px;
+  font-size: 14px;
+  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.18);
+}
+
+.anvik-dark .thinking-card {
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.18), rgba(59, 130, 246, 0.12));
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.anvik-dark .thinking-title { color: #c4b5fd; font-size: 15px; font-weight: 600; }
+
+.anvik-dark .msg-toolbar button {
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.anvik-dark .anvik-alert {
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.18), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(236, 72, 153, 0.35);
+}

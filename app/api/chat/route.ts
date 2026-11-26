@@ -188,7 +188,13 @@ export async function POST(request: Request) {
 
   // Paid plans get longer AI responses (both code and general answers); the
   // free tier stays at the default cap.
-  const tokenCap = paidPlan ? PAID_MAX_TOKENS : selectedMode === "coder" ? CODE_MAX_TOKENS : CHAT_MAX_TOKENS;
+  const tokenCap = paidPlan
+    ? PAID_MAX_TOKENS
+    : selectedMode === "fast"
+      ? 1024
+      : selectedMode === "coder"
+        ? CODE_MAX_TOKENS
+        : CHAT_MAX_TOKENS;
   const requested = typeof temperature === "number" ? temperature : 0.65;
   const safeTemperature = Math.max(0, Math.min(MAX_TEMPERATURE, requested));
 
@@ -196,9 +202,14 @@ export async function POST(request: Request) {
 
   // Exa and Tavily are optional server-side providers. Their content is
   // untrusted evidence only; Google Search grounding remains the fallback.
-  const searchMode = typeof deepSearch === "boolean"
-    ? (deepSearch ? "on" : "off")
-    : normalizeSearchMode(rawSearch);
+  // Fast mode never pays for search unless the caller explicitly asks for it:
+  // this keeps the "fast" promise (lowest latency) instead of spending 1-3
+  // extra round trips on grounding.
+  const searchMode = (selectedMode === "fast" && typeof deepSearch !== "boolean")
+    ? "off"
+    : (typeof deepSearch === "boolean"
+        ? (deepSearch ? "on" : "off")
+        : normalizeSearchMode(rawSearch));
   const lastUser = [...redactedMessages].reverse().find((turn) => turn.role === "user");
   const searchQuery = lastUser?.content ?? "";
   const searchNeeded = searchMode === "on" || (searchMode === "auto" && shouldAutoSearch(searchQuery));
@@ -219,6 +230,7 @@ export async function POST(request: Request) {
     temperature: safeTemperature,
     maxOutputTokens: tokenCap,
     signal: request.signal,
+    retryDelaysMs: selectedMode === "fast" ? [500] : undefined,
     onStreamInterrupted: (emittedText: boolean) => {
       streamInterrupted = true;
       streamHadText = emittedText;
