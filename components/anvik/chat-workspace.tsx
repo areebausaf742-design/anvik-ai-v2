@@ -41,6 +41,8 @@ import { filterPaletteActions, filterPaletteChats, restorePaletteFocus } from "@
 import { wrapIndex } from "@/lib/keyboard-nav";
 import { brandedModelLabel, modeLabel } from "@/lib/prompts";
 import DeepSearchToggle from "@/components/anvik/deep-search-toggle";
+import ChatbarLight from "@/components/anvik/chatbar-light";
+import { motion } from "motion/react";
 import ModelSelector from "@/components/anvik/model-selector";
 import SourcesPanel from "@/components/anvik/sources-panel";
 import type { SearchSource } from "@/lib/search";
@@ -118,6 +120,7 @@ function ChatWorkspaceInner() {
   const [copied, setCopied] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const [chatFocused, setChatFocused] = useState(false);
   const [searchMode, setSearchMode] = useState<"auto" | "on" | "off">("auto");
   const [showPalette, setShowPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -795,8 +798,10 @@ function ChatWorkspaceInner() {
 
   const renderChatbar = (options: { className: string; showTooltip?: boolean }) => (
     <form onSubmit={submit} className={options.className}>
-      <div className="chatbar" data-typing={isEmptyInput ? "false" : "true"}>
-        <div className="chatbar-inner">
+      <div className="chatbar-shell relative">
+        <ChatbarLight contentLength={input.length} active={chatFocused} streaming={pending} />
+        <div className="chatbar relative z-[1]" data-typing={isEmptyInput ? "false" : "true"}>
+        <motion.div className="chatbar-inner" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}>
           <div className="chatbar-prompt-row">
             <Link href="/settings" className="inline-flex items-center gap-1.5 mr-2 text-xs font-bold text-[#1A1A1A]" title="Switch provider">
               {(() => { const b = getProviderBadge(getActiveProviderId()); if (b.icon === "google-gemini") return "G"; if (b.icon === "openai") return "O"; if (b.icon === "anthropic") return "A"; return b.monogram; })()}
@@ -806,6 +811,8 @@ function ChatWorkspaceInner() {
                 ref={fieldRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+            onFocus={() => setChatFocused(true)}
+            onBlur={() => setChatFocused(false)}
                 onKeyDown={keySubmit}
                 aria-describedby="chat-composer-hint"
                 placeholder="Ask ANVIK a question..."
@@ -878,6 +885,7 @@ function ChatWorkspaceInner() {
           )}
 
           </div>
+          </motion.div>
         </div>
       </div>
       {composerBlock && hydrated && (
