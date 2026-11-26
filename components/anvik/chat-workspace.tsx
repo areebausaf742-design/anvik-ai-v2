@@ -124,6 +124,7 @@ function ChatWorkspaceInner() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [quotaDisplay, setQuotaDisplay] = useState<{ plan: string; remaining: number; limit: number } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1053,7 +1054,7 @@ function ChatWorkspaceInner() {
                         type="button"
                         aria-label={`Delete ${chat.title}`}
                         title="Delete"
-                        onClick={() => removeConversation(chat)}
+                        onClick={() => setDeleteTarget(chat)}
                         className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -1165,46 +1166,9 @@ function ChatWorkspaceInner() {
             >
               {focusMode ? <PanelLeftClose className="h-4 w-4" /> : <Focus className="h-4 w-4" />}
             </button>
-            {!focusMode && (
-              <button
-                type="button"
-                aria-label="Notifications"
-                aria-expanded={showNotifications}
-                aria-controls="anvik-notifications-panel"
-                onClick={() => setShowNotifications((open) => !open)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F7F7F5]"
-              >
-                <Bell className="h-4 w-4" />
-              </button>
-            )}
+            {/* Notifications bell hidden until backend push notifications are added. */}
           </div>
         </div>
-
-        {showNotifications && (
-          <div
-            id="anvik-notifications-panel"
-            role="status"
-            className="mx-4 mb-3 flex items-start justify-between gap-3 rounded-xl border border-[#30394d] bg-[#0d111b] px-3 py-3 text-sm text-slate-200 shadow-lg"
-          >
-            <div className="flex items-start gap-2.5">
-              <Bell className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-              <div>
-                <p className="font-medium text-slate-100">Notifications are not connected yet</p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                  ANVIK will show product updates here once a notification service is configured.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-label="Close notifications panel"
-              onClick={() => setShowNotifications(false)}
-              className="rounded-md p-1 text-slate-400 hover:bg-[#20283a] hover:text-white"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
 
         {/* Message area */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto thin-scroll scroll-container">
@@ -1473,6 +1437,41 @@ function ChatWorkspaceInner() {
           </div>
         )}
       </section>
+
+      {deleteTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-conversation-title"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-[#EDEDED] bg-white p-5 shadow-2xl">
+            <h2 id="delete-conversation-title" className="text-base font-semibold text-[#1A1A1A]">
+              Delete this conversation?
+            </h2>
+            <p className="mt-2 text-sm text-[#666666]">This action cannot be undone.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-sm text-[#1A1A1A] hover:border-[#1A1A1A]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  removeConversation(deleteTarget);
+                  setDeleteTarget(null);
+                }}
+                className="rounded-lg bg-[#1A1A1A] px-3 py-1.5 text-sm text-white hover:bg-[#333]"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {undoableDeletion && (
         <div
