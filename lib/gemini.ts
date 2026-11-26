@@ -75,7 +75,7 @@ export const IMAGE_MODEL_FALLBACK_CHAIN = [
 
 export const KEY_FORMAT_ERROR = "Key looks wrong. Paste a new key from aistudio.google.com";
 export const KEY_INVALID_ERROR = "That API key is invalid or expired. Update your key in ANVIK Settings.";
-export const QUOTA_ERROR = "Free quota finished. Wait 1 hour or use another Google account key";
+export const QUOTA_ERROR = "ANVIK is at capacity right now. Please try again in a minute.";
 export const NETWORK_ERROR = "No internet. Try again";
 export const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
@@ -169,6 +169,13 @@ export type GeminiStreamOptions = {
    * Filled from the grounded chunks' groundingMetadata, never invented.
    */
   searchMetaCapture?: SearchMetaCapture;
+  /**
+   * Called once if the upstream body errors after the response headers were
+   * accepted. The route uses this to refund the reservation and close the SSE
+   * connection with a friendly terminal frame instead of a raw reader error.
+   * `emittedText` says whether the user already saw part of the answer.
+   */
+  onStreamInterrupted?: (emittedText: boolean) => void;
 };
 
 export type GeminiStreamResult =
@@ -226,7 +233,17 @@ function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortS
   const timeout = AbortSignal.timeout(timeoutMs);
   if (!signal) return timeout;
   if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, timeout]);
-  return signal.aborted ? signal : timeout;
+  // Older runtimes: compose the two signals by hand so a caller abort still
+  // reaches the fetch. Returning only the timeout signal ignored the caller.
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal.aborted || timeout.aborted) {
+    controller.abort();
+    return controller.signal;
+  }
+  signal.addEventListener("abort", abort, { once: true });
+  timeout.addEventListener("abort", abort, { once: true });
+  return controller.signal;
 }
 
 /** True when the failure is worth retrying the same model for. */
@@ -309,7 +326,7 @@ export async function openGeminiStreamWithFallback(
         return { ok: false, error: classified };
       }
 
-      return { ok: true, model, stream: toTextStream(response.body, options.searchMetaCapture) };
+      return { ok: true, model, stream: toTextStream(response.body, options.searchMetaCapture, options.onStreamInterrupted) };
     }
   }
 
@@ -330,6 +347,7 @@ export async function openGeminiStreamWithFallback(
 function toTextStream(
   upstreamBody: ReadableStream<Uint8Array>,
   capture?: SearchMetaCapture,
+  onInterrupted?: (emittedText: boolean) => void,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -397,7 +415,19 @@ function toTextStream(
         }
       } catch (err) {
         if (!(err instanceof Error && err.name === "AbortError")) {
-          controller.enqueue(encoder.encode("\n\n_Stream interrupted. Please try again._"));
+          onInterrupted?.(emittedAny);
+          // If the user already watched part of the answer arrive, keep it
+          // and let the route explain the interruption. If nothing arrived,
+          // this note is the only thing they would see.
+          if (!emittedAny) {
+            try {
+              controller.enqueue(
+                encoder.encode("ANVIK couldn't finish that answer. Please try again."),
+              );
+            } catch {
+              /* downstream already closed */
+            }
+          }
         }
       } finally {
         reader.releaseLock();

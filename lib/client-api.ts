@@ -54,6 +54,9 @@ export function aiRequestHeaders(options: {
   return headers;
 }
 
+const TECHNICAL_ERROR =
+  /unexpected end|terminated|readablestream|body stream|networkerror|failed to fetch|load failed|fetch failed|the operation was aborted|aborterror|socket hang up/i;
+
 export function mapClientFetchError(err: unknown): string {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return "No internet. Try again";
@@ -64,6 +67,9 @@ export function mapClientFetchError(err: unknown): string {
   if (err instanceof Error) {
     if (/failed to fetch|networkerror|network request failed|load failed/i.test(err.message)) {
       return "No internet. Try again";
+    }
+    if (!err.message.trim() || TECHNICAL_ERROR.test(err.message)) {
+      return "ANVIK lost the connection. Please try again.";
     }
     return err.message;
   }
