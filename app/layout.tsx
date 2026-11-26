@@ -6,7 +6,6 @@ import "./pricing/pricing.css";
 import "./auth/auth.css";
 import { SessionProvider } from "@/components/anvik/session-provider";
 import { AppearanceProvider } from "@/components/anvik/appearance-provider";
-import { ShaderBackground } from "@/components/ui/main-shader-for-ai";
 import { MotionConfig } from "motion/react";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 // Vercel Web Analytics + Speed Insights - privacy-conscious, no cookies:
@@ -62,7 +61,7 @@ export default function RootLayout({
         </a>
         <MotionConfig reducedMotion="user">
           <AppearanceProvider>
-            <ShaderBackground className="ambient-ring-host" />
+            <div className="black-canvas-host" aria-hidden="true" style={{ position: "fixed", inset: 0, zIndex: 0, background: "#000" }} />
             <div id="main-content">
               <SessionProvider>{children}</SessionProvider>
             </div>
