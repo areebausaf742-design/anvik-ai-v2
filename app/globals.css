@@ -1974,27 +1974,18 @@ html[data-theme="light"] .anvik-dark .welcome-shortcut:hover {
 html[data-theme="dark"] .anvik-dark > section {
   position: relative;
   isolation: isolate;
-  background: #07080b;
+  background: #000;
 }
 html[data-theme="dark"] .anvik-dark > section::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 52% 30% at 52% 48%, rgba(17, 35, 54, .38), transparent 74%),
-    radial-gradient(ellipse 42% 24% at 58% 56%, rgba(61, 39, 36, .2), transparent 75%),
-    linear-gradient(112deg, transparent 30%, rgba(0,0,0,.94) 38%, rgba(13,16,21,.96) 42%, rgba(91,109,133,.14) 43%, rgba(230,237,247,.34) 43.35%, rgba(85,157,228,.32) 43.7%, rgba(19,22,29,.96) 47%, #050609 54%, transparent 69%);
-  opacity: .72;
+  content: none;
 }
 html[data-theme="dark"] .anvik-dark > section > * {
   position: relative;
   z-index: 1;
 }
 html[data-theme="dark"] .anvik-dark > section > div:first-child {
-  background: rgba(7, 8, 11, .68);
-  backdrop-filter: blur(18px);
+  background: transparent;
+  backdrop-filter: none;
 }
 html[data-theme="dark"] .anvik-dark .welcome-stage {
   border-color: transparent;
