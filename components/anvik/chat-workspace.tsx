@@ -135,6 +135,10 @@ function ChatWorkspaceInner() {
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechInput | null>(null);
   const photoMenuRef = useRef<HTMLDivElement>(null);
+  const deleteDialogRef = useRef<HTMLDivElement>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const deleteOpenRef = useRef(false);
   const sendingRef = useRef(false);
   const undoTimerRef = useRef<number | null>(null);
   const paletteOpenerRef = useRef<HTMLElement | null>(null);
@@ -275,6 +279,63 @@ function ChatWorkspaceInner() {
   }, [showPhotoMenu]);
 
   useEffect(() => {
+    deleteOpenRef.current = Boolean(deleteTarget);
+  }, [deleteTarget]);
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const trigger = deleteTriggerRef.current;
+    const focusTimer = window.setTimeout(() => deleteCancelRef.current?.focus(), 0);
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      const dialog = deleteDialogRef.current;
+      if (!dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setDeleteTarget(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])",
+        ),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (event.shiftKey) {
+        if (active === first || !dialog.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !dialog.contains(active)) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKeyDown, true);
+      let target: HTMLElement | null = trigger;
+      if (!target || !document.contains(target)) {
+        target = document.querySelector<HTMLElement>("#anvik-new-chat, [data-new-chat]");
+      }
+      if (target) {
+        try { target.focus(); } catch {  }
+      }
+    };
+  }, [deleteTarget]);
+
+  useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
@@ -282,6 +343,10 @@ function ChatWorkspaceInner() {
         else openPalette();
       }
       if (e.key === "Escape") {
+        if (deleteOpenRef.current) {
+          setDeleteTarget(null);
+          return;
+        }
         if (paletteOpenRef.current) closePalette({ restoreFocus: true });
         setShowPhotoMenu(false);
         setFocusMode(false);
@@ -1091,7 +1156,10 @@ function ChatWorkspaceInner() {
                         type="button"
                         aria-label={`Delete ${chat.title}`}
                         title="Delete"
-                        onClick={() => setDeleteTarget(chat)}
+                        onClick={(event) => {
+                          deleteTriggerRef.current = event.currentTarget as HTMLButtonElement;
+                          setDeleteTarget(chat);
+                        }}
                         className="flex h-6 w-6 items-center justify-center rounded text-[#999999] hover:text-[#1A1A1A]"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -1530,18 +1598,22 @@ function ChatWorkspaceInner() {
 
       {deleteTarget && (
         <div
+          ref={deleteDialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-conversation-title"
+          aria-describedby="delete-conversation-description"
+          tabIndex={-1}
           className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4"
         >
           <div className="w-full max-w-sm rounded-2xl border border-[#EDEDED] bg-white p-5 shadow-2xl">
             <h2 id="delete-conversation-title" className="text-base font-semibold text-[#1A1A1A]">
               Delete this conversation?
             </h2>
-            <p className="mt-2 text-sm text-[#666666]">This action cannot be undone.</p>
+            <p id="delete-conversation-description" className="mt-2 text-sm text-[#666666]">This action cannot be undone.</p>
             <div className="mt-4 flex justify-end gap-2">
               <button
+                ref={deleteCancelRef}
                 type="button"
                 onClick={() => setDeleteTarget(null)}
                 className="rounded-lg border border-[#EDEDED] bg-white px-3 py-1.5 text-sm text-[#1A1A1A] hover:border-[#1A1A1A]"
@@ -1619,7 +1691,7 @@ function ChatWorkspaceInner() {
                   setPaletteIndex(0);
                 }}
                 onKeyDown={handlePaletteKeyDown}
-                placeholder="Search chats or run a command..."
+                placeholder="Search chats, pages, and commands..."
                 className="flex-1 bg-transparent text-sm text-[#1A1A1A] placeholder:text-[#999999] focus:outline-none"
               />
               <kbd className="rounded border border-[#EDEDED] px-1.5 py-0.5 text-[10px] text-[#999999]">ESC</kbd>

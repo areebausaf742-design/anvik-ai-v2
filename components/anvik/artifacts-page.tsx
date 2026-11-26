@@ -170,7 +170,7 @@ export default function ArtifactsPage() {
           href="/image"
           className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#1A1A1A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#333333]"
         >
-          Open Image Studio <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          Generate your first artifact <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Link>
       </div>
 
@@ -197,7 +197,7 @@ export default function ArtifactsPage() {
             href="/image"
             className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#1A1A1A] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#333333]"
           >
-            Open Image Studio <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            Generate your first artifact <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
       ) : (
