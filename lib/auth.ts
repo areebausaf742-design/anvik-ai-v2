@@ -717,32 +717,36 @@ export async function signUpWithPassword(
 
 export async function signInWithPassword(email: string, password: string): Promise<AuthResult> {
   if (!authEnabled()) return { ok: false, error: "Supabase is not configured." };
-  try {
-    const response = await fetch(authUrl("/token?grant_type=password"), {
-      method: "POST",
-      headers: headers(),
-      signal: timeoutSignal(15_000),
-      body: JSON.stringify({ email, password }),
-    });
-    const body = await safeJson(response);
-    if (!response.ok) {
-      return { ok: false, error: mapSupabaseAuthError(body, response.status, "signin"), code: "signin_failed" };
+  const maxAttempts = 3;
+  let lastError = "Could not sign in. Check your email and password.";
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    try {
+      const response = await fetch(authUrl("/token?grant_type=password"), {
+        method: "POST",
+        headers: headers(),
+        signal: timeoutSignal(15_000),
+        body: JSON.stringify({ email, password }),
+      });
+      const body = await safeJson(response);
+      if (!response.ok) {
+        if (response.status >= 500 && attempt < maxAttempts - 1) { lastError = mapSupabaseAuthError(body, response.status, "signin"); continue; }
+        return { ok: false, error: mapSupabaseAuthError(body, response.status, "signin"), code: "signin_failed" };
+      }
+      const obj = (body ?? {}) as Record<string, unknown>;
+      const accessToken = typeof obj.access_token === "string" ? obj.access_token : "";
+      if (!accessToken) return { ok: false, error: "Could not sign in. Check your email and password.", code: "signin_failed" };
+      const session = sessionFromBody(obj);
+      if (!session) return { ok: false, error: "Could not sign in. Check your email and password.", code: "signin_failed" };
+      await storeSession(session);
+      const me = await getCurrentUser(session.access_token);
+      return { ok: true, session, user: me.user ?? (obj.user as SupabaseUser) ?? { id: "" } };
+    } catch {
+      lastError = "Could not sign in. Check your email and password.";
+      if (attempt < maxAttempts - 1) continue;
     }
-    const obj = (body ?? {}) as Record<string, unknown>;
-    const accessToken = typeof obj.access_token === "string" ? obj.access_token : "";
-    if (!accessToken) {
-      return { ok: false, error: "Could not sign in. Check your email and password.", code: "signin_failed" };
-    }
-    const session = sessionFromBody(obj);
-    if (!session) {
-      return { ok: false, error: "Could not sign in. Check your email and password.", code: "signin_failed" };
-    }
-    await storeSession(session);
-    const me = await getCurrentUser(session.access_token);
-    return { ok: true, session, user: me.user ?? (obj.user as SupabaseUser) ?? { id: "" } };
-  } catch {
-    return { ok: false, error: "Could not sign in. Check your email and password." };
   }
+  return { ok: false, error: lastError, code: "signin_failed" };
 }
 
 export async function requestPasswordReset(email: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -780,6 +784,7 @@ export async function refreshSession(): Promise<AuthResult | null> {
     const response = await fetch(authUrl("/token?grant_type=refresh_token"), {
       method: "POST",
       headers: headers(),
+      signal: timeoutSignal(15_000),
       body: JSON.stringify({ refresh_token: stored.refresh_token }),
     });
     if (!response.ok) return null;
