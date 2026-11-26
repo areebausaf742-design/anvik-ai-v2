@@ -267,7 +267,7 @@ export default function ProjectsPage() {
             href="/chat"
             className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#1A1A1A] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#333333]"
           >
-            Start a conversation <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            Create your first project <ExternalLink className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
       ) : ready && filtered.length === 0 ? (
