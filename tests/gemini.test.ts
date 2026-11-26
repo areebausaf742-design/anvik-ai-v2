@@ -129,7 +129,7 @@ test("falls back 2.5-flash -> 2.0-flash -> 2.0-flash-lite on 404 and streams tok
     fetchImpl: async (input) => {
       const url = String(input);
       attempted.push(url);
-      if (!url.includes("gemini-2.0-flash-lite")) {
+      if (!url.includes("gemini-2.0-flash")) {
         return new Response("Not Found", { status: 404 });
       }
       return new Response(sseStream(["The speed of ", "light is about 299,792,458 m/s."]), { status: 200 });
@@ -143,7 +143,7 @@ test("falls back 2.5-flash -> 2.0-flash -> 2.0-flash-lite on 404 and streams tok
 
   assert.equal(result.ok, true);
   if (result.ok) {
-    assert.equal(result.model, "gemini-2.0-flash-lite");
+    assert.equal(result.model, "gemini-2.0-flash");
     const text = await new Response(result.stream).text();
     assert.equal(text, "The speed of light is about 299,792,458 m/s.");
   }
@@ -173,7 +173,7 @@ test("stops immediately on 401 or 429 without cascading 404 fallback", async () 
     retryDelaysMs: [1, 1],
     fetchImpl: async (input) => {
       calls += 1;
-      if (!String(input).includes("gemini-2.0-flash-lite")) {
+      if (!String(input).includes("gemini-2.0-flash")) {
         return new Response("Quota exceeded", { status: 429 });
       }
       return new Response(sseStream(["ok after fallback"]), { status: 200 });
@@ -182,7 +182,7 @@ test("stops immediately on 401 or 429 without cascading 404 fallback", async () 
   // 3 attempts on 2.5-flash + 3 attempts on 2.0-flash + 1 attempt on 2.0-flash-lite
   assert.equal(calls, 7);
   assert.equal(res429.ok, true);
-  if (res429.ok) assert.equal(res429.model, "gemini-2.0-flash-lite");
+  if (res429.ok) assert.equal(res429.model, "gemini-2.0-flash");
 });
 
 test("429 and 500 are retried with backoff, then fall back to the next model", async () => {
@@ -195,11 +195,11 @@ test("429 and 500 are retried with backoff, then fall back to the next model", a
     fetchImpl: async (input) => {
       const url = String(input);
       attempted.push(url);
+      if (url.includes("gemini-2.5-flash-lite")) {
+        return new Response("Server error", { status: 500 });
+      }
       if (url.includes("gemini-2.5-flash")) {
         return new Response("Quota exceeded", { status: 429 });
-      }
-      if (url.includes("gemini-2.0-flash") && !url.includes("lite")) {
-        return new Response("Server error", { status: 500 });
       }
       return new Response(sseStream(["fallback answer"]), { status: 200 });
     },
@@ -208,7 +208,7 @@ test("429 and 500 are retried with backoff, then fall back to the next model", a
   // 2.5-flash: 3 attempts; 2.0-flash: 3 attempts; 2.0-flash-lite: 1 attempt
   assert.equal(attempted.length, 7, `attempted ${attempted.length}`);
   assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.model, "gemini-2.0-flash-lite");
+  if (result.ok) assert.equal(result.model, "gemini-2.0-flash");
 
 });
 

@@ -27,7 +27,7 @@ const OFFICIAL_ICON_KEYS: Record<string, string> = {
 };
 
 export const PROVIDERS: Provider[] = [
-  { id: "anvik", name: "ANVIK Built-in", category: "builtin", badge: "ANV", icon: null },
+  { id: "anvik", name: "ANVIK Built-in", category: "builtin", badge: "ANV", icon: null, modelPresets: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"] },
   { id: "gemini", name: "Google Gemini", category: "cloud", badge: "GEM", icon: "google-gemini", apiKeyUrl: "https://aistudio.google.com/app/apikey", defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", modelPresets: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"] },
   { id: "openai", name: "OpenAI", category: "cloud", badge: "OPE", icon: "openai", apiKeyUrl: "https://platform.openai.com/api-keys", defaultBaseUrl: "https://api.openai.com/v1", modelPresets: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini"] },
   { id: "anthropic", name: "Anthropic Claude", category: "cloud", badge: "ANT", icon: "anthropic", apiKeyUrl: "https://console.anthropic.com/settings/keys", defaultBaseUrl: "https://api.anthropic.com/v1", modelPresets: ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"] },

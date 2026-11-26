@@ -34,8 +34,8 @@ export type SearchMetaCapture = {
 
 export const MODEL_FALLBACK_CHAIN = [
   "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
 ] as const;
 
 export const DEFAULT_RETRY_DELAYS_MS = [1000, 2000];
