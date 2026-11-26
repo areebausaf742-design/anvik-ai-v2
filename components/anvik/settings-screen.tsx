@@ -456,7 +456,7 @@ function SettingsScreenInner() {
             </p>
           </div>
         </div>
-        {quota && (
+        {quota && quota.authenticated === false && (
           <div className="mt-4 space-y-2">
             {(quota.plan?.id === "pack") ? (
               <>
@@ -488,12 +488,7 @@ function SettingsScreenInner() {
                 )}
               </>
             )}
-            <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0F0EE]">
-              <div
-                className="h-full rounded-full bg-[#1A1A1A] transition-all"
-                style={{ width: `${quotaPercent}%` }}
-              />
-            </div>
+            <div className="flex items-center gap-3"><div className="h-14 w-14 rounded-full" style={{ background: "conic-gradient(#1A1A1A " + quotaPercent + "%, #F0F0EE 0)" }} /><div className="text-sm font-semibold text-[#1A1A1A]">{quotaPercent}% used</div></div>
             {quotaError && (
               <p role="status" className="text-[0.7rem] text-[#666666]">{quotaError}</p>
             )}
