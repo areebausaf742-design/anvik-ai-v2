@@ -114,6 +114,7 @@ function ChatWorkspaceInner() {
   const [hydrated, setHydrated] = useState(false);
   const [identityReady, setIdentityReady] = useState(false);
   const [input, setInput] = useState("");
+  const [draftRestored, setDraftRestored] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [keyTestStatus, setKeyTestStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -150,6 +151,8 @@ function ChatWorkspaceInner() {
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const deleteOpenRef = useRef(false);
   const sendingRef = useRef(false);
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
   const undoTimerRef = useRef<number | null>(null);
   const paletteOpenerRef = useRef<HTMLElement | null>(null);
   const paletteOpenRef = useRef(false);
@@ -234,6 +237,33 @@ function ChatWorkspaceInner() {
         if (identityRef.current === owner) setIdentityReady(true);
       });
   }, [sessionLoading, session, profile]);
+
+  // Restore a draft the visitor typed on the public landing page and send it
+  // once the verified identity is ready. The draft lives in sessionStorage
+  // across the /login round-trip; it is cleared on read so it can never be
+  // sent twice.
+  useEffect(() => {
+    if (!hydrated || !identityReady || draftRestored) return;
+    let draft = "";
+    try {
+      const stored = sessionStorage.getItem("anvik-pending-draft");
+      const destination = sessionStorage.getItem("anvik-pending-destination");
+      draft = stored && destination === "/chat" ? stored : "";
+      if (draft) {
+        sessionStorage.removeItem("anvik-pending-draft");
+        sessionStorage.removeItem("anvik-pending-destination");
+      }
+    } catch {
+      /* sessionStorage unavailable — no draft to restore */
+    }
+    setDraftRestored(true);
+    if (!draft) return;
+    setInput(draft);
+    // Send after a frame so the restored input paints before the stream starts.
+    requestAnimationFrame(() => {
+      void sendMessageRef.current(draft);
+    });
+  }, [hydrated, identityReady, draftRestored]);
 
   useEffect(() => {
     if (!hydrated || !identityReady) return;
