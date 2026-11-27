@@ -1,19 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { PublicChatbar } from "@/components/anvik/landing/chatbar";
-import { Button } from "@/components/anvik/ui";
+import { PublicChat } from "@/components/anvik/landing/public-chat";
 
 /**
  * Landing hero. A single confident statement, one live chat bar, one primary
- * action. No gradient text, no glass cards, no ornament — scale and spacing do
- * the work. Pressing send in the bar preserves the draft and hands off to
- * sign-in, which restores and sends it from /chat.
+ * action. Guests get 10 free answers/day on the chat bar (no sign-in); after
+ * that they are prompted to sign in, with the draft preserved.
  */
 
 export function Hero() {
-  const router = useRouter();
   return (
     <section className="public-hero" aria-label="Hero">
       <div className="public-hero-inner">
@@ -30,18 +25,7 @@ export function Hero() {
           in English, Hindi or Hinglish. Ten free questions a day; sign in to
           keep your history, credits and consent.
         </p>
-        <PublicChatbar onSend={(draft) => {
-          void router.push("/login");
-        }} />
-        <p className="public-hero-note">
-          Pressing send opens sign-in with your draft preserved — no account
-          needed to try, an account to keep going.
-        </p>
-        <Button asChild variant="outline" className="public-hero-cta">
-          <Link href="/login" prefetch={false}>
-            Sign in to continue <span className="text-[var(--theme-text-secondary)]" aria-hidden>→</span>
-          </Link>
-        </Button>
+        <PublicChat />
       </div>
     </section>
   );
