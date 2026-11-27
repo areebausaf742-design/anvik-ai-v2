@@ -2374,6 +2374,41 @@ html[data-theme="dark"] .anvik-dark .welcome-shortcut:hover {
 .thinking-card .typing-dots { margin-left: auto; }
 .thinking-card .typing-dots span { background: #aab6c8; }
 
+/* Light-sweep through the "Anvik is thinking" letters (brand motion).
+   GPU-composited, ~1.4s loop, no layout shift. Reduced-motion shows a
+   static muted-to-primary gradient instead. */
+.thinking-sweep {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 30%,
+    var(--text-primary) 50%,
+    var(--accent) 52%,
+    var(--text-primary) 54%,
+    var(--text-muted) 70%,
+    var(--text-muted) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-sweep 1.4s linear infinite;
+}
+
+@keyframes thinking-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-sweep {
+    animation: none !important;
+    -webkit-text-fill-color: #aeb5c1 !important;
+    color: #aeb5c1;
+  }
+}
+
 .anvik-alert {
   display: flex;
   align-items: flex-start;
