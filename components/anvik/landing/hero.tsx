@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { PublicChatbar } from "@/components/anvik/landing/chatbar";
+import { Button } from "@/components/anvik/ui";
 
 /**
  * Landing hero. A single confident statement, one live chat bar, one primary
@@ -36,13 +37,11 @@ export function Hero() {
           Pressing send opens sign-in with your draft preserved — no account
           needed to try, an account to keep going.
         </p>
-        <Link
-          href="/login"
-          className="public-hero-cta inline-flex items-center gap-2 rounded-xl border border-[#343842] bg-[#0b0d12] px-5 py-2.5 text-sm font-medium text-[#dce1e9] hover:bg-[#121827] hover:border-[#5d6673] transition-colors"
-          prefetch={false}
-        >
-          Sign in to continue <span className="text-[#949ca9]" aria-hidden>→</span>
-        </Link>
+        <Button asChild variant="outline" className="public-hero-cta">
+          <Link href="/login" prefetch={false}>
+            Sign in to continue <span className="text-[var(--theme-text-secondary)]" aria-hidden>→</span>
+          </Link>
+        </Button>
       </div>
     </section>
   );
