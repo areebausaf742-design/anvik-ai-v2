@@ -67,7 +67,11 @@ test("SessionProvider caches the last verified account and revalidates in the ba
 
 test("system prompt includes Areeb creator identity across all modes", () => {
   const route = readFileSync(new URL("../app/api/chat/route.ts", import.meta.url), "utf8");
-  assert.match(route, /created and engineered by Areeb, an AI Engineer/);
+  const library = readFileSync(new URL("../lib/prompt-library.ts", import.meta.url), "utf8");
+  // The creator identity lives in the versioned prompt library (shared persona)
+  // and is consumed by the chat route via getPromptVersion("chat").
+  assert.match(library, /created and engineered by Areeb, an AI Engineer/);
+  assert.match(route, /getPromptVersion\("chat"\)/);
   for (const mode of ["fast", "smart", "creative", "coder"]) {
     assert.match(route, new RegExp(mode));
   }
