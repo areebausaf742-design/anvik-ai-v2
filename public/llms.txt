@@ -1,0 +1,17 @@
+# ANVIK AI
+
+> ANVIK AI is a calm, confident personal AI workspace for questions, code, images, voice and vision - in English, Hindi or Hinglish.
+
+## About
+
+- [Home](https://anvik.ai/)
+- [Chat](https://anvik.ai/chat)
+- [Code](https://anvik.ai/code)
+- [Image](https://anvik.ai/image)
+- [Vision](https://anvik.ai/vision)
+- [Pricing](https://anvik.ai/pricing)
+- [About](https://anvik.ai/about)
+
+## Usage
+
+ANVIK AI offers ten free questions per day without an account. Sign in to keep history, credits and consent.

@@ -18,7 +18,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://anvik.ai";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "ANVIK AI - One Mind. Infinite Possibilities.",
+    default: "ANVIK AI",
     template: "%s - ANVIK AI",
   },
   description:

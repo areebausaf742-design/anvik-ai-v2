@@ -91,6 +91,8 @@ export function PublicChatbar({ onSend }: { onSend: (draft: string) => void }) {
         <div className="public-chatbar-row flex items-center gap-3 w-full min-w-0">
           <div className="public-chatbar-input-wrap flex-1 min-w-0 relative">
             <textarea
+              id="public-chatbar-input"
+              name="prompt"
               ref={fieldRef}
               value={input}
               onChange={onChange}
@@ -120,13 +122,6 @@ export function PublicChatbar({ onSend }: { onSend: (draft: string) => void }) {
         </div>
         <div className="public-chatbar-toolbar flex items-center justify-between gap-2 pt-2">
           <span className="text-[10px] font-semibold tracking-wider text-[#77839a] uppercase">ANVIK · Chat</span>
-          <button
-            type="button"
-            aria-label="Model selector"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-[#343842] bg-[#121827] text-[#dce1e9] hover:bg-[#171e2d] hover:border-[#5d6673] transition-colors"
-          >
-            <Send className="h-4 w-4" aria-hidden="true" />
-          </button>
         </div>
       </div>
     </form>
