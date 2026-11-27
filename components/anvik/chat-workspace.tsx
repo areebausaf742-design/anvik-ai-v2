@@ -116,6 +116,7 @@ function ChatWorkspaceInner() {
   const [input, setInput] = useState("");
   const [draftRestored, setDraftRestored] = useState(false);
   const [pending, setPending] = useState(false);
+  const [stillWorking, setStillWorking] = useState(false);
   const [error, setError] = useState("");
   const [keyTestStatus, setKeyTestStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [testingKey, setTestingKey] = useState(false);
@@ -310,6 +311,15 @@ function ChatWorkspaceInner() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // After 6 seconds of pending generation, quietly surface "Still working…".
+  useEffect(() => {
+    if (!pending) {
+      setStillWorking(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setStillWorking(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
   useEffect(() => {
     if (!showPhotoMenu) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -1477,13 +1487,15 @@ function ChatWorkspaceInner() {
                           <AnvikStar size="sm" spin />
                         </span>
                         <div className="thinking-copy">
-                          <span className="thinking-title">
-                            {message.searchStatus === "on" ? "Searching the web" : "ANVIK is thinking"}
+                          <span className="thinking-title thinking-sweep">
+                            {message.searchStatus === "on" ? "Anvik is searching" : "Anvik is thinking"}
                           </span>
                           <span className="thinking-sub">
-                            {message.searchStatus === "on"
-                              ? "Checking live sources for a grounded answer…"
-                              : "Composing a clear, careful answer…"}
+                            {stillWorking
+                              ? "Still working…"
+                              : message.searchStatus === "on"
+                                ? "Checking live sources for a grounded answer…"
+                                : "Composing a clear, careful answer…"}
                           </span>
                         </div>
                         <span className="typing-dots" aria-hidden="true">
