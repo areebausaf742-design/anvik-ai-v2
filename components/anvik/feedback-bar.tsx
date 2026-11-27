@@ -9,6 +9,8 @@ import {
   type Verdict,
 } from "@/lib/learning";
 
+const REASON_CHIPS = ["Inaccurate", "Off-topic", "Too verbose", "Missing sources", "Wrong code"] as const;
+
 export default function FeedbackBar({
   question,
   answer,
@@ -35,6 +37,7 @@ export default function FeedbackBar({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
 
   useEffect(() => {
     if (!note) return;
@@ -44,22 +47,38 @@ export default function FeedbackBar({
 
   function vote(next: Verdict) {
     const active = verdict === next ? undefined : next;
-    const { redacted } = recordFeedback({ question, answer, verdict: next });
-    mirrorLearning({ verdict: next, question, answer });
+    if (next === "dislike") {
+      setSelectedReasons([]);
+      const { redacted } = recordFeedback({ question, answer, verdict: "dislike" });
+      mirrorLearning({ verdict: "dislike", question, answer });
+      if (redacted.length > 0) {
+        onError(`Not stored: ANVIK removed ${redacted.join(", ")} from what you sent.`);
+      }
+    } else {
+      const { redacted } = recordFeedback({ question, answer, verdict: "like" });
+      mirrorLearning({ verdict: "like", question, answer });
+      if (redacted.length > 0) {
+        onError(`Not stored: ANVIK removed ${redacted.join(", ")} from what you sent.`);
+      }
+    }
     onVerdict(active);
     setOpen(active === "dislike");
     if (active === "dislike") {
-      setNote("Thanks — tell ANVIK what the right answer was.");
+      setNote("Thanks — pick a reason or tell ANVIK what the right answer was.");
     } else if (active === "like") {
       setNote("Feedback saved locally.");
     } else {
       setNote("");
     }
-    if (redacted.length > 0) {
-      onError(
-        `Not stored: ANVIK removed ${redacted.join(", ")} from what you sent.`,
-      );
-    }
+  }
+
+  function toggleReason(reason: string) {
+    const next = selectedReasons.includes(reason)
+      ? selectedReasons.filter((r) => r !== reason)
+      : [...selectedReasons, reason];
+    setSelectedReasons(next);
+    recordFeedback({ question, answer, verdict: "dislike", reasons: next });
+    mirrorLearning({ verdict: "dislike", question, answer });
   }
 
   function teach() {
@@ -135,6 +154,24 @@ export default function FeedbackBar({
 
       {open && (
         <div className="mt-3 rounded-xl border border-[#EDEDED] bg-white p-3">
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            <span className="text-[11px] font-medium text-[#666666]">Reason (optional):</span>
+            {REASON_CHIPS.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                onClick={() => toggleReason(chip)}
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                  selectedReasons.includes(chip)
+                    ? "border-[#D97757] bg-[#D97757]/10 text-[#D97757]"
+                    : "border-[#EDEDED] bg-[#F7F7F5] text-[#666666] hover:bg-[#F0F0EE]"
+                }`}
+                aria-pressed={selectedReasons.includes(chip)}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
           <label htmlFor="teach-input" className="block text-xs font-medium text-[#1A1A1A]">
             What should ANVIK have answered?
             <span className="mt-0.5 block text-[11px] font-normal text-[#666666]">
