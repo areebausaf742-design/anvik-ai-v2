@@ -6,6 +6,7 @@ import {
   MessageSquarePlus,
   Eye,
 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/anvik/ui";
 
 const MODES = [
   {
@@ -45,17 +46,18 @@ export function ModeShowcase() {
         </p>
         <div className="public-showcase-grid">
           {MODES.map((mode) => (
-            <Link
-              key={mode.title}
-              href={mode.href}
-              className="public-mode-card"
-              prefetch={true}
-            >
-              <div className="public-mode-icon flex items-center justify-center">
-                <mode.icon className="h-5 w-5" aria-hidden="true" />
-              </div>
-              <h3 className="public-mode-title">{mode.title}</h3>
-              <p className="public-mode-desc">{mode.description}</p>
+            <Link key={mode.title} href={mode.href} className="block" prefetch={true}>
+              <Card key={mode.title} className="public-mode-card">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <mode.icon className="h-5 w-5" aria-hidden="true" />
+                  <CardTitle className="text-base">{mode.title}</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="public-mode-desc">{mode.description}</p>
+              </CardContent>
+            </Card>
             </Link>
           ))}
         </div>

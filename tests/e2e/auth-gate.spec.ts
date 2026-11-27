@@ -81,7 +81,7 @@ test.describe("auth gate", () => {
       await sendButton.click();
 
       // The assistant message appears (streaming begins).
-      await expect(page.getByText(/anvik/i, { ignoreCase: true })).toBeVisible();
+      await expect(page.getByText(/anvik/i)).toBeVisible();
     });
   });
 });
