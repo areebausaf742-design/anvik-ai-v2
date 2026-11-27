@@ -375,6 +375,8 @@ export default function LoginPage() {
               <span className="auth-label">Email</span>
               <input
                 className="auth-input"
+                id="email"
+                name="email"
                 type="email"
                 autoComplete="email"
                 autoCapitalize="none"
@@ -398,6 +400,8 @@ export default function LoginPage() {
               <span className="auth-label">Your name</span>
               <input
                 className="auth-input"
+                id="name"
+                name="name"
                 type="text"
                 autoComplete="name"
                 required
@@ -412,6 +416,8 @@ export default function LoginPage() {
               <span className="auth-label">Email</span>
               <input
                 className="auth-input"
+                id="email"
+                name="email"
                 type="email"
                 autoComplete="email"
                 autoCapitalize="none"
@@ -429,6 +435,8 @@ export default function LoginPage() {
               <span className="auth-input-wrap">
                 <input
                   className="auth-input"
+                  id="password"
+                  name="password"
                   type={passwordVisible ? "text" : "password"}
                   autoComplete="new-password"
                   required
@@ -452,6 +460,8 @@ export default function LoginPage() {
               <span className="auth-label">Confirm password</span>
               <input
                 className="auth-input"
+                id="confirm-password"
+                name="confirmPassword"
                 type="password"
                 autoComplete="new-password"
                 required
@@ -472,6 +482,8 @@ export default function LoginPage() {
               <span className="auth-label">Email</span>
               <input
                 className="auth-input"
+                id="email"
+                name="email"
                 type="email"
                 autoComplete="email"
                 autoCapitalize="none"
@@ -489,6 +501,8 @@ export default function LoginPage() {
               <span className="auth-input-wrap">
                 <input
                   className="auth-input"
+                  id="password"
+                  name="password"
                   type={passwordVisible ? "text" : "password"}
                   autoComplete="current-password"
                   required
@@ -560,12 +574,8 @@ export default function LoginPage() {
           )}
         </div>
 
-        <div className="auth-divider">or keep it free</div>
-        <Link href="/chat" prefetch={false} className="auth-btn-ghost" style={{ textDecoration: "none" }}>
-          Continue without an account <ArrowRight className="h-4 w-4" aria-hidden />
-        </Link>
         <p className="auth-note" style={{ textAlign: "center", marginTop: "0.75rem" }}>
-          <Mail aria-hidden className="inline h-3.5 w-3.5" /> Anonymous usage keeps the free ten-question daily limit and never stores your identity — an account adds history, credits and consent control.
+          <Mail aria-hidden className="inline h-3.5 w-3.5" /> Signing in is free and adds history, credits and consent control. Your data stays yours.
         </p>
 
         <Link prefetch={false} className="auth-center" href="/" style={{ display: "block", marginTop: "1.4rem" }}>

@@ -72,14 +72,13 @@ export default function DesignPage() {
             </h2>
             <div className="space-y-2">
               {tokens.map((t) => (
-                <button
+                <div
                   key={t.name}
-                  onClick={() => {}}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-[var(--theme-text-secondary)] hover:bg-[var(--theme-surface-hover)] hover:text-[var(--theme-text)] transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-[var(--theme-text-secondary)]"
                 >
                   <span>{t.label}</span>
                   <span className="text-[var(--theme-text-muted)] text-[10px]">{t.name}</span>
-                </button>
+                </div>
               ))}
             </div>
           </aside>
@@ -149,7 +148,7 @@ export default function DesignPage() {
                     <CardTitle>Inputs & badges</CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
-                    <Input placeholder="Type something…" />
+                    <Input id="design-input" name="design-input" placeholder="Type something…" />
                     <div className="flex items-center gap-3">
                       <Badge variant="default">Default</Badge>
                       <Badge variant="secondary">Secondary</Badge>
