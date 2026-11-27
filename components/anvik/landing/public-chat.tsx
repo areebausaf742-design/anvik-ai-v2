@@ -1,18 +1,10 @@
 "use client";
 
-import { useCallback, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Send } from "lucide-react";
+import { ArrowRight, Send } from "lucide-react";
 import Markdown from "@/components/anvik/markdown";
 import { readDeviceId } from "@/lib/client-key";
-
-const SUGGESTIONS = [
-  "Explain quantum computing like I'm twelve",
-  "Write a Python script that renames my files",
-  "Plan my mid-term study schedule",
-  "Describe a futuristic city at golden hour",
-  "Summarize this research paper's key findings",
-];
 
 type Msg = { id: string; role: "user" | "assistant"; content: string; isError?: boolean };
 
@@ -33,26 +25,9 @@ export function PublicChat() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [guestLimitReached, setGuestLimitReached] = useState(false);
-  const [suggestionIndex, setSuggestionIndex] = useState(0);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-  }, []);
-
-  const cycle = useCallback(() => {
-    clearTimer();
-    timerRef.current = setTimeout(() => {
-      setSuggestionIndex((i) => (i + 1) % SUGGESTIONS.length);
-    }, 3200);
-  }, [clearTimer]);
-
-  // Living placeholder cycles; pauses on focus/typing.
-  // (cycle is invoked on mount and on focus/blur in the textarea handlers)
 
   const submit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
@@ -264,10 +239,8 @@ export function PublicChat() {
                     const f = fieldRef.current;
                     if (f) { f.style.height = "auto"; f.style.height = `${Math.min(f.scrollHeight, 160)}px`; }
                   }}
-                  onFocus={() => { clearTimer(); cycle(); }}
-                  onBlur={() => cycle()}
                   onKeyDown={keySubmit}
-                  placeholder={SUGGESTIONS[suggestionIndex]}
+                  placeholder="Ask a question, share an idea, or paste a snippet…"
                   aria-label="Ask ANVIK anything…"
                   rows={1}
                   className="public-chatbar-input"
@@ -284,9 +257,6 @@ export function PublicChat() {
               >
                 <Send className="h-5 w-5" aria-hidden="true" />
               </button>
-            </div>
-            <div className="public-chatbar-toolbar flex items-center justify-between gap-2 pt-2">
-              <span className="text-[10px] font-semibold tracking-wider text-[#77839a] uppercase">ANVIK · Chat</span>
             </div>
           </div>
         </form>
@@ -308,25 +278,12 @@ export function PublicChat() {
           </div>
         )}
 
-        <div className="mt-6 flex items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={goToSignIn}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)] px-5 py-2.5 text-sm font-medium text-[var(--theme-text)] hover:bg-[var(--theme-surface-hover)] transition-colors"
-          >
-            Sign in <span className="text-[var(--theme-text-secondary)]" aria-hidden>→</span>
+        <div className="public-chat-account">
+          <button type="button" onClick={goToSignIn} className="public-hero-cta">
+            Create a free account <ArrowRight aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            onClick={goToSignIn}
-            className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] transition-colors"
-          >
-            Create a free account
-          </button>
+          <p className="public-hero-note">Ten free questions a day. No account needed to try.</p>
         </div>
-        <p className="public-hero-note">
-          Ten free questions a day - no account needed to try. Sign in to keep your history, credits and consent.
-        </p>
     </div>
   );
 }

@@ -4,13 +4,13 @@ import { ModeShowcase } from "@/components/anvik/landing/showcase";
 import { LandingFooter } from "@/components/anvik/landing/footer";
 
 export const metadata: Metadata = {
-  title: "ANVIK AI — Ask anything. Get instant, intelligent answers.",
+  title: "ANVIK AI — Find your next step",
   description:
-    "ANVIK AI is a calm, confident personal workspace for questions, code, images and vision — in English, Hindi or Hinglish. Ten free questions a day; sign in to keep your history, credits and consent.",
+    "A calm workspace for answers, code, images and vision — in English, Hindi or Hinglish. Start with ten free questions a day, no account required.",
   openGraph: {
-    title: "ANVIK AI — Ask anything. Get instant, intelligent answers.",
+    title: "ANVIK AI — Find your next step",
     description:
-      "ANVIK AI is a calm, confident personal workspace for questions, code, images and vision.",
+      "A calm workspace for answers, code, images and vision — in English, Hindi or Hinglish.",
     type: "website",
   },
 };

@@ -1,12 +1,11 @@
 import Link from "next/link";
 import {
+  ArrowUpRight,
   Code2,
   Image as ImageIcon,
-  LayoutGrid,
   MessageSquarePlus,
   Eye,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/anvik/ui";
 
 const MODES = [
   {
@@ -37,27 +36,32 @@ const MODES = [
 
 export function ModeShowcase() {
   return (
-    <section className="public-showcase" aria-label="What ANVIK can do">
+    <section className="public-showcase" aria-label="Explore ANVIK modes">
       <div className="public-showcase-inner">
-        <h2 className="public-showcase-heading">Four modes. One calm workspace.</h2>
-        <p className="public-showcase-sub">
-          Switch modes in the sidebar once you&#39;re signed in. Each one shares the same
-          conversation history and the same quiet attention to detail.
-        </p>
+        <header className="public-showcase-intro">
+          <div>
+            <p className="public-section-eyebrow">FOUR WAYS TO MAKE PROGRESS</p>
+            <h2 className="public-showcase-heading">More than a chat window.</h2>
+          </div>
+          <p className="public-showcase-sub">
+            Move from a first question to finished work without losing your train of thought.
+            Every mode shares the same considered workspace.
+          </p>
+        </header>
         <div className="public-showcase-grid">
-          {MODES.map((mode) => (
-            <Link key={mode.title} href={mode.href} className="block" prefetch={true}>
-              <Card key={mode.title} className="public-mode-card">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <mode.icon className="h-5 w-5" aria-hidden="true" />
-                  <CardTitle className="text-base">{mode.title}</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
+          {MODES.map((mode, index) => (
+            <Link key={mode.title} href={mode.href} className="public-mode-card" prefetch={true}>
+              <span className="public-mode-number" aria-hidden="true">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="public-mode-icon" aria-hidden="true">
+                <mode.icon />
+              </span>
+              <span className="public-mode-copy">
+                <h3 className="public-mode-title">{mode.title}</h3>
                 <p className="public-mode-desc">{mode.description}</p>
-              </CardContent>
-            </Card>
+              </span>
+              <ArrowUpRight className="public-mode-arrow" aria-hidden="true" />
             </Link>
           ))}
         </div>
