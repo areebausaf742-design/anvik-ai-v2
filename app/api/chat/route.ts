@@ -29,6 +29,7 @@
  */
 
 import { modes, type ModeId } from "@/lib/prompts";
+import { getPromptVersion } from "@/lib/prompt-library";
 import { serverKey } from "@/lib/provider";
 import { CHAT_MAX_TOKENS, CODE_MAX_TOKENS, MAX_TEMPERATURE, PAID_MAX_TOKENS } from "@/lib/credit";
 import { memoryInstruction, type Memory } from "@/lib/learning";
@@ -71,14 +72,12 @@ const modeInstructions: Record<ModeId, string> = {
   coder: "Be precise about code, include clean runnable examples, and explain key decisions clearly.",
 };
 
-const SYSTEM = [
-  "You are ANVIK, a sharp, warm, and deeply knowledgeable personal AI assistant.",
-  "Always answer the user's exact question directly on its own topic. Never switch topics.",
-  "Use clean Markdown when it improves readability (headings, bullet lists, fenced code blocks).",
-  "Answer in the same language the user wrote in (English, Devanagari Hindi, or Roman Hinglish).",
-  "Never claim to have performed external actions or invent links, phone numbers, or statistics.",
-  "Identity: ANVIK AI was created and engineered by Areeb, an AI Engineer. If asked who made, created, built, developed you, or who your creator/founder is, clearly and confidently state that you were created and engineered by Areeb, an AI Engineer. Never claim to be made by Google, OpenAI, or Gemini.",
-].join(" ");
+const CHAT_PROMPT = getPromptVersion("chat");
+const SYSTEM = CHAT_PROMPT.system;
+const CHAT_PROMPT_VERSION = CHAT_PROMPT.id;
+
+// Self-critique instruction for "smart" mode (Phase 6 intelligence layer).
+const SMART_SELF_CRITIQUE = "Before finalising, briefly plan your approach, answer, then self-check for accuracy and clarity and revise if needed. Keep the final answer concise.";
 
 function readMemory(input: unknown): Memory | null {
   if (!input || typeof input !== "object") return null;
@@ -182,6 +181,7 @@ export async function POST(request: Request) {
   const systemInstruction = [
     SYSTEM,
     modeInstructions[selectedMode],
+    selectedMode === "smart" ? SMART_SELF_CRITIQUE : "",
     remembered ? memoryInstruction(remembered) : "",
     buildSearchFreshnessInstruction(),
   ]
@@ -383,7 +383,7 @@ export async function POST(request: Request) {
               : searchMetaCapture && groundedMetaSeen ? normalizeQueries(searchMetaCapture.queries) : [];
             controller.enqueue(
               encoder.encode(
-                sseFrame({ t: "done", model, search: finalSearchStatus, sources, queries }),
+                sseFrame({ t: "done", model, search: finalSearchStatus, sources, queries, promptVersion: CHAT_PROMPT_VERSION }),
               ),
             );
           }
@@ -465,6 +465,7 @@ export async function POST(request: Request) {
         "X-ANVIK-MODEL": model,
         "X-ANVIK-LABEL": "ANVIK",
         "X-ANVIK-SEARCH-STATUS": searchStatus,
+        "X-ANVIK-PROMPT-VERSION": CHAT_PROMPT_VERSION,
       },
     });
   } catch (err) {
