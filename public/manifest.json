@@ -1,0 +1,68 @@
+/**=============================================================================
+ * ANVIK AI — PWA Manifest
+ * ============================================================================
+ * Web App Manifest for Progressive Web App installation.
+ * Defines the app's display metadata, icons, and launch parameters.
+ * ==========================================================================*/
+
+{
+  "name": "ANVIK AI",
+  "short_name": "ANVIK AI",
+  "description": "Enterprise AI platform with 24/7 availability and multi-provider failover",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1a2e",
+  "theme_color": "#ffffff",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "src": "/",
+      "sizes": "192x192",
+      "type": "image/png",
+      "name": "Chat",
+      "description": "Start a new chat",
+      "icons": [
+        {
+          "src": "/favicon-32x32.png",
+          "sizes": "32x32",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "categories": ["productivity", "utilities", "artificial-intelligence"],
+  "display_override": ["standalone", "window-control"],
+  "screenshots": [
+    {
+      "src": "/dashboard.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "formats": ["png"],
+      "widescreen": false,
+      "description": "ANVIK AI dashboard"
+    }
+  ]
+}
