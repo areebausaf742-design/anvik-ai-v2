@@ -1,6 +1,7 @@
 "use client";
 
 import { PublicChat } from "@/components/anvik/landing/public-chat";
+import { ElectricWavesShader } from "@/components/ui/colorful-wave-pattern-1";
 
 /**
  * Landing hero. A single confident statement, one live chat bar, one primary
@@ -11,6 +12,7 @@ import { PublicChat } from "@/components/anvik/landing/public-chat";
 export function Hero() {
   return (
     <section className="public-hero" aria-label="Hero">
+      <ElectricWavesShader className="public-hero-waves" />
       <div className="public-hero-inner">
         <div className="public-hero-brand flex items-center gap-2">
           <span className="public-hero-mark" aria-hidden="true">◆</span>
