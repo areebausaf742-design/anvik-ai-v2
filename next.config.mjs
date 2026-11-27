@@ -54,6 +54,11 @@ const nextConfig = {
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
+  async redirects() {
+    return [
+      { source: "/favicon.ico", destination: "/icon.svg", permanent: true },
+    ];
+  },
   async headers() {
     const security = [
       { key: "X-Content-Type-Options", value: "nosniff" },
