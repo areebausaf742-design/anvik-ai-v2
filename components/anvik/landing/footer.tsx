@@ -26,7 +26,7 @@ export function LandingFooter() {
           ))}
         </nav>
         <p className="public-footer-note">
-          ANVIK AI · Powered by intelligence. Built for calm, confident thinking.
+          ANVIK AI · A little more clarity, whenever you need it.
         </p>
       </div>
     </footer>

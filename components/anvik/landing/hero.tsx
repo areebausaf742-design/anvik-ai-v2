@@ -1,32 +1,39 @@
 "use client";
 
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 import { PublicChat } from "@/components/anvik/landing/public-chat";
 import { ElectricWavesShader } from "@/components/ui/colorful-wave-pattern-1";
 
-/**
- * Landing hero. A single confident statement, one live chat bar, one primary
- * action. Guests get 10 free answers/day on the chat bar (no sign-in); after
- * that they are prompted to sign in, with the draft preserved.
- */
-
 export function Hero() {
   return (
-    <section className="public-hero" aria-label="Hero">
+    <section className="public-hero" aria-label="Talk with ANVIK">
       <ElectricWavesShader className="public-hero-waves" />
       <div className="public-hero-inner">
-        <div className="public-hero-brand flex items-center gap-2">
-          <span className="public-hero-mark" aria-hidden="true">◆</span>
-          <span className="public-hero-name">ANVIK<span className="public-hero-ai">AI</span></span>
+        <header className="public-masthead">
+          <Link href="/" className="public-hero-brand" aria-label="ANVIK AI home">
+            <span className="public-hero-mark" aria-hidden="true">◆</span>
+            <span className="public-hero-name">ANVIK<span className="public-hero-ai">AI</span></span>
+          </Link>
+          <nav className="public-masthead-account" aria-label="Account">
+            <span>Already have an account?</span>
+            <Link href="/login" className="public-masthead-link">
+              Sign in <ArrowUpRight aria-hidden="true" />
+            </Link>
+          </nav>
+        </header>
+
+        <div className="public-hero-copy">
+          <p className="public-hero-eyebrow">YOUR PERSONAL WORKSPACE</p>
+          <h1 className="public-hero-heading">
+            Ask anything.
+            <span>Find your next step.</span>
+          </h1>
+          <p className="public-hero-sub">
+            A calm, capable workspace for answers, code, images and vision —
+            in English, Hindi or Hinglish.
+          </p>
         </div>
-        <h1 className="public-hero-heading">
-          Ask anything.<br />
-          Get instant, intelligent answers.
-        </h1>
-        <p className="public-hero-sub">
-          A calm, confident workspace for questions, code, images and vision —
-          in English, Hindi or Hinglish. Ten free questions a day; sign in to
-          keep your history, credits and consent.
-        </p>
         <PublicChat />
       </div>
     </section>

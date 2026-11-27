@@ -95,7 +95,26 @@ export function ElectricWavesShader({
 
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, powerPreference: "low-power" });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("webgl2", {
+        alpha: true,
+        antialias: false,
+        failIfMajorPerformanceCaveat: true,
+        powerPreference: "low-power",
+      });
+
+      if (!context) {
+        container.dataset.webgl = "unavailable";
+        return;
+      }
+
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: false,
+        canvas,
+        context,
+        powerPreference: "low-power",
+      });
     } catch {
       container.dataset.webgl = "unavailable";
       return;
