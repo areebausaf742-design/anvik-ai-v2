@@ -53,6 +53,7 @@ import type { PlanId } from "@/lib/plans";
 import { recordChatExchange } from "@/lib/chat-record";
 import { getVerifiedUserIfPresent } from "@/lib/session";
 import { beginMeteredRequest } from "@/lib/ai-gateway";
+import { FEATURES, featureDisabledResponse } from "@/lib/feature-flags";
 import { logRouteEvent } from "@/lib/observability";
 
 export const runtime = "edge";
@@ -95,6 +96,7 @@ function sseFrame(payload: Record<string, unknown>): string {
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
+  if (!FEATURES.chat) return featureDisabledResponse("chat");
   let body: unknown;
   try {
     body = await request.json();
@@ -205,11 +207,12 @@ export async function POST(request: Request) {
   // Fast mode never pays for search unless the caller explicitly asks for it:
   // this keeps the "fast" promise (lowest latency) instead of spending 1-3
   // extra round trips on grounding.
-  const searchMode = (selectedMode === "fast" && typeof deepSearch !== "boolean")
+  const searchModeRaw = (selectedMode === "fast" && typeof deepSearch !== "boolean")
     ? "off"
     : (typeof deepSearch === "boolean"
         ? (deepSearch ? "on" : "off")
         : normalizeSearchMode(rawSearch));
+  const searchMode = FEATURES.deepSearch ? searchModeRaw : "off";
   const lastUser = [...redactedMessages].reverse().find((turn) => turn.role === "user");
   const searchQuery = lastUser?.content ?? "";
   const searchNeeded = searchMode === "on" || (searchMode === "auto" && shouldAutoSearch(searchQuery));
