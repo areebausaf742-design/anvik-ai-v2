@@ -66,6 +66,8 @@ export type Feedback = {
   lang: Lang;
   topic: string;
   createdAt: number;
+  /** Optional reason chips chosen when the verdict was "dislike". */
+  reasons?: string[];
 };
 
 export type Correction = {
@@ -270,6 +272,8 @@ export type FeedbackInput = {
   verdict: Verdict;
   /** optional reply id, so a repeated tap toggles instead of duplicating */
   messageId?: string;
+  /** optional reason chips chosen when the verdict was "dislike" */
+  reasons?: string[];
 };
 
 /** Record a like or dislike. Returns the changed store, plus what was redacted. */
@@ -302,6 +306,7 @@ export function recordFeedback(input: FeedbackInput): { learning: Learning; reda
     lang: detectLanguage(question.text),
     topic: topicOf(question.text),
     createdAt: Date.now(),
+    ...(input.reasons && input.reasons.length > 0 ? { reasons: input.reasons } : {}),
   });
 
   return { learning: writeLearning(learning), redacted: [...question.removed, ...answer.removed] };
