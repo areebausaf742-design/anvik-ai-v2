@@ -45,7 +45,23 @@ function isValidEmail(value: string) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { session, consent, loading: sessionLoading, signOut, refresh } = useSession();
+  const {
+    session,
+    consent,
+    loading: sessionLoading,
+    signOut,
+    refresh,
+    setSessionCookie,
+  } = useSession();
+
+  /** Mirror the verified session into the HttpOnly cookie, then navigate. */
+  const goTo = useCallback(
+    async (destination: string): Promise<void> => {
+      if (session?.access_token) await setSessionCookie(session.access_token);
+      router.replace(destination);
+    },
+    [session, setSessionCookie, router],
+  );
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -130,20 +146,20 @@ export default function LoginPage() {
       if (displayName) setName(displayName);
       const destination = postLoginDestination();
       requestFreshChat();
+      if (result.session) await setSessionCookie(result.session.access_token);
       router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
     })();
-  }, [postLoginDestination, refresh, router]);
+  }, [postLoginDestination, refresh, router, setSessionCookie]);
 
   // Already signed in — skip the login screen (mirrors returning users).
+  // Mirrors the session into the HttpOnly cookie so the edge middleware
+  // recognizes the visitor on protected pages.
   useEffect(() => {
     if (sessionLoading || !session) return;
-    if (consent?.hasAccepted) {
-      router.replace(postLoginDestination());
-    } else {
-      const destination = postLoginDestination();
-      router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
-    }
-  }, [sessionLoading, session, consent, postLoginDestination, router]);
+    const destination = postLoginDestination();
+    const next = destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`;
+    void goTo(next);
+  }, [sessionLoading, session, consent, postLoginDestination, goTo]);
 
   async function handleGoogle() {
     if (busy || oauthPending || oauthStartStarted.current) return;
@@ -202,6 +218,7 @@ export default function LoginPage() {
         return;
       }
       await refresh();
+      if (result.session) await setSessionCookie(result.session.access_token);
       const destination = postLoginDestination();
       requestFreshChat();
       router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);
@@ -261,6 +278,7 @@ export default function LoginPage() {
         return;
       }
       await refresh();
+      if (result.session) await setSessionCookie(result.session.access_token);
       const destination = postLoginDestination();
       requestFreshChat();
       router.replace(destination === "/chat" ? "/onboarding" : `/onboarding?next=${encodeURIComponent(destination)}`);

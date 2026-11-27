@@ -51,14 +51,55 @@ function redirectCallbackToLogin(req: NextRequest): NextResponse | null {
   return NextResponse.redirect(target);
 }
 
-export function middleware(req: NextRequest) {
-  const callbackRedirect = redirectCallbackToLogin(req);
-  if (callbackRedirect) return callbackRedirect;
+/**
+ * Routes that are open to everybody, with or without a session. Everything
+ * else (the workspace surfaces) requires a verified account and is guarded by
+ * the auth gate below.
+ */
+const PUBLIC_ROUTES = new Set([
+  "/",
+  "/login",
+  "/auth/reset",
+  "/about",
+  "/pricing",
+  "/claim",
+]);
 
-  const existing = req.cookies.get("anvik_dev")?.value;
-  if (existing) return NextResponse.next();
+function isPublicAnswerPage(pathname: string): boolean {
+  return pathname === "/h" || pathname.startsWith("/h/") || pathname.startsWith("/j/");
+}
 
-  const res = NextResponse.next();
+/**
+ * Page surfaces that require a verified account. An unauthenticated request
+ * is redirected to /login with the original path in `?next=`, so the visitor
+ * arrives back exactly where they intended after signing in.
+ */
+const PROTECTED_PAGES = new Set([
+  "/chat",
+  "/onboarding",
+  "/welcome",
+  "/account",
+  "/settings",
+  "/projects",
+  "/artifacts",
+  "/image",
+  "/code",
+  "/vision",
+  "/voice",
+  "/library",
+]);
+
+/**
+ * Expensive AI API surfaces that are account-only (guests may only chat).
+ * An unauthenticated request is refused with 401 at the edge, before any
+ * provider or credit work happens. Other API routes (/api/chat for guests,
+ * /api/quota, /api/health, /api/auth/*, …) pass through and self-enforce
+ * in their route handlers.
+ */
+const PROTECTED_API_ROUTES = new Set(["/api/image", "/api/code", "/api/voice", "/api/vision"]);
+
+function setDeviceCookie(res: NextResponse, existing: string | undefined): NextResponse {
+  if (existing) return res;
   res.cookies.set("anvik_dev", deviceId(), {
     httpOnly: true,
     sameSite: "lax",
@@ -67,6 +108,60 @@ export function middleware(req: NextRequest) {
     maxAge: 60 * 60 * 24 * 365,
   });
   return res;
+}
+
+export function middleware(req: NextRequest) {
+  const callbackRedirect = redirectCallbackToLogin(req);
+  if (callbackRedirect) return callbackRedirect;
+
+  const { pathname } = req.nextUrl;
+
+  // Static assets and edge-cached public files never touch the auth gate.
+  if (
+    pathname.startsWith("/_next/") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/icon.svg" ||
+    pathname === "/apple-icon" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml"
+  ) {
+    return NextResponse.next();
+  }
+
+  const session = req.cookies.get("anvik_session")?.value;
+
+  // --- Public pages: set the guest device cookie and pass through. --------
+  if (PUBLIC_ROUTES.has(pathname) || isPublicAnswerPage(pathname)) {
+    return setDeviceCookie(NextResponse.next(), req.cookies.get("anvik_dev")?.value);
+  }
+
+  // --- API routes: the expensive surfaces are refused at the edge. ---------
+  if (pathname.startsWith("/api/")) {
+    if (PROTECTED_API_ROUTES.has(pathname) && !session) {
+      return NextResponse.json(
+        { error: "Sign in to use this surface.", code: "unauthenticated" },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return NextResponse.next();
+  }
+
+  // --- Protected pages: redirect unauthenticated visitors to /login. ------
+  if (PROTECTED_PAGES.has(pathname)) {
+    if (!session) {
+      const target = req.nextUrl.clone();
+      target.pathname = AUTH_CALLBACK_PATH;
+      target.search = "";
+      target.searchParams.set("next", pathname);
+      const res = NextResponse.redirect(target);
+      return setDeviceCookie(res, req.cookies.get("anvik_dev")?.value);
+    }
+    return setDeviceCookie(NextResponse.next(), req.cookies.get("anvik_dev")?.value);
+  }
+
+  // Anything not listed above (e.g. /api/* already handled, future pages)
+  // passes through so new routes aren't accidentally locked out.
+  return setDeviceCookie(NextResponse.next(), req.cookies.get("anvik_dev")?.value);
 }
 
 export const config = {

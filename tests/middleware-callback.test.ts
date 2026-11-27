@@ -33,10 +33,21 @@ test("the real callback page is left alone", () => {
   assert.equal(loc(res as unknown as Response), null, "/login handles its own exchange");
 });
 
-test("requests without a code are untouched", () => {
-  for (const path of ["/", "/chat", "/login", "/account"]) {
+test("public routes are not redirected without a code", () => {
+  for (const path of ["/", "/login"]) {
     const res = middleware(new NextRequest(`${ORIGIN}${path}`));
     assert.equal(loc(res as unknown as Response), null, `${path} must not redirect`);
+  }
+});
+
+test("protected pages redirect to /login without a session", () => {
+  for (const path of ["/chat", "/account"]) {
+    const res = middleware(new NextRequest(`${ORIGIN}${path}`));
+    const location = loc(res as unknown as Response);
+    assert.ok(location, `${path} must redirect to /login`);
+    const url = new URL(location!);
+    assert.equal(url.pathname, "/login");
+    assert.equal(url.searchParams.get("next"), path, "the original path is preserved for post-sign-in return");
   }
 });
 
@@ -45,7 +56,19 @@ test("API routes are never redirected", () => {
   assert.equal(loc(res as unknown as Response), null, "redirecting an API call would corrupt it");
 });
 
-test("the device-id cookie is still issued", () => {
-  const res = middleware(new NextRequest(`${ORIGIN}/chat`)) as unknown as Response;
+test("protected API routes are refused at the edge without a session", () => {
+  for (const path of ["/api/image", "/api/code", "/api/voice", "/api/vision"]) {
+    const res = middleware(new NextRequest(`${ORIGIN}${path}`, { method: "POST" })) as unknown as Response;
+    assert.equal(res.status, 401, `${path} must refuse unauthenticated calls at the edge`);
+  }
+});
+
+test("the device-id cookie is still issued on public routes", () => {
+  const res = middleware(new NextRequest(`${ORIGIN}/`)) as unknown as Response;
   assert.ok(res.headers.get("set-cookie")?.includes("anvik_dev="), "device identity is preserved");
+});
+
+test("the device-id cookie is issued on the /login redirect too", () => {
+  const res = middleware(new NextRequest(`${ORIGIN}/chat`)) as unknown as Response;
+  assert.ok(res.headers.get("set-cookie")?.includes("anvik_dev="), "device identity survives the redirect");
 });

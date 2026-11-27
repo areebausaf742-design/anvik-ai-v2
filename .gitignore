@@ -20,3 +20,7 @@ opencode.json
 *.tsbuildinfo
 tsconfig.tsbuildinfo
 .vercel/
+
+# Playwright
+playwright-report/
+test-results/
