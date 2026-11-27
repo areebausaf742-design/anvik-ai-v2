@@ -60,6 +60,28 @@ export type AccountConsent = {
   aiImprovementConsentAt: string | null;
 };
 
+/** Mirror the verified Supabase session into an HttpOnly cookie so the edge
+ *  middleware can enforce the auth gate without reading localStorage. */
+async function setSessionCookie(token: string): Promise<void> {
+  try {
+    await fetch("/api/auth/session-cookie", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    /* The cookie is an enforcement aid; a failure must never break sign-in. */
+  }
+}
+
+/** Clear the HttpOnly session cookie on sign-out. */
+async function clearSessionCookie(): Promise<void> {
+  try {
+    await fetch("/api/auth/session-cookie", { method: "DELETE" });
+  } catch {
+    /* Best-effort; local sign-out still proceeds. */
+  }
+}
+
 type SessionContextValue = {
   loading: boolean;
   session: AuthSession | null;
@@ -73,6 +95,10 @@ type SessionContextValue = {
   setDisplayName: (name: string) => Promise<{ ok: boolean; error?: string }>;
   /** Revoke the session locally and at the provider. */
   signOut: () => Promise<void>;
+  /** Mirror the current session into the HttpOnly cookie (used after sign-in). */
+  setSessionCookie: (token: string) => Promise<void>;
+  /** Clear the HttpOnly session cookie. */
+  clearSessionCookie: () => Promise<void>;
   /** Authenticated bearer header value, or null when signed out. */
   bearerToken: () => string | null;
 };
@@ -384,6 +410,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setCredits(null);
     setConsent(null);
     await authSignOut();
+    await clearSessionCookie();
     setLoading(false);
   }, []);
 
@@ -403,9 +430,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refresh,
       setDisplayName,
       signOut,
+      setSessionCookie,
+      clearSessionCookie,
       bearerToken,
     }),
-    [loading, session, user, profile, credits, consent, refresh, setDisplayName, signOut, bearerToken],
+    [
+      loading,
+      session,
+      user,
+      profile,
+      credits,
+      consent,
+      refresh,
+      setDisplayName,
+      signOut,
+      bearerToken,
+    ],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
