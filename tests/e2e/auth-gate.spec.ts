@@ -22,11 +22,11 @@ test.describe("auth gate", () => {
     await page.goto("/");
 
     // The landing page is public: no login wall, confident hero, live bar.
-    await expect(page.getByRole("heading", { name: /ask anything/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /ask anything/i }).first()).toBeVisible();
     await expect(page.getByRole("textbox", { name: /ask anvik anything/i })).toBeVisible();
   });
 
-  test("sending from the public bar redirects to /login and preserves the draft", async ({
+  test("sending from the public bar streams a guest answer inline (no redirect)", async ({
     page,
   }) => {
     await page.goto("/");
@@ -36,19 +36,9 @@ test.describe("auth gate", () => {
     await chatBar.fill(DRAFT);
     await chatBar.press("Enter");
 
-    // Pressing send hands off to sign-in (draft preserved across the round-trip).
-    await expect(page).toHaveURL(/\/login/);
-
-    // The draft is stashed in sessionStorage before the redirect.
-    const storedDraft = await page.evaluate(
-      () => window.sessionStorage.getItem("anvik-pending-draft"),
-    );
-    expect(storedDraft).toBe(DRAFT);
-
-    const storedDestination = await page.evaluate(
-      () => window.sessionStorage.getItem("anvik-pending-destination"),
-    );
-    expect(storedDestination).toBe("/chat");
+    // Guest chat streams an answer inline — no redirect to /login.
+    await expect(page).toHaveURL("/");
+    await expect(page.getByText(DRAFT, { exact: true })).toBeVisible();
   });
 
   test.describe("signed-in flow (requires real credentials)", () => {

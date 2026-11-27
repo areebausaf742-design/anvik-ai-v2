@@ -220,21 +220,7 @@ export function PublicChat() {
   };
 
   return (
-    <section className="public-hero" aria-label="Hero">
-      <div className="public-hero-inner">
-        <div className="public-hero-brand flex items-center gap-2">
-          <span className="public-hero-mark" aria-hidden="true">◆</span>
-          <span className="public-hero-name">ANVIK<span className="public-hero-ai">AI</span></span>
-        </div>
-        <h1 className="public-hero-heading">
-          Ask anything.<br />
-          Get instant, intelligent answers.
-        </h1>
-        <p className="public-hero-sub">
-          A calm, confident workspace for questions, code, images and vision —
-          in English, Hindi or Hinglish. Ten free questions a day; sign in to
-          keep your history, credits and consent.
-        </p>
+    <div className="public-chat-root">
 
         {/* Chat area */}
         {messages.length > 0 && (
@@ -339,9 +325,8 @@ export function PublicChat() {
           </button>
         </div>
         <p className="public-hero-note">
-          Ten free questions a day — no account needed to try. Sign in to keep your history, credits and consent.
+          Ten free questions a day - no account needed to try. Sign in to keep your history, credits and consent.
         </p>
-      </div>
-    </section>
+    </div>
   );
 }

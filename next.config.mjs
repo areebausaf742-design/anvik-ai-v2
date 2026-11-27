@@ -21,6 +21,7 @@ function connectSrc() {
     "'self'",
     "https://generativelanguage.googleapis.com",
     "https://image.pollinations.ai",
+    "https://vitals.vercel-insights.com",
   ];
   const supabase = supabaseOrigin();
   if (supabase) values.push(supabase);
@@ -75,7 +76,7 @@ const nextConfig = {
         key: "Content-Security-Policy",
         value: [
           "default-src 'self'",
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
           "style-src 'self' 'unsafe-inline'",
           // Google avatar images render in the account + chat headers.
           "img-src 'self' data: blob: https://image.pollinations.ai https://lh3.googleusercontent.com",
