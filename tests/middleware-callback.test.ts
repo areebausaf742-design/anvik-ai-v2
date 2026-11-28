@@ -29,7 +29,7 @@ test("API routes are never redirected", () => {
   assert.equal(location(response), null);
 });
 
-test("metered tool APIs wait for the anonymous session cookie", () => {
+test("metered tool APIs wait for the anonymous session cookie", async () => {
   for (const path of ["/api/image", "/api/code", "/api/voice", "/api/vision"]) {
     const response = middleware(new NextRequest(`${ORIGIN}${path}`, { method: "POST" })) as unknown as Response;
     assert.equal(response.status, 401);
