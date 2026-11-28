@@ -44,7 +44,7 @@ async function ensureProfile(user: { id: string; email: string; name: string; pr
     email: user.email,
     display_name: displayName,
     avatar_url: user.avatarUrl,
-    provider: user.provider === "google" ? "google" : "email",
+    provider: user.provider === "google" ? "google" : user.provider === "anonymous" ? "anonymous" : "email",
     account_status: "active",
     terms_accepted_at: null,
     privacy_accepted_at: null,
