@@ -250,7 +250,7 @@ export function PublicChat() {
         )}
 
         <div className="public-chat-account">
-          <p className="public-hero-note">Guest access starts automatically. Free daily allowance resets at midnight IST.</p>
+          <p className="public-hero-note">Guest access starts automatically. Ten free questions a day; the allowance resets at midnight IST.</p>
         </div>
     </div>
   );
