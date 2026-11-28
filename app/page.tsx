@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Hero } from "@/components/anvik/landing/hero";
 import { ModeShowcase } from "@/components/anvik/landing/showcase";
+import { BentoFeatures } from "@/components/anvik/landing/bento";
 import { LandingFooter } from "@/components/anvik/landing/footer";
 import { StorySection } from "@/components/anvik/landing/story";
 
@@ -21,6 +22,7 @@ export default function Home() {
     <main className="public-page" id="main-content">
       <Hero />
       <ModeShowcase />
+      <BentoFeatures />
       <StorySection />
       <LandingFooter />
     </main>

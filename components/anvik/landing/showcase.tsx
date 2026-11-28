@@ -1,69 +1,64 @@
+"use client";
+
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  Code2,
-  Eye,
-  Image as ImageIcon,
-  MessageSquarePlus,
-  Mic2,
-} from "lucide-react";
+import { ArrowUpRight, Code2, Eye, Image as ImageIcon, MessageCircle, Mic2 } from "lucide-react";
+import { useEffect, useRef } from "react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
 
 const MODES = [
-  {
-    href: "/chat",
-    icon: MessageSquarePlus,
-    number: "01",
-    title: "Think it through.",
-    name: "Chat",
-    description: "Talk an idea out, untangle a question, or get a useful first draft.",
-    visual: <div className="mode-visual-chat"><span className="mode-bubble mode-bubble-user">Where do I start?</span><span className="mode-bubble mode-bubble-ai"><i />Let&apos;s find the first small step.</span></div>,
-    className: "mode-card-chat",
-  },
-  {
-    href: "/code",
-    icon: Code2,
-    number: "02",
-    title: "Build the thing.",
-    name: "Code",
-    description: "Go from a plain-language brief to a starting point you can work with.",
-    visual: <div className="mode-visual-code"><span><b>01</b> function makeItReal() {'{'}</span><span><b>02</b> &nbsp;return <i>&quot;hello, world&quot;</i></span><span><b>03</b> {'}'}</span></div>,
-    className: "mode-card-code",
-  },
-  {
-    href: "/image",
-    icon: ImageIcon,
-    number: "03",
-    title: "Picture the possibility.",
-    name: "Image",
-    description: "Give the abstract a shape. Turn a visual idea into something you can see.",
-    visual: <div className="mode-visual-image"><span className="mode-sun" /><span className="mode-horizon" /><span className="mode-image-label">A new perspective</span></div>,
-    className: "mode-card-image",
-  },
-  {
-    href: "/voice",
-    icon: Mic2,
-    number: "04",
-    title: "Say it out loud.",
-    name: "Voice",
-    description: "Keep the conversation moving in a more natural, hands-free way.",
-    visual: <div className="mode-visual-voice" aria-hidden="true"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div>,
-    className: "mode-card-voice",
-  },
-  {
-    href: "/vision",
-    icon: Eye,
-    number: "05",
-    title: "Look closer.",
-    name: "Vision",
-    description: "Bring in a photo, diagram or document and ask what you want to know.",
-    visual: <div className="mode-visual-vision"><div className="vision-paper"><span /><span /><span /><i /></div><span className="vision-lens" /></div>,
-    className: "mode-card-vision",
-  },
+  { name: "Chat", number: "01", icon: MessageCircle, title: "Think it through.", body: "Talk an idea out, untangle a question, or get a useful first draft.", href: "/chat" },
+  { name: "Code", number: "02", icon: Code2, title: "Build the thing.", body: "Go from a plain-language brief to a starting point you can work with.", href: "/code" },
+  { name: "Image", number: "03", icon: ImageIcon, title: "Picture the possibility.", body: "Give the abstract a shape. Turn a visual idea into something you can see.", href: "/image" },
+  { name: "Voice", number: "04", icon: Mic2, title: "Say it out loud.", body: "Keep the conversation moving in a more natural, hands-free way.", href: "/voice" },
+  { name: "Vision", number: "05", icon: Eye, title: "Look closer.", body: "Bring in a photo, diagram or document and ask what you want to know.", href: "/vision" },
 ] as const;
 
 export function ModeShowcase() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const orbRef = useRef<HTMLDivElement>(null);
+  const progressRef = useRef<HTMLSpanElement>(null);
+  const sceneRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    const orb = orbRef.current;
+    if (!section || !orb) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+
+    const context = gsap.context(() => {
+      const sceneCount = MODES.length;
+      const setScene = (index: number) => {
+        sceneRefs.current.forEach((scene, sceneIndex) => scene?.classList.toggle("is-active", sceneIndex === index));
+        if (progressRef.current) progressRef.current.textContent = `${String(index + 1).padStart(2, "0")} / ${String(sceneCount).padStart(2, "0")}`;
+      };
+      setScene(0);
+      gsap.to(orb, {
+        rotate: 360,
+        ease: "none",
+        scrollTrigger: {
+          trigger: section,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: 1,
+          pin: ".pinned-story-stage",
+          pinSpacing: false,
+          onUpdate: (self) => {
+            const index = Math.min(sceneCount - 1, Math.floor(self.progress * sceneCount));
+            setScene(index);
+            orb.style.setProperty("--story-progress", `${self.progress}`);
+          },
+        },
+      });
+    }, section);
+    return () => context.revert();
+  }, []);
+
   return (
-    <section className="public-showcase" id="tools" aria-labelledby="showcase-title">
+    <section className="public-showcase pinned-story" id="tools" ref={sectionRef} aria-labelledby="showcase-title">
       <div className="public-showcase-inner">
         <header className="public-showcase-intro">
           <div>
@@ -71,31 +66,29 @@ export function ModeShowcase() {
             <h2 className="public-showcase-heading" id="showcase-title">One workspace.<br /><span>Many ways forward.</span></h2>
           </div>
           <div className="public-showcase-aside">
-            <p className="public-showcase-sub">Not another tool to keep up with. A thoughtful place to ask, experiment and make—whatever the idea needs next.</p>
-            <a href="#languages" className="showcase-inline-link">And your language is welcome <ArrowUpRight aria-hidden="true" /></a>
+            <p className="public-showcase-sub">The same calm intelligence, shaped for the moment you are in. Scroll through the surfaces without leaving the thought behind.</p>
+            <span className="pinned-story-counter" ref={progressRef}>01 / 05</span>
           </div>
         </header>
-        <div className="public-showcase-grid">
-          {MODES.map(({ href, icon: Icon, number, title, name, description, visual, className }) => (
-            <Link key={name} href={href} className={`public-mode-card ${className}`} prefetch={false}>
-              <div className="mode-card-top">
-                <span className="public-mode-number">{number} <i aria-hidden="true">/ 05</i></span>
-                <span className="mode-card-icon"><Icon aria-hidden="true" /></span>
-                <ArrowUpRight className="public-mode-arrow" aria-hidden="true" />
-              </div>
-              <div className="mode-card-visual" aria-hidden="true">{visual}</div>
-              <div className="public-mode-copy">
-                <span className="mode-card-name">{name}</span>
-                <h3 className="public-mode-title">{title}</h3>
-                <p className="public-mode-desc">{description}</p>
-              </div>
-            </Link>
-          ))}
-        </div>
-        <div className="public-showcase-bottom">
-          <span className="showcase-bottom-mark" aria-hidden="true">✳</span>
-          <p>Different tools for different kinds of thinking.<br /><strong>One place to bring them together.</strong></p>
-          <Link href="/chat" className="showcase-bottom-link">Explore your workspace <ArrowUpRight aria-hidden="true" /></Link>
+        <div className="pinned-story-track">
+          <div className="pinned-story-stage">
+            <div className="story-orb-shell" aria-hidden="true">
+              <div className="story-orb-grid" />
+              <div className="story-orb-core" ref={orbRef} />
+              <span className="story-orb-caption">ANVIK / ONE OBJECT / MANY OUTPUTS</span>
+            </div>
+            <div className="pinned-story-scenes">
+              {MODES.map(({ name, number, icon: Icon, title, body, href }, index) => (
+                <div className={`pinned-story-scene ${index === 0 ? "is-active" : ""}`} key={name} ref={(node) => { sceneRefs.current[index] = node; }}>
+                  <div className="pinned-story-scene-meta"><span>{number}</span><Icon aria-hidden="true" /><span>{name}</span></div>
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                  <Link href={href} className="pinned-story-link">Open {name} <ArrowUpRight aria-hidden="true" /></Link>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="pinned-story-spacer" aria-hidden="true" />
         </div>
       </div>
     </section>
