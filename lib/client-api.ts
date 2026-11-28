@@ -78,11 +78,10 @@ export function mapClientFetchError(err: unknown): string {
 
 export function mapHttpErrorMessage(status: number, serverMessage?: string, code?: string): string {
   if (status === 401 || status === 403) {
-    // An auth refusal and a bad personal key are different problems with
-    // different fixes. Reporting a missing session as "key invalid" sent people
-    // to their Gemini key settings when all they needed was to sign in.
-    if (code === "unauthenticated") {
-      return "Sign in to use this. It's free — your account keeps your history and credits.";
+    // A missing JWT means anonymous session initialization or refresh failed.
+    // Never direct a visitor to an account sign-in flow.
+    if (code === "unauthenticated" || code === "guest_session_required" || code === "guest_session_initializing") {
+      return "Your guest session is starting or needs refreshing. Reload ANVIK and try again.";
     }
     if (serverMessage && /ANVIK free key is not set|aistudio\.google\.com/i.test(serverMessage)) {
       return serverMessage;
@@ -91,7 +90,7 @@ export function mapHttpErrorMessage(status: number, serverMessage?: string, code
   }
   if (status === 429) {
     if (code === "guest_limit_reached") {
-      return "You've used today's free questions. Sign in for more — it's free, and your history follows you.";
+      return "You've reached today's free allowance. It resets at midnight IST.";
     }
     if (code === "plan_limit_reached") {
       return "You've reached your plan limit. Upgrade at /pricing or connect your own key to continue.";

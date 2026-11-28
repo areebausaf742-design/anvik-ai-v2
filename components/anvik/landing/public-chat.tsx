@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowRight, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import Markdown from "@/components/anvik/markdown";
 import { readDeviceId } from "@/lib/client-key";
+import { useSession } from "@/components/anvik/session-provider";
 
 type Msg = { id: string; role: "user" | "assistant"; content: string; isError?: boolean };
 
@@ -12,19 +12,18 @@ type Msg = { id: string; role: "user" | "assistant"; content: string; isError?: 
  * Public landing-page chat. Guests get 10 free answers/day via the secure guest
  * quota (IP-based, atomic RPC, charged only after a successful stream). After
  * the 10 free answers are exhausted, the API returns guest_limit_reached and we
- * show a sign-in prompt with the draft preserved.
+ * show a daily-reset notice; no account or sign-in is offered.
  *
- * Security: no token is sent (guest). The server enforces the guest quota,
+ * Security: the anonymous session token is sent when ready. The server enforces its daily allowance,
  * rate limits (60/min per IP), injection scanning, secret stripping and payload
  * limits. /chat and all other surfaces remain protected by the edge middleware.
  */
 export function PublicChat() {
-  const router = useRouter();
+  const { bearerToken } = useSession();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [guestLimitReached, setGuestLimitReached] = useState(false);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -48,6 +47,7 @@ export function PublicChat() {
     let streamError = "";
 
     try {
+      const token = bearerToken();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -55,6 +55,7 @@ export function PublicChat() {
           Accept: "text/event-stream",
           "x-anvik-device": readDeviceId(),
           "x-anvik-request-id": crypto.randomUUID(),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           messages: [...messages, userMsg].map(({ role, content: c }) => ({ role, content: c })),
@@ -67,15 +68,7 @@ export function PublicChat() {
 
       if (!response.ok || !response.body) {
         const issue = (await response.json().catch(() => null)) as { error?: string; code?: string } | null;
-        if (issue?.code === "guest_limit_reached") {
-          setGuestLimitReached(true);
-          // Stash draft + destination for post-sign-in restore.
-          try {
-            sessionStorage.setItem("anvik-pending-draft", content);
-            sessionStorage.setItem("anvik-pending-destination", "/chat");
-          } catch {
-            /* storage unavailable */
-          }
+        if (["guest_limit_reached", "free_limit_reached", "plan_limit_reached"].includes(issue?.code ?? "")) {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: "", isError: true } : m,
@@ -83,7 +76,7 @@ export function PublicChat() {
           );
           // Remove the empty assistant bubble; keep the user message.
           setMessages((prev) => prev.filter((m) => m.id !== assistantId));
-          setError("You've used today's free questions. Sign in for more — it's free, and your history follows you.");
+          setError("You've reached today's free allowance. It resets at midnight IST. Add your own API key in Settings for more.");
           return;
         }
         const msg = issue?.error ?? "ANVIK could not answer. Please try again.";
@@ -185,15 +178,6 @@ export function PublicChat() {
     }
   };
 
-  const goToSignIn = () => {
-    try {
-      sessionStorage.setItem("anvik-pending-destination", "/chat");
-    } catch {
-      /* storage unavailable */
-    }
-    router.push("/login");
-  };
-
   return (
     <div className="public-chat-root">
 
@@ -264,25 +248,11 @@ export function PublicChat() {
         {error && (
           <div className="mx-auto mt-3 max-w-[720px] rounded-xl border border-[#EDEDED] bg-[#F7F7F5] px-4 py-3 text-center text-sm text-[#666666]">
             {error}
-            {guestLimitReached && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={goToSignIn}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#1A1A1A] px-4 py-2 text-sm font-medium text-white hover:bg-[#333333]"
-                >
-                  Sign in (free) <span aria-hidden>→</span>
-                </button>
-              </div>
-            )}
           </div>
         )}
 
         <div className="public-chat-account">
-          <button type="button" onClick={goToSignIn} className="public-hero-cta">
-            Create a free account <ArrowRight aria-hidden="true" />
-          </button>
-          <p className="public-hero-note">Ten free questions a day. No account needed to try.</p>
+          <p className="public-hero-note">Guest access starts automatically. Free daily allowance resets at midnight IST.</p>
         </div>
     </div>
   );

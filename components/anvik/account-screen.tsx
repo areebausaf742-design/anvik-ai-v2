@@ -57,7 +57,7 @@ function ledgerDescription(type: string, description: string | null): string {
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { loading, session, profile, credits, consent, refresh, signOut, bearerToken, setDisplayName } = useSession();
+  const { loading, session, profile, credits, consent, refresh, bearerToken, setDisplayName } = useSession();
 
   const [usage, setUsage] = useState<UsageRow[]>([]);
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
@@ -69,12 +69,11 @@ export default function AccountScreen() {
   const [consentBusy, setConsentBusy] = useState(false);
   const [consentError, setConsentError] = useState("");
   const [consentNote, setConsentNote] = useState("");
-  const [signingOut, setSigningOut] = useState(false);
   const consentSubmitStarted = useRef(false);
 
   // Guard: signed out → login.
   useEffect(() => {
-    if (!loading && !session) router.replace("/login");
+    if (!loading && !session) router.replace("/chat")
   }, [loading, session, router]);
 
   // Load history from the server (verified-identity, never client-supplied).
@@ -171,12 +170,6 @@ export default function AccountScreen() {
     }
   }
 
-  async function handleSignOut() {
-    setSigningOut(true);
-    await signOut();
-    router.replace("/login");
-  }
-
   if (loading) {
     return (
       <main className="account-page">
@@ -262,7 +255,7 @@ export default function AccountScreen() {
             {nameError && <p className="auth-error" style={{ marginTop: "0.6rem", marginBottom: 0 }} role="alert">{nameError}</p>}
 
             <div style={{ marginTop: "0.9rem" }}>
-              <div className="acct-kv"><span className="k">Provider</span><span className="v">{profile?.provider === "google" ? "Google" : "Email & password"}</span></div>
+              <div className="acct-kv"><span className="k">Provider</span><span className="v">{profile?.provider === "anonymous" ? "Guest session" : profile?.provider === "google" ? "Google" : "Email & password"}</span></div>
               <div className="acct-kv"><span className="k">Status</span><span className="v">{isExpired ? "Expired" : "Active"}</span></div>
               <div className="acct-kv"><span className="k">Member since</span><span className="v">{fmtDate(profile?.createdAt ?? null)}</span></div>
             </div>
@@ -381,17 +374,13 @@ export default function AccountScreen() {
           </section>
 
           {/* Security */}
-          <section className="account-card" aria-label="Security">
-            <h2>Security</h2>
+          <section className="account-card" aria-label="Session security">
+            <h2>Guest session security</h2>
             <p className="auth-note" style={{ marginTop: 0 }}>
-              Your session is validated server-side on every request — re-validating a token never shows anything you have not earned.
+              ANVIK created this private guest session automatically. Your chats and usage are scoped to its Supabase identity and are not shared with other visitors.
             </p>
-            <button type="button" className="acct-signout" onClick={() => void handleSignOut()} disabled={signingOut}>
-              {signingOut ? <Loader2 className="auth-spinner-dark" aria-hidden /> : <LogOut aria-hidden className="h-4 w-4" />}
-              Sign out
-            </button>
             <p className="auth-note" style={{ marginTop: "0.6rem" }}>
-              Signing out removes the session from this device. Your account, history and consent remain with your account.
+              Keep this browser's site data to retain access to this session and its history.
             </p>
           </section>
         </div>

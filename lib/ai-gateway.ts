@@ -121,8 +121,8 @@ function signInRequired(feature: AiFeature): GatewayResult {
     ok: false,
     response: jsonError(
       {
-        error: `${FEATURE_LABEL[feature] ?? "This"} needs an account. Sign in to continue — it's free.`,
-        code: "unauthenticated",
+        error: `${FEATURE_LABEL[feature] ?? "This"} is waiting for your guest session. Refresh ANVIK and try again.`,
+        code: "guest_session_required",
       },
       401,
     ),
@@ -269,7 +269,7 @@ export async function beginMeteredRequest(
         ok: false,
         response: jsonError(
           {
-            error: "You've used today's free questions. Sign in for more — it's free.",
+            error: "You've reached today's free allowance. It resets at midnight IST.",
             code: "guest_limit_reached",
             limit: GUEST_LIMIT,
             remaining: 0,
