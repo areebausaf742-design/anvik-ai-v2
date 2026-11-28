@@ -1,81 +1,124 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Float, MeshDistortMaterial } from "@react-three/drei";
-import { useEffect, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { PerformanceMonitor } from "@react-three/drei";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-function MineralForm() {
-  const core = useRef<THREE.Mesh>(null);
-  const orbitOne = useRef<THREE.Mesh>(null);
-  const orbitTwo = useRef<THREE.Mesh>(null);
-  const progress = useRef(0);
+const vertexShader = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vPosition;
+  uniform float uTime;
+  uniform float uScroll;
+
+  void main() {
+    vUv = uv;
+    vNormal = normalMatrix * normal;
+    vPosition = position;
+    vec3 transformed = position;
+    float wave = sin(position.y * 3.6 + uTime * 0.45) * 0.035;
+    wave += sin(position.x * 4.4 - uTime * 0.32) * 0.025;
+    transformed += normal * (wave + uScroll * 0.05);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+  }
+`;
+
+const fragmentShader = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vPosition;
+  uniform float uTime;
+  uniform float uScroll;
+  uniform vec2 uPointer;
+
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x), mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+  }
+
+  void main() {
+    vec3 cobalt = vec3(0.357, 0.486, 1.0);
+    vec3 ink = vec3(0.012, 0.016, 0.03);
+    vec3 offWhite = vec3(0.88, 0.91, 0.98);
+    float edge = pow(1.0 - max(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 2.3);
+    float grain = noise(vUv * 8.0 + uTime * 0.08);
+    float pulse = 0.5 + 0.5 * sin(uTime * 0.7 + uScroll * 4.0);
+    float pointerGlow = 1.0 - smoothstep(0.05, 0.75, distance(vUv, 0.5 + uPointer * 0.16));
+    float glow = clamp(edge * 0.7 + grain * 0.18 + pointerGlow * 0.24 + pulse * 0.08, 0.0, 1.0);
+    vec3 color = mix(ink, cobalt, glow * 0.82);
+    color += offWhite * pow(glow, 5.0) * 0.14;
+    gl_FragColor = vec4(color, 0.97);
+  }
+`;
+
+function ShaderCore() {
+  const material = useRef<THREE.ShaderMaterial>(null);
+  const { invalidate, pointer } = useThree();
   const reduceMotion = useRef(false);
+  const scroll = useRef(0);
+
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uScroll: { value: 0 },
+    uPointer: { value: new THREE.Vector2() },
+  }), []);
 
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const updatePreference = () => { reduceMotion.current = preference.matches; };
+    const onScroll = () => {
+      scroll.current = Math.min(window.scrollY / Math.max(window.innerHeight * 2, 1), 1);
+      invalidate();
+    };
     updatePreference();
     preference.addEventListener("change", updatePreference);
-    return () => preference.removeEventListener("change", updatePreference);
-  }, []);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      preference.removeEventListener("change", updatePreference);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [invalidate]);
 
-  useFrame((state, delta) => {
-    if (reduceMotion.current) return;
-    const elapsed = state.clock.elapsedTime;
-    const scrollProgress = Math.min(window.scrollY / Math.max(window.innerHeight * 2.4, 1), 1);
-    progress.current = THREE.MathUtils.damp(progress.current, scrollProgress, 1.4, Math.min(delta, 0.05));
-
-    if (core.current) {
-      core.current.rotation.y = elapsed * 0.12 + progress.current * Math.PI * 2;
-      core.current.rotation.x = Math.sin(elapsed * 0.17) * 0.12 + progress.current * 0.38;
-      const breathing = 1 + Math.sin(elapsed * 0.72) * 0.018;
-      core.current.scale.setScalar(breathing + progress.current * 0.06);
-    }
-    if (orbitOne.current) {
-      orbitOne.current.rotation.z = elapsed * 0.08 - progress.current * Math.PI * 0.8;
-      orbitOne.current.rotation.x = 0.78 + Math.sin(elapsed * 0.1) * 0.025;
-    }
-    if (orbitTwo.current) {
-      orbitTwo.current.rotation.z = -elapsed * 0.055 + progress.current * Math.PI * 0.6;
-      orbitTwo.current.rotation.x = 1.23;
-    }
+  useFrame((state) => {
+    if (!material.current) return;
+    const elapsed = reduceMotion.current ? 0 : state.clock.elapsedTime;
+    material.current.uniforms.uTime.value = elapsed;
+    material.current.uniforms.uScroll.value = scroll.current;
+    material.current.uniforms.uPointer.value.lerp(new THREE.Vector2(pointer.x, pointer.y), 0.08);
+    invalidate();
   });
 
   return (
-    <Float speed={0.65} rotationIntensity={0.055} floatIntensity={0.12}>
-      <mesh ref={core}>
-        <icosahedronGeometry args={[1.02, 5]} />
-        <MeshDistortMaterial
-          color="#bbd981"
-          emissive="#273522"
-          emissiveIntensity={0.72}
-          roughness={0.23}
-          metalness={0.78}
-          distort={0.2}
-          speed={0.62}
-        />
-      </mesh>
-      <mesh ref={orbitOne} scale={1.42}>
-        <torusGeometry args={[1, 0.008, 8, 180]} />
-        <meshStandardMaterial color="#e4a27a" emissive="#5b3428" emissiveIntensity={0.6} metalness={0.8} roughness={0.28} />
-      </mesh>
-      <mesh ref={orbitTwo} scale={1.6}>
-        <torusGeometry args={[1, 0.004, 8, 180]} />
-        <meshStandardMaterial color="#e7e4d8" emissive="#737064" emissiveIntensity={0.3} metalness={0.85} roughness={0.25} />
-      </mesh>
-      <mesh rotation={[0.2, 0.4, 0]} scale={1.19}>
-        <icosahedronGeometry args={[1, 2]} />
-        <meshBasicMaterial color="#e5ebd2" wireframe transparent opacity={0.12} />
-      </mesh>
-      <pointLight color="#d6e7ad" intensity={38} distance={5.2} position={[2.6, 1.5, 2.8]} />
-      <pointLight color="#db8b65" intensity={16} distance={4.5} position={[-2, -1.5, 1.8]} />
-    </Float>
+    <mesh rotation={[0.12, -0.18, 0]} scale={1.14}>
+      <icosahedronGeometry args={[1, 5]} />
+      <shaderMaterial ref={material} uniforms={uniforms} vertexShader={vertexShader} fragmentShader={fragmentShader} transparent />
+    </mesh>
+  );
+}
+
+function HeroScene() {
+  return (
+    <>
+      <ambientLight intensity={0.22} />
+      <directionalLight color="#5B7CFF" intensity={2.8} position={[2.5, 2.8, 4]} />
+      <pointLight color="#5B7CFF" intensity={16} distance={4.8} position={[-2.4, -1, 2.5]} />
+      <ShaderCore />
+    </>
   );
 }
 
 export function KineticSphere() {
   const [webglAvailable, setWebglAvailable] = useState(false);
+  const [dpr, setDpr] = useState(1.5);
 
   useEffect(() => {
     const probe = document.createElement("canvas");
@@ -86,24 +129,24 @@ export function KineticSphere() {
   }, []);
 
   return (
-    <div className="landing-orbit" aria-hidden="true">
-      <div className="landing-orbit-grid" />
-      <div className="landing-orbit-glow" />
+    <div className="landing-orbit" aria-label="ANVIK intelligence visual">
+      <div className="landing-orbit-grid" aria-hidden="true" />
+      <div className="landing-orbit-glow" aria-hidden="true" />
       {webglAvailable ? (
         <Canvas
-          dpr={[1, 1.35]}
-          camera={{ position: [0, 0, 4.8], fov: 38 }}
-          gl={{ antialias: true, alpha: true, powerPreference: "low-power" }}
-          frameloop="always"
+          dpr={dpr}
+          camera={{ position: [0, 0, 4.6], fov: 38 }}
+          gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+          frameloop="demand"
+          performance={{ min: 0.55, max: 1, debounce: 180 }}
         >
-          <ambientLight intensity={0.38} />
-          <directionalLight color="#f1e9d5" intensity={2.1} position={[-3, 3, 4]} />
-          <MineralForm />
+          <PerformanceMonitor onIncline={() => setDpr(2)} onDecline={() => setDpr(1)} />
+          <HeroScene />
         </Canvas>
       ) : (
-        <div className="landing-orbit-fallback" />
+        <div className="landing-orbit-fallback" aria-hidden="true" />
       )}
-      <span className="landing-orbit-label landing-orbit-label-top">A workspace in motion</span>
+      <span className="landing-orbit-label landing-orbit-label-top">ANVIK / LIVE INTELLIGENCE</span>
       <span className="landing-orbit-label landing-orbit-label-bottom">01 — 05 / ONE THOUGHT, MANY FORMS</span>
     </div>
   );
