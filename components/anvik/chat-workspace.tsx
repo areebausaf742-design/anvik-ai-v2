@@ -1263,7 +1263,7 @@ function ChatWorkspaceInner() {
                 {sessionLoading || (session && !profile) ? "Verifying account…" : profile?.name || "Guest"}
               </span>
               <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" aria-hidden="true" />
-              <span className="sr-only">"Guest account settings"</span>
+              <span className="sr-only">Guest account settings</span>
             </a>
           </div>
         </aside>
