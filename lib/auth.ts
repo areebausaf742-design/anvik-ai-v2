@@ -870,6 +870,12 @@ export async function signOut(accessToken?: string): Promise<void> {
     }
   }
   clearStoredSession();
+  // Keep the SDK's own persisted session in sync with the app-managed token.
+  try {
+    await browserSupabase().auth.signOut({ scope: "local" });
+  } catch {
+    /* local ANVIK sign-out has already completed */
+  }
 }
 
 /* ------------------------------------------------------------------ */
