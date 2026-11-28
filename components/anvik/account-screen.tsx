@@ -386,7 +386,7 @@ export default function AccountScreen() {
               ANVIK created this private guest session automatically. Your chats and usage are scoped to its Supabase identity and are not shared with other visitors.
             </p>
             <p className="auth-note" style={{ marginTop: "0.6rem" }}>
-              Keep this browser's site data to retain access to this session and its history.
+              Keep this browser&apos;s site data to retain access to this session and its history.
             </p>
           </section>
         </div>
