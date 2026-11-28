@@ -7,23 +7,18 @@ const auth = fs.readFileSync("lib/auth.ts", "utf8");
 const onboarding = fs.readFileSync("components/anvik/onboarding-flow.tsx", "utf8");
 const consentRoute = fs.readFileSync("app/api/auth/consent/route.ts", "utf8");
 
-test("login refreshes SessionProvider state after every successful sign-in path", () => {
-  assert.ok(login.includes("await refresh();"), "successful auth awaits provider refresh");
-  assert.ok(login.includes("oauthExchangeStarted"), "OAuth callback exchange is guarded");
-  assert.ok(login.includes("oauthStartStarted"), "OAuth start is guarded against duplicate clicks");
+test("legacy login route remains a guest-only redirect", () => {
+  assert.ok(login.includes('redirect("/chat")'), "legacy login enters the guest workspace");
 });
 
 test("OAuth and onboarding preserve same-origin post-login destinations", () => {
-  assert.ok(login.includes("postLoginDestination"));
-  assert.ok(login.includes("encodeURIComponent(destination)"));
   assert.ok(onboarding.includes("postLoginDestination"));
   assert.ok(onboarding.includes("target.origin === window.location.origin"));
 });
 
-test("cancelled OAuth is shown as an explicit cancellation and clears callback params", () => {
-  assert.ok(login.includes('url.searchParams.get("error")'));
-  assert.ok(login.includes("Google sign-in was cancelled."));
-  assert.ok(login.includes('window.history.replaceState'));
+test("legacy login route does not expose a sign-in form", () => {
+  assert.ok(login.includes("Authentication is intentionally invisible in guest-only ANVIK."));
+  assert.ok(login.includes('redirect("/chat")'));
 });
 
 test("browser OAuth uses the official Supabase SDK", () => {
