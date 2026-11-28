@@ -26,7 +26,7 @@ const MODES = [
     title: "Build the thing.",
     name: "Code",
     description: "Go from a plain-language brief to a starting point you can work with.",
-    visual: <div className="mode-visual-code"><span><b>01</b> function makeItReal() {'{'}</span><span><b>02</b> &nbsp;return <i>"hello, world"</i></span><span><b>03</b> {'}'}</span></div>,
+    visual: <div className="mode-visual-code"><span><b>01</b> function makeItReal() {'{'}</span><span><b>02</b> &nbsp;return <i>&quot;hello, world&quot;</i></span><span><b>03</b> {'}'}</span></div>,
     className: "mode-card-code",
   },
   {
