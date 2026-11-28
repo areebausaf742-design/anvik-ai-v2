@@ -90,8 +90,8 @@ test("account-only endpoints refuse a guest with a sign-in error and no provider
   for (const response of calls) {
     assert.equal(response.status, 401);
     const body = await response.json();
-    assert.equal(body.code, "unauthenticated");
-    assert.match(body.error, /sign in/i, "the message must tell the user what to do");
+    assert.equal(body.code, "guest_session_required");
+    assert.match(body.error, /guest session/i, "the message must explain that a guest session is required");
   }
 });
 

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Sign in",
-  description: "Sign in to ANVIK AI — chat, code, image and vision in one calm workspace.",
+  title: "Workspace",
+  description: "Open your ANVIK AI guest workspace — no sign-in required.",
 };
 
 export default function LoginLayout({ children }: { children: React.ReactNode }) {

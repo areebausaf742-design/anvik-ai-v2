@@ -14,4 +14,4 @@
 
 ## Usage
 
-ANVIK AI offers ten free questions per day without an account. Sign in to keep history, credits and consent.
+ANVIK AI opens a private guest session automatically. No sign-in or account creation is required.

@@ -47,6 +47,6 @@ test("requireUser rejects requests without a verified bearer session", async () 
   if ("response" in result) {
     assert.equal(result.response.status, 401);
     const body = await result.response.json();
-    assert.equal(body.code, "unauthenticated");
+    assert.equal(body.code, "guest_session_required");
   }
 });

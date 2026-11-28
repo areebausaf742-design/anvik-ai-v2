@@ -7,6 +7,9 @@ const FOOTER_LINKS = [
   { href: "/vision", label: "Vision" },
   { href: "/about", label: "About" },
   { href: "/pricing", label: "Plans" },
+  { href: "/projects", label: "Projects" },
+  { href: "/settings", label: "Settings" },
+  { href: "/chat", label: "Open workspace" }
 ] as const;
 
 export function LandingFooter() {

@@ -17,7 +17,6 @@ import {
   CreditCard,
   History,
   Loader2,
-  LogOut,
   Pencil,
   ShieldCheck,
   Sparkles,
@@ -380,18 +379,14 @@ export default function AccountScreen() {
             </p>
           </section>
 
-          {/* Security */}
-          <section className="account-card" aria-label="Security">
-            <h2>Security</h2>
+          {/* Guest session security */}
+          <section className="account-card" aria-label="Session security">
+            <h2>Guest session security</h2>
             <p className="auth-note" style={{ marginTop: 0 }}>
-              Your session is validated server-side on every request — re-validating a token never shows anything you have not earned.
+              ANVIK created this private guest session automatically. Your chats and usage are scoped to its Supabase identity and are not shared with other visitors.
             </p>
-            <button type="button" className="acct-signout" onClick={() => void handleSignOut()} disabled={signingOut}>
-              {signingOut ? <Loader2 className="auth-spinner-dark" aria-hidden /> : <LogOut aria-hidden className="h-4 w-4" />}
-              Sign out
-            </button>
             <p className="auth-note" style={{ marginTop: "0.6rem" }}>
-              Signing out removes the session from this device. Your account, history and consent remain with your account.
+              Keep this browser&apos;s site data to retain access to this session and its history.
             </p>
           </section>
         </div>

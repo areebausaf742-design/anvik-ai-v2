@@ -241,7 +241,7 @@ function ChatWorkspaceInner() {
 
   // Restore a draft the visitor typed on the public landing page and send it
   // once the verified identity is ready. The draft lives in sessionStorage
-  // across the /login round-trip; it is cleared on read so it can never be
+  // across the workspace hand-off; it is cleared on read so it can never be
   // sent twice.
   useEffect(() => {
     if (!hydrated || !identityReady || draftRestored) return;
@@ -536,7 +536,7 @@ function ChatWorkspaceInner() {
           issue?.code !== "guest_limit_reached";
         if (sessionRejected) {
           await signOut();
-          router.replace("/login");
+          router.replace("/chat")
           return;
         }
 
@@ -544,7 +544,7 @@ function ChatWorkspaceInner() {
         // free account that lifts the limit, instead of a dead end.
         if (issue?.code === "guest_limit_reached") {
           throw new Error(
-            "You've used today's free questions. Sign in for more — it's free, and your history follows you.",
+            "You've reached today's free allowance. It resets at midnight IST. Add your own API key in Settings for more.",
           );
         }
 
@@ -1249,7 +1249,7 @@ function ChatWorkspaceInner() {
 
           <div className="mt-2 border-t border-[#EDEDED] px-3 py-3">
             <a
-              href={session ? "/account" : "/login"}
+              href="/account"
               className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#F0F0EE]"
             >
               <span aria-hidden="true" className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-xs font-semibold text-white">
@@ -1263,13 +1263,8 @@ function ChatWorkspaceInner() {
                 {sessionLoading || (session && !profile) ? "Verifying account…" : profile?.name || "Guest"}
               </span>
               <KeyRound className="h-4 w-4 shrink-0 text-[#999999]" aria-hidden="true" />
-              <span className="sr-only">{session ? "Account settings" : "Sign in to ANVIK AI"}</span>
+              <span className="sr-only">Guest account settings</span>
             </a>
-            {!session && !sessionLoading && (
-              <a href="/login" className="mt-1 block rounded-lg px-2 py-1.5 text-center text-xs font-semibold text-[#666666] hover:bg-[#F0F0EE]">
-                Sign in
-              </a>
-            )}
           </div>
         </aside>
       )}

@@ -60,8 +60,8 @@ test("an auth refusal is not reported as a bad personal key", () => {
   // These are different problems with different fixes: one needs a sign-in, the
   // other needs a new Gemini key. Reporting the first as the second sent people
   // to the wrong settings screen.
-  const unauthenticated = mapHttpErrorMessage(401, "You must be signed in.", "unauthenticated");
-  assert.match(unauthenticated, /sign in/i);
+  const unauthenticated = mapHttpErrorMessage(401, "Your guest session is missing.", "guest_session_required");
+  assert.match(unauthenticated, /guest session/i);
   assert.doesNotMatch(unauthenticated, /api key/i);
 
   const badKey = mapHttpErrorMessage(401, undefined, "bad_format");
@@ -70,7 +70,7 @@ test("an auth refusal is not reported as a bad personal key", () => {
 
 test("the guest limit points at the free account instead of a dead end", () => {
   const limited = mapHttpErrorMessage(429, undefined, "guest_limit_reached");
-  assert.match(limited, /sign in/i, "tells the user how to continue");
+  assert.match(limited, /resets at midnight/i, "explains when the guest allowance returns");
 });
 
 test("the free-key status reports the SERVER key, not the user's local one", () => {

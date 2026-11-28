@@ -5,70 +5,45 @@ import { middleware } from "../middleware";
 
 const ORIGIN = "https://anvik-ai-v2.vercel.app";
 
-function loc(res: Response): string | null {
+function location(res: Response): string | null {
   return res.headers.get("location");
 }
 
-test("an OAuth code landing on the root is forwarded to /login", () => {
-  // This is what Supabase does when redirect_to is not allow-listed: it falls
-  // back to the Site URL. Without this rescue the code is never exchanged.
-  const res = middleware(new NextRequest(`${ORIGIN}/?code=abc123&state=s1`));
-  const location = loc(res as unknown as Response);
-  assert.ok(location, "must redirect rather than render");
-  const url = new URL(location!);
-  assert.equal(url.pathname, "/login");
-  assert.equal(url.searchParams.get("code"), "abc123", "the code is carried across intact");
-  assert.equal(url.searchParams.get("state"), "s1");
-});
-
-test("a code landing on any other page is forwarded too", () => {
-  const res = middleware(new NextRequest(`${ORIGIN}/account?code=abc123`));
-  const url = new URL(loc(res as unknown as Response)!);
-  assert.equal(url.pathname, "/login");
-  assert.equal(url.searchParams.get("code"), "abc123");
-});
-
-test("the real callback page is left alone", () => {
-  const res = middleware(new NextRequest(`${ORIGIN}/login?code=abc123`));
-  assert.equal(loc(res as unknown as Response), null, "/login handles its own exchange");
-});
-
-test("public routes are not redirected without a code", () => {
-  for (const path of ["/", "/login"]) {
-    const res = middleware(new NextRequest(`${ORIGIN}${path}`));
-    assert.equal(loc(res as unknown as Response), null, `${path} must not redirect`);
+test("workspace pages are accessible without a signed-in account", () => {
+  for (const path of ["/", "/login", "/chat", "/account", "/settings", "/projects", "/code", "/image"]) {
+    const response = middleware(new NextRequest(`${ORIGIN}${path}`)) as unknown as Response;
+    assert.equal(location(response), null, `${path} must not send visitors to a sign-in screen`);
+    assert.ok(response.headers.get("set-cookie")?.includes("anvik_dev="), "device fallback cookie is issued");
   }
 });
 
-test("protected pages redirect to /login without a session", () => {
-  for (const path of ["/chat", "/account"]) {
-    const res = middleware(new NextRequest(`${ORIGIN}${path}`));
-    const location = loc(res as unknown as Response);
-    assert.ok(location, `${path} must redirect to /login`);
-    const url = new URL(location!);
-    assert.equal(url.pathname, "/login");
-    assert.equal(url.searchParams.get("next"), path, "the original path is preserved for post-sign-in return");
+test("legacy OAuth callback URLs are not intercepted by guest middleware", () => {
+  for (const path of ["/?code=abc123&state=s1", "/account?code=abc123", "/login?code=abc123"]) {
+    const response = middleware(new NextRequest(`${ORIGIN}${path}`)) as unknown as Response;
+    assert.equal(location(response), null, "guest routing must not rewrite application URLs");
   }
 });
 
 test("API routes are never redirected", () => {
-  const res = middleware(new NextRequest(`${ORIGIN}/api/chat?code=abc123`));
-  assert.equal(loc(res as unknown as Response), null, "redirecting an API call would corrupt it");
+  const response = middleware(new NextRequest(`${ORIGIN}/api/chat?code=abc123`)) as unknown as Response;
+  assert.equal(location(response), null);
 });
 
-test("protected API routes are refused at the edge without a session", () => {
+test("metered tool APIs wait for the anonymous session cookie", async () => {
   for (const path of ["/api/image", "/api/code", "/api/voice", "/api/vision"]) {
-    const res = middleware(new NextRequest(`${ORIGIN}${path}`, { method: "POST" })) as unknown as Response;
-    assert.equal(res.status, 401, `${path} must refuse unauthenticated calls at the edge`);
+    const response = middleware(new NextRequest(`${ORIGIN}${path}`, { method: "POST" })) as unknown as Response;
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, "guest_session_initializing");
   }
 });
 
-test("the device-id cookie is still issued on public routes", () => {
-  const res = middleware(new NextRequest(`${ORIGIN}/`)) as unknown as Response;
-  assert.ok(res.headers.get("set-cookie")?.includes("anvik_dev="), "device identity is preserved");
-});
-
-test("the device-id cookie is issued on the /login redirect too", () => {
-  const res = middleware(new NextRequest(`${ORIGIN}/chat`)) as unknown as Response;
-  assert.ok(res.headers.get("set-cookie")?.includes("anvik_dev="), "device identity survives the redirect");
+test("metered tool APIs pass middleware once the guest cookie exists", () => {
+  for (const path of ["/api/image", "/api/code", "/api/voice", "/api/vision"]) {
+    const response = middleware(new NextRequest(`${ORIGIN}${path}`, {
+      method: "POST",
+      headers: { cookie: "anvik_session=verified-guest-session" },
+    })) as unknown as Response;
+    assert.equal(response.status, 200);
+    assert.equal(location(response), null);
+  }
 });
