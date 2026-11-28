@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
@@ -70,9 +69,8 @@ type QuotaStatus = {
 };
 
 function SettingsScreenInner() {
-  const router = useRouter();
   const { appearance, setAppearance } = useAppearance();
-  const { session, loading: sessionLoading, profile, signOut, bearerToken } = useSession();
+  const { session, loading: sessionLoading, profile, bearerToken } = useSession();
   const mode = useChatStore((state) => state.mode);
   const setMode = useChatStore((state) => state.setMode);
   const temperature = useChatStore((state) => state.temperature);
@@ -159,11 +157,6 @@ function SettingsScreenInner() {
   }, [bearerToken]);
 
   const stats = learningStats(learning);
-
-  async function handleSignOut() {
-    await signOut();
-    router.replace("/login");
-  }
 
   function remember(next: Partial<Memory>) {
     const merged = writeMemory(next);
@@ -287,44 +280,27 @@ function SettingsScreenInner() {
         </div>
       </section>
 
-      {/* Account */}
+      {/* Guest session */}
       {!sessionLoading && (
         <div className="surface-card p-5 sm:p-6">
-          {session && profile ? (
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <span className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-[#1A1A1A] text-sm font-semibold text-white">
-                  {profile.avatarUrl ? <Image src={profile.avatarUrl} alt="" fill sizes="44px" className="object-cover" /> : <>{(profile.name?.trim().charAt(0) ?? "A").toUpperCase()}</>}
-                </span>
-                <div>
-                  <h2 className="text-base font-semibold text-[#1A1A1A]">Welcome, {profile.name}</h2>
-                  <p className="text-xs text-[#666666]">
-                    {profile.email} · {profile.provider === "google" ? "Google" : "Email & password"}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Link href="/account" className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]">
-                  Your account
-                </Link>
-                <button type="button" onClick={() => void handleSignOut()} className="inline-flex items-center gap-1.5 rounded-lg border border-[#F0D9D6] bg-[#FDF6F5] px-3.5 py-2 text-xs font-semibold text-[#9C3B2D] hover:bg-[#FCEAEA]">
-                  Sign out
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#1A1A1A] text-sm font-semibold text-white">
+                {(profile?.name?.trim().charAt(0) ?? "G").toUpperCase()}
+              </span>
               <div>
-                <h2 className="text-base font-semibold text-[#1A1A1A]">Account</h2>
+                <h2 className="text-base font-semibold text-[#1A1A1A]">
+                  {profile?.provider === "anonymous" ? "Guest session" : "Workspace session"}
+                </h2>
                 <p className="text-xs text-[#666666]">
-                  Sign in to keep history, credits and consent with you.
+                  ANVIK starts a private session automatically. No sign-in or account setup is required.
                 </p>
               </div>
-              <Link href="/login" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1A1A1A] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#333]">
-                Sign in
-              </Link>
             </div>
-          )}
+            <Link href="/account" className="inline-flex items-center gap-1.5 rounded-lg border border-[#EDEDED] bg-white px-3.5 py-2 text-xs font-medium text-[#1A1A1A] hover:border-[#1A1A1A]">
+              View usage &amp; privacy
+            </Link>
+          </div>
         </div>
       )}
 
@@ -451,7 +427,7 @@ function SettingsScreenInner() {
                 : quota.plan?.id === "pack"
                   ? `Pack: 50 questions total, valid ${"30"} days from activation.`
                   : quota.authenticated === false
-                    ? "Free guest questions per day (resets midnight IST). Sign in to keep unlimited history."
+                    ? "Free questions per day (resets midnight IST). Your guest session starts automatically."
                     : "Questions per day (resets midnight IST)."}
             </p>
           </div>

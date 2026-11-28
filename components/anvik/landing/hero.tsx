@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import { PublicChat } from "@/components/anvik/landing/public-chat";
 import { ElectricWavesShader } from "@/components/ui/colorful-wave-pattern-1";
 
@@ -15,12 +14,6 @@ export function Hero() {
             <span className="public-hero-mark" aria-hidden="true">◆</span>
             <span className="public-hero-name">ANVIK<span className="public-hero-ai">AI</span></span>
           </Link>
-          <nav className="public-masthead-account" aria-label="Account">
-            <span>Already have an account?</span>
-            <Link href="/login" className="public-masthead-link">
-              Sign in <ArrowUpRight aria-hidden="true" />
-            </Link>
-          </nav>
         </header>
 
         <div className="public-hero-copy">
