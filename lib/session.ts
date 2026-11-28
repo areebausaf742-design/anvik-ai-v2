@@ -152,9 +152,9 @@ export async function requireUser(
       response: Response.json(
         {
           error: feature
-            ? `${feature} needs an account. Sign in to continue — it's free.`
-            : "You must be signed in.",
-          code: "unauthenticated",
+            ? `${feature} is waiting for your guest session. Refresh ANVIK and try again.`
+            : "Your guest session is missing or expired. Refresh ANVIK to continue.",
+          code: "guest_session_required",
         },
         { status: 401, headers: { "Cache-Control": "no-store" } },
       ),
