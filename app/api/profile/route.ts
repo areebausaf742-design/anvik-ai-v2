@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       email: user.email,
       display_name: name,
       avatar_url: avatar,
-      provider: user.provider === "google" ? "google" : "email",
+      provider: user.provider === "google" ? "google" : user.provider === "anonymous" ? "anonymous" : "email",
       account_status: "active",
       updated_at: now,
     },
