@@ -16,7 +16,7 @@ export type VerifiedUser = {
   id: string;
   email: string;
   name: string;
-  provider: "google" | "email" | "unknown";
+  provider: "google" | "email" | "anonymous" | "unknown";
   avatarUrl: string | null;
 };
 
@@ -50,9 +50,10 @@ function displayNameFromMetadata(metadata: Record<string, unknown> | undefined):
   return raw.trim().slice(0, 80);
 }
 
-function providerFromMetadata(metadata: Record<string, unknown> | undefined): "google" | "email" | "unknown" {
+function providerFromMetadata(metadata: Record<string, unknown> | undefined): "google" | "email" | "anonymous" | "unknown" {
   if (!metadata) return "unknown";
   const provider = typeof metadata.provider === "string" ? metadata.provider : "";
+  if (/anonymous/i.test(provider)) return "anonymous";
   if (/google/i.test(provider)) return "google";
   return "email";
 }
@@ -63,9 +64,10 @@ function providerFromMetadata(metadata: Record<string, unknown> | undefined): "g
  * but NOT the provider itself. Key off app_metadata, then fall back to
  * user_metadata for legacy shapes.
  */
-function providerOf(obj: Record<string, unknown>): "google" | "email" | "unknown" {
+function providerOf(obj: Record<string, unknown>): "google" | "email" | "anonymous" | "unknown" {
   const app = (obj.app_metadata ?? {}) as Record<string, unknown>;
   const appProvider = typeof app.provider === "string" ? app.provider : "";
+  if (obj.is_anonymous === true || /anonymous/i.test(appProvider)) return "anonymous";
   if (/google/i.test(appProvider)) return "google";
   if (typeof appProvider === "string" && appProvider.trim()) return "email";
   const providers = Array.isArray(app.providers) ? (app.providers as unknown[]) : [];
