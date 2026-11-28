@@ -224,6 +224,37 @@ function sessionFromBody(obj: Record<string, unknown>): AuthSession | null {
   };
 }
 
+/**
+ * Create the app's default identity without asking the visitor to register.
+ * Supabase still issues a distinct user id and JWT, so RLS, credits and chat
+ * ownership remain isolated per browser session.
+ */
+export async function signInAnonymously(): Promise<AuthResult> {
+  if (!authEnabled()) {
+    return { ok: false, error: "Guest access is not configured yet.", code: "auth_not_configured" };
+  }
+  try {
+    const { data, error } = await browserSupabase().auth.signInAnonymously({
+      options: { data: { display_name: "Guest" } },
+    });
+    if (error || !data.session || !data.user) {
+      return {
+        ok: false,
+        error: "ANVIK couldn't start a guest session. Please refresh and try again.",
+        code: error?.code ?? "anonymous_session_failed",
+      };
+    }
+    const session = sessionFromBody(data.session as unknown as Record<string, unknown>);
+    if (!session) {
+      return { ok: false, error: "ANVIK received an invalid guest session. Please refresh.", code: "invalid_guest_session" };
+    }
+    await storeSession(session);
+    return { ok: true, session, user: data.user as SupabaseUser };
+  } catch {
+    return { ok: false, error: "ANVIK couldn't start a guest session. Please refresh and try again.", code: "anonymous_session_failed" };
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* PKCE helpers                                                         */
 /* ------------------------------------------------------------------ */
