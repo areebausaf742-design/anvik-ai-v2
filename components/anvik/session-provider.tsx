@@ -298,6 +298,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     setSession(active);
+    // Renew the edge-readable cookie on every refresh, not only on first
+    // creation. This keeps protected API surfaces available after reloads.
+    await setSessionCookie(active.access_token);
 
     const token = active.access_token;
     const headers = { Authorization: `Bearer ${token}` };
@@ -316,11 +319,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         email: typeof u.email === "string" ? u.email : undefined,
         user_metadata: null,
       };
+      const nextProvider = typeof u.provider === "string" ? u.provider : "unknown";
       const nextProfile: AccountProfile = {
         id: String(u.id ?? ""),
         email: typeof u.email === "string" ? u.email : "",
-        name: typeof u.name === "string" && u.name ? u.name : emailFallbackName(typeof u.email === "string" ? u.email : ""),
-        provider: (typeof u.provider === "string" ? u.provider : "unknown") as "google" | "email" | "unknown",
+        name: nextProvider === "anonymous" ? "Guest" : typeof u.name === "string" && u.name ? u.name : emailFallbackName(typeof u.email === "string" ? u.email : ""),
+        provider: nextProvider as "google" | "email" | "anonymous" | "unknown",
         avatarUrl: typeof u.avatarUrl === "string" ? u.avatarUrl : null,
         createdAt: typeof u.createdAt === "string" ? u.createdAt : null,
         accountStatus: typeof u.accountStatus === "string" ? u.accountStatus : "active",
