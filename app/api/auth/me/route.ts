@@ -38,7 +38,7 @@ async function ensureProfile(user: { id: string; email: string; name: string; pr
   const existing = rows?.[0] ?? null;
   if (existing) return existing;
 
-  const displayName = sanitizeDisplayName(user.name) || emailFallbackName(user.email) || "friend";
+  const displayName = sanitizeDisplayName(user.name) || (user.provider === "anonymous" ? "Guest" : emailFallbackName(user.email) || "friend");
   const row = {
     user_id: user.id,
     email: user.email,
