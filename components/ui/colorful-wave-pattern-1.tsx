@@ -45,7 +45,7 @@ const fragmentShader = /* glsl */ `
       float distanceToWave = abs(uv.y - center);
       float line = exp(-distanceToWave * 78.0);
       float halo = exp(-distanceToWave * 15.0) * 0.12;
-      vec3 tint = mix(vec3(0.36, 0.57, 0.82), vec3(0.63, 0.54, 0.78), layer / max(u_waveCount - 1.0, 1.0));
+      vec3 tint = mix(vec3(0.74, 0.86, 0.55), vec3(0.83, 0.60, 0.43), layer / max(u_waveCount - 1.0, 1.0));
 
       color += tint * (line + halo);
       intensity += line + halo;

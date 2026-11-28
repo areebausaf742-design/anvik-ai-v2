@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import Markdown from "@/components/anvik/markdown";
 import { readDeviceId } from "@/lib/client-key";
 
@@ -278,12 +278,7 @@ export function PublicChat() {
           </div>
         )}
 
-        <div className="public-chat-account">
-          <button type="button" onClick={goToSignIn} className="public-hero-cta">
-            Create a free account <ArrowRight aria-hidden="true" />
-          </button>
-          <p className="public-hero-note">Ten free questions a day. No account needed to try.</p>
-        </div>
+        <p className="public-hero-note public-chat-note">Ten free questions a day. No account needed to try.</p>
     </div>
   );
 }
