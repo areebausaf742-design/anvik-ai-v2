@@ -19,6 +19,7 @@ import {
   readStoredSession,
   refreshSession,
   signOut as authSignOut,
+  signInAnonymously,
   updateProfileMetadata,
   type AuthSession,
   type SupabaseUser,
@@ -30,7 +31,7 @@ export type AccountProfile = {
   id: string;
   email: string;
   name: string;
-  provider: "google" | "email" | "unknown";
+  provider: "google" | "email" | "anonymous" | "unknown";
   avatarUrl: string | null;
   createdAt: string | null;
   accountStatus: string;
@@ -234,17 +235,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setConsent(null);
     }
 
-    const stored = readStoredSession();
+    let stored = readStoredSession();
     if (!stored) {
-      clearAccountCache();
-      setLearningOwner("guest");
-      setSession(null);
-      setUser(null);
-      setProfile(null);
-      setCredits(null);
-      setConsent(null);
-      setLoading(false);
-      return;
+      // Start a private anonymous Supabase identity automatically. No account
+      // form, email, password or OAuth action is required from the visitor.
+      const guest = await signInAnonymously();
+      if (!isCurrent()) return;
+      if (!guest.ok || !guest.session) {
+        clearAccountCache();
+        setLearningOwner("guest");
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setCredits(null);
+        setConsent(null);
+        setLoading(false);
+        return;
+      }
+      stored = guest.session;
+      await setSessionCookie(stored.access_token);
     }
 
     let active = stored;
@@ -255,16 +264,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         active = refreshed.session;
         setSession(active);
       } else {
+        // A revoked or expired identity is replaced with a fresh guest. This
+        // does not restore history from the old anonymous account.
         clearAccountCache();
-        setLearningOwner("guest");
         clearStoredSession();
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setCredits(null);
-        setConsent(null);
-        setLoading(false);
-        return;
+        const guest = await signInAnonymously();
+        if (!isCurrent()) return;
+        if (!guest.ok || !guest.session) {
+          setLearningOwner("guest");
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setCredits(null);
+          setConsent(null);
+          setLoading(false);
+          return;
+        }
+        active = guest.session;
+        await setSessionCookie(active.access_token);
       }
     }
     if (!isSessionUsable(active)) {
@@ -411,8 +428,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setConsent(null);
     await authSignOut();
     await clearSessionCookie();
-    setLoading(false);
-  }, []);
+    // "Sign out" now starts a fresh isolated guest instead of exposing a
+    // sign-in screen. The previous guest's data remains owned by that id.
+    await refresh();
+  }, [refresh]);
 
   useEffect(() => {
     const hydrated = hydrateFromCache();
